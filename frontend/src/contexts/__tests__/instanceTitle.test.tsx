@@ -26,7 +26,7 @@ const appearance = (instanceName: string): AppearanceSettings => ({
 });
 
 beforeEach(() => {
-  document.title = 'CozyVTT';
+  document.title = 'Insulam VTT';
   getAppearance.mockReset();
 });
 
@@ -39,13 +39,13 @@ describe('the page title', () => {
     await waitFor(() => expect(document.title).toBe('The Hearthstone Tavern'));
   });
 
-  it('stays CozyVTT when the name is empty', async () => {
+  it('stays Insulam VTT when the name is empty', async () => {
     getAppearance.mockResolvedValue(appearance('   '));
 
     render(<ThemeProvider><div /></ThemeProvider>);
 
     await waitFor(() => expect(getAppearance).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(document.title).toBe('CozyVTT');
+    expect(document.title).toBe('Insulam VTT');
   });
 });

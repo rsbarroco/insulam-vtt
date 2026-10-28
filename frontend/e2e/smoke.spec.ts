@@ -17,7 +17,7 @@ test('signs in and out', async ({ page }) => {
   await signIn(page);
   await expect(page.getByRole('heading', { name: 'Your Campaigns' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Log out of CozyVTT' }).click();
+  await page.getByRole('button', { name: 'Log out of Insulam VTT' }).click();
 
   await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible();
   expect((await page.request.get('/api/auth/me')).status()).toBe(401);
@@ -49,6 +49,11 @@ test('creates a campaign and opens its table, with a live connection through the
     await expect(page.getByRole('heading', { name: 'Desktop Required' })).toBeHidden();
     expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
   }
+  // The source offer stays visible without making the fullscreen table scroll,
+  // including when ProtectedRoute shows an administrator MFA banner.
+  await expect(page.getByRole('link', { name: 'Source code (AGPL-3.0)' })).toBeVisible();
+  await expect(page.getByRole('contentinfo', { name: 'Software source and credits' })).toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeLessThanOrEqual(1);
 });
 
 test('answers the API with JSON, and serves the page with its security headers', async ({ page }) => {

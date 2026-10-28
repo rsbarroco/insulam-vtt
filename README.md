@@ -1,10 +1,21 @@
 <p align="center">
-  <img src="assets/default-logo.png" alt="CozyVTT Logo" width="300" />
+  <img src="frontend/public/insulam-mark.svg" alt="Insulam VTT development mark" width="120" />
 </p>
 
 <p align="center">
-  <a href="https://cozyvtt.com">cozyvtt.com</a>
+  <strong>Insulam VTT</strong>
 </p>
+
+**Development fork of [CozyVTT](https://github.com/CheekyChinchilla/CozyVTT)** for the Insulam RPG ecosystem. This is not an official CozyVTT release or an endorsement by its authors.
+
+- [Fork source](https://github.com/rsbarroco/insulam-vtt) · [Provenance and license](NOTICE.md)
+- [Insulam development notes](docs/INSULAM_DEVELOPMENT.md) · [CharacterMaker integration plan](docs/INSULAM_INTEGRATION.md)
+- Initial scope: Insulam presentation defaults, visible source/credits, and an independent read-only character projection contract. **No live CharacterMaker integration, shared login, production deployment or database migration is included.**
+- CharacterMaker remains the authority for its character engine and data. Its private implementation and assets are not part of this repository.
+
+The original AGPL-3.0-only license and upstream/third-party notices remain in place. The feature and operational documentation below is retained from upstream; references to CozyVTT describe the underlying platform. Initial branding is intentionally incremental, and internal storage/protocol identifiers remain compatible.
+
+---
 
 A self-hosted, browser-based Virtual Tabletop (VTT) platform. Designed for ease of use and narrative-driven tabletop RPG campaigns where atmosphere matters more than mechanics.
 
@@ -156,8 +167,9 @@ If you find a security issue, please report it privately per [SECURITY.md](SECUR
 ### Docker (Recommended)
 
 ```bash
-git clone https://github.com/CheekyChinchilla/CozyVTT.git
-cd CozyVTT
+git clone https://github.com/rsbarroco/insulam-vtt.git
+cd insulam-vtt
+git remote add upstream https://github.com/CheekyChinchilla/CozyVTT.git
 
 # Copy it, then set at least DATABASE_PASSWORD and SESSION_SECRET (see docs/DEPLOYMENT.md)
 cp .env.example .env

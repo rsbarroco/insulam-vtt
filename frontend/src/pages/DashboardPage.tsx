@@ -1,3 +1,4 @@
+import { BRAND, instanceDisplayName } from '@/config/brand';
 // ============================================
 // Dashboard Page
 // Campaign list and main navigation hub
@@ -28,7 +29,7 @@ export default function DashboardPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const { mascotUrl } = useTheme();
+  const { mascotUrl, appearance } = useTheme();
 
   const [selectedInvitation, setSelectedInvitation] = useState<CampaignInvitation | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -86,7 +87,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-brand-ink font-heading">
-                  CozyVTT
+                  {instanceDisplayName(appearance?.instanceName)}
                 </h1>
                 <p className="text-sm text-warm-gray">
                   Welcome back, {user?.displayName}
@@ -121,7 +122,7 @@ export default function DashboardPage() {
               <Button
                 onClick={handleLogout}
                 variant="danger" className="flex items-center gap-2"
-                aria-label="Log out of CozyVTT"
+                aria-label={`Log out of ${BRAND.name}`}
               >
                 <LogOut className="w-4 h-4" aria-hidden="true" />
                 <span className="hidden sm:inline">Logout</span>

@@ -1,3 +1,4 @@
+import { BRAND } from '@/config/brand';
 // ============================================
 // Characters Page
 // Character library management for players
@@ -198,7 +199,7 @@ export default function CharactersPage() {
                 onClick={() => navigate('/dashboard')}
                 className="p-2 rounded-lg bg-moss-green/10 hover:bg-moss-green/20 transition-colors"
               >
-                <img src={mascotUrl} alt="CozyVTT" className="w-10 h-10 object-contain" />
+                <img src={mascotUrl} alt={BRAND.name} className="w-10 h-10 object-contain" />
               </button>
               <div>
                 <h1 className="text-3xl font-bold text-brand-ink font-heading">
@@ -234,7 +235,7 @@ export default function CharactersPage() {
               <Button
                 onClick={handleLogout}
                 variant="danger" className="flex items-center gap-2"
-                aria-label="Log out of CozyVTT"
+                aria-label={`Log out of ${BRAND.name}`}
               >
                 <LogOut className="w-4 h-4" aria-hidden="true" />
                 <span className="hidden sm:inline">Logout</span>

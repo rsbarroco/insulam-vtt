@@ -1,3 +1,4 @@
+import { DEFAULT_INSTANCE_NAME } from '../config/brand';
 import nodemailer from 'nodemailer';
 import logger from '../utils/logger';
 import { escapeHtml } from '../utils/html';
@@ -38,8 +39,6 @@ function getAppUrl(): string {
   return (process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 }
 
-const DEFAULT_INSTANCE_NAME = 'CozyVTT';
-
 /**
  * The instance's name, as emails show it: the name set in the setup wizard
  * or Admin → Settings. While that is empty or still the default, the
@@ -54,7 +53,7 @@ async function getInstanceName(): Promise<string> {
   } catch (err) {
     logger.warn('Could not read the instance name for an email; using the default', { err });
   }
-  if (stored && stored !== DEFAULT_INSTANCE_NAME) return stored;
+  if (stored && stored !== DEFAULT_INSTANCE_NAME && stored !== 'CozyVTT') return stored;
   return process.env.INSTANCE_NAME?.trim() || stored || DEFAULT_INSTANCE_NAME;
 }
 
@@ -90,8 +89,7 @@ ${preview}
         <!-- Header -->
         <tr>
           <td style="background-color:#3D6B4F;border-radius:12px 12px 0 0;padding:28px 40px;text-align:center;">
-            <div style="font-size:26px;font-weight:bold;color:#FDFAF4;letter-spacing:1px;">&#x2665; CozyVTT</div>
-            ${name !== DEFAULT_INSTANCE_NAME ? `<div style="font-size:11px;color:#A8C8B0;margin-top:6px;letter-spacing:2px;text-transform:uppercase;">${instanceName}</div>` : ''}
+            <div style="font-size:26px;font-weight:bold;color:#FDFAF4;letter-spacing:1px;">${instanceName}</div>
           </td>
         </tr>
 

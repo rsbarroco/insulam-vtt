@@ -1,3 +1,4 @@
+import { BRAND } from '@/config/brand';
 // ============================================
 // Reset Password Page
 // Allows users to set a new password via a valid reset token
@@ -126,7 +127,7 @@ export default function ResetPasswordPage({ invite = false }: ResetPasswordPageP
                 <KeyRound className="w-10 h-10 text-brand-ink/70" aria-hidden="true" />
               </div>
               <h1 className="text-2xl font-bold text-brand-ink font-heading">
-                {invite ? 'Welcome to CozyVTT' : 'Set new password'}
+                {invite ? `Welcome to ${BRAND.name}` : 'Set new password'}
               </h1>
               <p className="mt-2 text-sm text-warm-gray">
                 {invite

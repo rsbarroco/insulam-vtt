@@ -1,5 +1,7 @@
+import { BRAND, instanceDisplayName } from '@/config/brand';
+import SourceNotice from '@/components/common/SourceNotice';
 import { lazy, Suspense, useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router';
+import { Routes, Route, Navigate, useNavigate, useMatch } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MotionConfig } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
@@ -37,7 +39,7 @@ const AdminPage        = lazy(() => import('@/pages/AdminPage'));
 
 function MascotImage({ className = '' }: { className?: string }) {
   const { mascotUrl } = useTheme();
-  return <img src={mascotUrl} alt="CozyVTT" className={`object-contain ${className}`} />;
+  return <img src={mascotUrl} alt={BRAND.name} className={`object-contain ${className}`} />;
 }
 
 /** Minimal full-screen spinner shown while a lazy page chunk loads. */
@@ -106,9 +108,14 @@ function App() {
           <Route
             path="/campaigns/:id"
             element={
-              <ProtectedRoute>
-                <CampaignPage />
-              </ProtectedRoute>
+              <div className="h-dvh flex flex-col">
+                <div className="flex-1 min-h-0">
+                  <ProtectedRoute contained>
+                    <CampaignPage />
+                  </ProtectedRoute>
+                </div>
+                <SourceNotice />
+              </div>
             }
           />
           <Route
@@ -174,6 +181,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           </Suspense>
+          <PageSourceNotice />
           </div>
         </AuthProvider>
       </ToastProvider>
@@ -184,7 +192,14 @@ function App() {
   );
 }
 
+/** The live table reserves its footer space inside its viewport-height layout. */
+function PageSourceNotice() {
+  const tableRoute = useMatch('/campaigns/:id');
+  return tableRoute ? null : <SourceNotice />;
+}
+
 function WelcomePage() {
+  const { appearance } = useTheme();
   const { authenticated } = useAuth();
   const navigate = useNavigate();
   const [registrationAllowed, setRegistrationAllowed] = useState(false);
@@ -231,10 +246,10 @@ function WelcomePage() {
         </div>
         <div>
           <h1 className="text-4xl font-bold text-brand-ink font-heading text-shadow-soft">
-            CozyVTT
+            {instanceDisplayName(appearance?.instanceName)}
           </h1>
           <p className="mt-2 text-warm-gray">
-            A self-hosted Virtual Tabletop for cozy, narrative-driven campaigns
+            {BRAND.description}
           </p>
         </div>
         <div className="flex flex-col gap-3">

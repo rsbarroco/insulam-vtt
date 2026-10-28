@@ -1,3 +1,4 @@
+import { DEFAULT_INSTANCE_NAME } from '../config/brand';
 import type {} from '../types/express';
 import { Router, Request, Response } from 'express';
 import qrcode from 'qrcode';
@@ -1197,7 +1198,7 @@ router.get('/appearance', async (_req: Request, res: Response) => {
     return res.status(200).json(appearance);
   } catch {
     return res.status(200).json({
-      instanceName: 'CozyVTT',
+      instanceName: DEFAULT_INSTANCE_NAME,
       themeId: 'cozy-default',
       customThemeColors: null,
       fontId: 'default',

@@ -1,3 +1,4 @@
+import { BRAND } from '@/config/brand';
 // ============================================
 // Login Page
 // Handles user authentication with email/password
@@ -127,7 +128,7 @@ export default function LoginPage() {
             Welcome Back
           </h1>
           <p className="mt-2 text-sm text-warm-gray">
-            Sign in to your CozyVTT account
+            Sign in to your {BRAND.name} account
           </p>
         </div>
 
