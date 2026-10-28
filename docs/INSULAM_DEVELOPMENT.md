@@ -59,7 +59,8 @@ A contract-only/unit check is not a substitute for those gates.
   commissioned Insulam brand asset. Upstream artwork is retained with notices
   but is no longer used as the primary default mark.
 - Source and CozyVTT credit links appear on public/authenticated routes and the
-  default render-error screen. Fork issues go to this fork, not upstream.
+  default render-error screen. The error screen links to this fork, not upstream;
+  its issue tracker is not enabled yet, so no working issue-submission flow is promised.
 - Upstream system/theme names, package names, database defaults, archive format,
   MFA issuer and some secondary copy intentionally remain unchanged in this
   first incremental branding pass.
