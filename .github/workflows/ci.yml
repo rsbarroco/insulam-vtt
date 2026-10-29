@@ -146,6 +146,19 @@ jobs:
       # The scripts' own tests: every form of route and event the doc checks
       # read, and what the nginx check and the coverage summary read.
       - run: python3 -m unittest discover -s scripts/tests
+      - name: Validate optional file-secret deployment profile (no services started)
+        env:
+          VTT_DATA_DIR: /tmp/vtt-fixture-data
+          VTT_SECRETS_DIR: /tmp/vtt-fixture-secrets
+          VTT_PROXY_NETWORK: vtt-fixture-proxy
+          VTT_TRUSTED_PROXIES: 127.0.0.1
+          VTT_BACKEND_IMAGE: vtt-fixture-backend:test
+          VTT_FRONTEND_IMAGE: vtt-fixture-frontend:test
+          VITE_SOURCE_CODE_URL: https://github.com/rsbarroco/insulam-vtt/tree/${{ github.sha }}
+          CORS_ORIGIN: https://vtt.example.invalid
+        run: docker compose -f ops/deploy/compose.yaml config --quiet
+      - name: Disposable PostgreSQL backup and restore drill
+        run: python3 scripts/deployment-recovery-smoke.py
 
   # Known advisories, from both lockfiles. A high or critical advisory in the
   # packages an instance runs (--omit=dev) fails the job. The developer

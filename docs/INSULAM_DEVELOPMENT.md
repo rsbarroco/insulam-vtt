@@ -126,3 +126,7 @@ CharacterMaker connection.
 
 See [NOTICE.md](../NOTICE.md) for provenance/source-release obligations and
 [INSULAM_INTEGRATION.md](INSULAM_INTEGRATION.md) for the remaining integration.
+
+The optional [file-secret deployment profile](../ops/deploy/README.md) includes
+the runtime adapter, isolated Compose stack, recovery tools and their validation.
+Publish these scripts with the matching application source before using them.

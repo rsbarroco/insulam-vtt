@@ -1,0 +1,216 @@
+name: ${VTT_PROJECT_NAME:-vtt}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  database:
+    image: postgres:15-alpine
+    logging: *logging
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_READ_SEARCH
+      - SETUID
+      - SETGID
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-vtt}
+      POSTGRES_USER: ${DATABASE_USER:-vtt}
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets: [database_password]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-vtt}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "5432"
+    networks:
+      - internal
+
+  backend:
+    command: ["node", "dist/server.js"]
+    entrypoint: ["/bin/sh", "/opt/vtt/secrets-entrypoint.sh"]
+    secrets: [database_password, session_secret, setup_token]
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile.prod
+    image: ${VTT_BACKEND_IMAGE:?Set a release-specific backend image}
+    logging: *logging
+    restart: unless-stopped
+    stop_grace_period: 10m30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_READ_SEARCH
+      - FOWNER
+      - SETUID
+      - SETGID
+    read_only: true
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      DATABASE_USER: ${DATABASE_USER:-vtt}
+      DATABASE_NAME: ${DATABASE_NAME:-vtt}
+      NODE_ENV: production
+      PORT: 4000
+      INSULAM_CHARACTER_MAKER_ORIGIN: ${INSULAM_CHARACTER_MAKER_ORIGIN:-}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      APP_URL: ${APP_URL:-${CORS_ORIGIN}}
+      MAX_MAP_SIZE_MB: ${MAX_MAP_SIZE_MB:-50}
+      MAX_TOKEN_SIZE_MB: ${MAX_TOKEN_SIZE_MB:-5}
+      MAX_AUDIO_SIZE_MB: ${MAX_AUDIO_SIZE_MB:-20}
+      MAX_AVATAR_SIZE_MB: ${MAX_AVATAR_SIZE_MB:-2}
+      MAX_DOCUMENT_SIZE_MB: ${MAX_DOCUMENT_SIZE_MB:-50}
+      NGINX_MAX_BODY_SIZE: ${NGINX_MAX_BODY_SIZE:-55M}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-300}
+      ASSET_UPLOAD_RATE_LIMIT: ${ASSET_UPLOAD_RATE_LIMIT:-30}
+      CAMPAIGN_ARCHIVE_RATE_LIMIT: ${CAMPAIGN_ARCHIVE_RATE_LIMIT:-20}
+      SESSION_MAX_AGE: ${SESSION_MAX_AGE:-3600000}
+      REMEMBER_ME_MAX_AGE: ${REMEMBER_ME_MAX_AGE:-2592000000}
+      LOG_LEVEL: ${LOG_LEVEL:-}
+    volumes:
+      - ./secrets-entrypoint.sh:/opt/vtt/secrets-entrypoint.sh:ro
+      - ./load-secrets.sh:/opt/vtt/load-secrets.sh:ro
+      - ${VTT_DATA_DIR:?Set an absolute private data directory}/uploads:/app/uploads
+      - ${VTT_DATA_DIR:?Set an absolute private data directory}/backups:/app/backups
+      - ${VTT_DATA_DIR:?Set an absolute private data directory}/logs:/app/logs
+      - backend_tmp:/tmp
+    expose:
+      - "4000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKEND_MEMORY_LIMIT:-512M}
+        reservations:
+          memory: 256M
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_SOURCE_CODE_URL: ${VITE_SOURCE_CODE_URL:?Set the public matching commit URL}
+    image: ${VTT_FRONTEND_IMAGE:?Set a release-specific frontend image}
+    logging: *logging
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /run
+      - /var/cache/nginx
+      - /tmp
+    depends_on:
+      - backend
+    expose:
+      - "80"
+    networks:
+      - internal
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  nginx:
+    image: nginx:1.30-alpine
+    stop_signal: SIGTERM
+    logging: *logging
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
+      - DAC_READ_SEARCH
+    read_only: true
+    tmpfs:
+      - /run
+      - /tmp
+      - /etc/nginx/conf.d
+    depends_on:
+      - frontend
+      - backend
+    environment:
+      NGINX_MAX_BODY_SIZE: ${NGINX_MAX_BODY_SIZE:-55M}
+      NGINX_TRUSTED_PROXIES: ${VTT_TRUSTED_PROXIES:?Set the exact upstream proxy address}
+      NGINX_REAL_IP_FROM: ""
+      NGINX_TRUSTED_GEO: ""
+      NGINX_ENVSUBST_FILTER: "NGINX_MAX_BODY_SIZE|NGINX_REAL_IP_FROM|NGINX_TRUSTED_GEO"
+      NGINX_CONF_STAMP: "d3fe8e6463a6"
+    volumes:
+      - ../../nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - ../../nginx/locations.conf:/etc/nginx/cozyvtt/locations.conf:ro
+      - ../../nginx/trusted-proxies.envsh:/docker-entrypoint.d/19-cozyvtt-trusted-proxies.envsh:ro
+      - ../../nginx/certs:/etc/nginx/certs:ro  # Place your SSL certs here
+      - ../../nginx/conf.d:/etc/nginx/cozyvtt.d:ro
+      - nginx_temp:/var/cache/nginx
+    networks:
+      internal: {}
+      proxy:
+        aliases: ["${VTT_PROXY_ALIAS:-vtt-proxy}"]
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+volumes:
+  postgres_data:
+    driver: local
+  nginx_temp:
+    driver: local
+  backend_tmp:
+    driver: local
+
+secrets:
+  database_password:
+    file: ${VTT_SECRETS_DIR:?Set an absolute private secrets directory}/database_password
+  session_secret:
+    file: ${VTT_SECRETS_DIR:?Set an absolute private secrets directory}/session_secret
+  setup_token:
+    file: ${VTT_SECRETS_DIR:?Set an absolute private secrets directory}/setup_token
+
+networks:
+  internal:
+    driver: bridge
+  proxy:
+    external: true
+    name: ${VTT_PROXY_NETWORK:?Set the existing proxy network}
+
