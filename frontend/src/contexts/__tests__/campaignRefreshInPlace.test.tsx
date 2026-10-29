@@ -104,8 +104,12 @@ afterEach(() => {
 it('refreshes the campaign without taking the table down or reloading the map', async () => {
   getCampaign.mockResolvedValueOnce(campaign('c1', 'Old name'));
   renderAt('/campaigns/c1');
-  await waitFor(() => expect(latest?.currentMap?.id).toBe('m1'));
-  expect(mounts).toBe(1);
+  // `latest` is assigned during render; the mount effect can commit later.
+  // Start the refresh only once the initial table has actually mounted.
+  await waitFor(() => {
+    expect(latest?.currentMap?.id).toBe('m1');
+    expect(mounts).toBe(1);
+  });
 
   const fresh = deferred<ReturnType<typeof campaign>>();
   getCampaign.mockReturnValueOnce(fresh.promise);
