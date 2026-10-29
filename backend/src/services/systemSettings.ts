@@ -1,3 +1,4 @@
+import { DEFAULT_INSTANCE_NAME } from '../config/brand';
 import { prisma } from '../config/database';
 import { Prisma } from '@prisma/client';
 import type { CustomThemeColors } from '../validators/appearance';
@@ -12,7 +13,7 @@ import logger from '../utils/logger';
 /** What a fresh instance's settings row holds. */
 const DEFAULT_SETTINGS = {
   setupCompleted: false,
-  instanceName: 'CozyVTT',
+  instanceName: DEFAULT_INSTANCE_NAME,
   timezone: 'UTC',
   allowRegistration: false,
   requireAdminApproval: true,

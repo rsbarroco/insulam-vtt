@@ -14,11 +14,14 @@ import ServerUnreachablePanel from './ServerUnreachablePanel';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requireRole?: PlatformRole;
+  /** Reserve banner and child space within the live table viewport. */
+  contained?: boolean;
 }
 
 export default function ProtectedRoute({
   children,
   requireRole,
+  contained = false,
 }: ProtectedRouteProps) {
   const {
     user,
@@ -33,12 +36,12 @@ export default function ProtectedRoute({
   const location = useLocation();
 
   // The sign-in check got no answer: a restart or an upgrade under way.
-  if (loading && serverUnreachable) return <ServerUnreachablePanel onRetry={retryAuthCheck} />;
+  if (loading && serverUnreachable) return <ServerUnreachablePanel onRetry={retryAuthCheck} contained={contained} />;
 
   // Show loading state while checking authentication
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-linear-to-br/srgb from-soft-cream via-parchment to-warm-amber/20">
+      <div className={`${contained ? 'h-full' : 'min-h-screen'} flex items-center justify-center bg-linear-to-br/srgb from-soft-cream via-parchment to-warm-amber/20`}>
         <div className="glass-panel p-8 text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-moss-green mx-auto mb-4"></div>
           <p className="text-brand-ink">Loading...</p>
@@ -61,7 +64,7 @@ export default function ProtectedRoute({
   // Check role-based access if required
   if (requireRole && user.platformRole !== requireRole) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-linear-to-br/srgb from-soft-cream via-parchment to-warm-amber/20 px-4">
+      <div className={`${contained ? 'h-full' : 'min-h-screen'} flex items-center justify-center bg-linear-to-br/srgb from-soft-cream via-parchment to-warm-amber/20 px-4`}>
         <div className="glass-panel max-w-md w-full p-8 text-center space-y-4">
           <div className="flex justify-center">
             <div className="bg-spirit-red/10 rounded-full p-4">
@@ -102,14 +105,22 @@ export default function ProtectedRoute({
     );
   }
 
-  // User is authenticated and has required role
-  return (
+  // User is authenticated and has required role.
+  const banners = (
     <>
       {user.adminMfaDeadline && <AdminMfaBanner deadline={user.adminMfaDeadline} />}
       {typeof backupCodesLeft === 'number' && <BackupCodesLeftBanner left={backupCodesLeft} onDismiss={dismissBackupCodesLeft} />}
-      {children}
     </>
   );
+  if (contained) {
+    return (
+      <div className="h-full min-h-0 flex flex-col">
+        <div className="shrink-0">{banners}</div>
+        <div className="flex-1 min-h-0">{children}</div>
+      </div>
+    );
+  }
+  return <>{banners}{children}</>;
 }
 
 /**

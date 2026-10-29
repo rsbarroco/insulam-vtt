@@ -69,11 +69,19 @@ describe('the instance name in emails', () => {
     expect(sent().subject).toContain('Welcome to Env Tavern');
   });
 
-  it('still sends, as CozyVTT, when the settings cannot be read', async () => {
+  it('uses the environment fallback for the fork default too', async () => {
+    getSystemSettings.mockResolvedValue({ instanceName: 'Insulam VTT' });
+    process.env.INSTANCE_NAME = 'Our Insulam Table';
+    await sendWelcomeEmail('p@x.test', 'Pat', 'TEMP-PASS-WORD-0000');
+    expect(sent().subject).toContain('Welcome to Our Insulam Table');
+    expect(sent().html).toContain('Our Insulam Table');
+  });
+
+  it('still sends, as Insulam VTT, when the settings cannot be read', async () => {
     getSystemSettings.mockRejectedValue(new Error('database down'));
 
     await sendWelcomeEmail('p@x.test', 'Pat', 'TEMP-PASS-WORD-0000');
 
-    expect(sent().subject).toContain('Welcome to CozyVTT');
+    expect(sent().subject).toContain('Welcome to Insulam VTT');
   });
 });

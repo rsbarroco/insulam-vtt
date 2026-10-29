@@ -1,3 +1,5 @@
+import { BRAND } from '@/config/brand';
+import SourceNotice from './SourceNotice';
 // ============================================
 // ErrorBoundary — App-level React error boundary
 // Catches unhandled render errors and shows a friendly recovery UI instead of a blank screen.
@@ -65,7 +67,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               Something went wrong
             </h1>
             <p className="text-sm text-warm-gray">
-              CozyVTT encountered an unexpected error. Your data is safe — this is a display problem only.
+              {BRAND.name} encountered an unexpected error. Your data is safe — this is a display problem only.
             </p>
           </div>
 
@@ -103,16 +105,17 @@ export default class ErrorBoundary extends Component<Props, State> {
             </Button>
 
             <a
-              href="https://github.com/CheekyChinchilla/CozyVTT/issues"
+              href={BRAND.repositoryUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="btn-secondary flex items-center justify-center gap-2"
-              aria-label="Report this issue on GitHub (opens in new tab)"
+              aria-label="View the Insulam VTT project on GitHub (opens in new tab)"
             >
               <ExternalLink className="w-4 h-4" aria-hidden="true" />
-              Report Issue
+              View Project
             </a>
           </div>
+          <SourceNotice />
         </div>
       </div>
     );

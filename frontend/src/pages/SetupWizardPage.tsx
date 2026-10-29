@@ -1,3 +1,4 @@
+import { BRAND } from '@/config/brand';
 // ============================================
 // Setup Wizard Page
 // First-time setup for CozyVTT installation
@@ -62,7 +63,7 @@ export default function SetupWizardPage() {
   });
 
   const [systemConfig, setSystemConfig] = useState<SystemConfigData>({
-    instanceName: 'CozyVTT',
+    instanceName: BRAND.name,
     enableRegistration: false,
   });
 
@@ -296,10 +297,10 @@ export default function SetupWizardPage() {
         {/* Header */}
         <div className="text-center">
           <div className="flex justify-center mb-4">
-            <img src={mascotUrl} alt="CozyVTT" className="w-20 h-20 object-contain animate-pulse-soft" />
+            <img src={mascotUrl} alt={BRAND.name} className="w-20 h-20 object-contain animate-pulse-soft" />
           </div>
           <h1 className="text-4xl font-bold text-brand-ink font-heading">
-            CozyVTT Setup
+            {BRAND.name} Setup
           </h1>
           <p className="mt-2 text-warm-gray">
             Let's get your Virtual Tabletop ready
@@ -426,7 +427,7 @@ function Step1Welcome() {
 
       <div>
         <h2 className="text-2xl font-bold text-brand-ink mb-3">
-          Welcome to CozyVTT!
+          Welcome to {BRAND.name}!
         </h2>
         <p className="text-stone-gray max-w-xl mx-auto">
           This wizard will guide you through setting up your self-hosted Virtual
@@ -620,7 +621,7 @@ function Step3SystemConfig({ data, setData, fieldErrors }: Step3Props) {
           System Configuration
         </h2>
         <p className="text-sm text-stone-gray">
-          Customize your CozyVTT instance
+          Customize your {BRAND.name} instance
         </p>
       </div>
 
@@ -641,7 +642,7 @@ function Step3SystemConfig({ data, setData, fieldErrors }: Step3Props) {
             className={`input-cozy w-full ${
               fieldErrors.instanceName ? 'border-spirit-red' : ''
             }`}
-            placeholder="CozyVTT"
+            placeholder={BRAND.name}
           />
           <p className="mt-1 text-xs text-warm-gray">
             Shown in the browser tab and in the emails the instance sends

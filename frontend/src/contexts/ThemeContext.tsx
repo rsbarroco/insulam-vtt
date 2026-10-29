@@ -1,3 +1,4 @@
+import { BRAND, instanceDisplayName } from '@/config/brand';
 /**
  * Theme Context — two-layer model
  *
@@ -67,9 +68,9 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue>({
   appearance: null,
   refreshAppearance: async () => {},
-  mascotUrl: '/default-mascot.png',
-  logoUrl: '/default-logo.png',
-  faviconUrl: '/default-mascot.png',
+  mascotUrl: BRAND.markUrl,
+  logoUrl: BRAND.markUrl,
+  faviconUrl: BRAND.markUrl,
   applyUserPreferences: () => {},
 });
 
@@ -277,12 +278,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // The browser tab shows the instance's name.
   useEffect(() => {
     if (!appearance) return;
-    document.title = appearance.instanceName?.trim() || 'CozyVTT';
+    document.title = instanceDisplayName(appearance.instanceName);
   }, [appearance]);
 
-  const mascotUrl = appearance?.customMascotUrl || '/default-mascot.png';
-  const logoUrl = appearance?.customLogoUrl || '/default-logo.png';
-  const faviconUrl = appearance?.customFaviconUrl || '/default-mascot.png';
+  const mascotUrl = appearance?.customMascotUrl || BRAND.markUrl;
+  const logoUrl = appearance?.customLogoUrl || BRAND.markUrl;
+  const faviconUrl = appearance?.customFaviconUrl || BRAND.markUrl;
 
   return (
     <ThemeContext.Provider

@@ -330,7 +330,10 @@ paths:
       description: |
         Public endpoint — returns the upload size limits the server enforces,
         derived from the `MAX_<TYPE>_SIZE_MB` environment variables, and whether
-        this instance can send email. The SPA is built ahead of time, so it
+        this instance can send email. An optional `characterMaker` entry advertises
+        only the configured public origin for explicit read-only snapshot handoffs;
+        it is absent when unset or invalid and carries no authentication material.
+        The SPA is built ahead of time, so it
         reads the limits from here at runtime rather than baking them into the
         bundle. No authentication required.
       operationId: getClientConfig
@@ -360,6 +363,21 @@ paths:
                   maxUploadBytes:
                     type: integer
                     description: Largest configured limit — the cap enforced before the asset type is known
+                  characterMaker:
+                    type: object
+                    additionalProperties: false
+                    required: [origin]
+                    description: >-
+                      Optional trusted public origin for the popup snapshot handoff.
+                      Omitted when INSULAM_CHARACTER_MAKER_ORIGIN is unset or invalid.
+                      HTTPS is required in production; exact loopback HTTP origins
+                      are allowed only outside production. No credentials or sheet
+                      permissions are supplied by this configuration.
+                    properties:
+                      origin:
+                        type: string
+                        format: uri
+                        example: https://charactermaker.insulamrpg.com
                   smtp:
                     type: object
                     description: >-

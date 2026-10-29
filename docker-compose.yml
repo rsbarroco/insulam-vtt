@@ -121,6 +121,8 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       # Optional: the setup wizard's token; unset, the backend prints one in its log
       SETUP_TOKEN: ${SETUP_TOKEN:-}
+      # Optional non-secret origin; empty leaves the snapshot integration off.
+      INSULAM_CHARACTER_MAKER_ORIGIN: ${INSULAM_CHARACTER_MAKER_ORIGIN:-}
       CORS_ORIGIN: ${CORS_ORIGIN}
       # SMTP
       SMTP_HOST: ${SMTP_HOST:-}
