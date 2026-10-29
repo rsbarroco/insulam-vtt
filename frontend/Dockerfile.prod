@@ -9,7 +9,10 @@ RUN npm ci
 
 COPY . .
 
-RUN npm run build
+# Public source navigation only, never a secret. Release builds must override
+# this with the published commit matching the image (see INSULAM_DEVELOPMENT.md).
+ARG VITE_SOURCE_CODE_URL=https://github.com/rsbarroco/insulam-vtt
+RUN VITE_SOURCE_CODE_URL="$VITE_SOURCE_CODE_URL" npm run build
 
 # Serve via Nginx (lightweight serving of built static files). nginx's stable
 # line, the same as the proxy's in docker-compose.yml; move both together.

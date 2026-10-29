@@ -75,11 +75,11 @@ describe('one address for the page and the backend', () => {
   });
 
   it('is not passed to the production frontend build by docker-compose.yml', () => {
-    expect(service('docker-compose.yml', 'frontend')).not.toMatch(/VITE_/);
+    expect(service('docker-compose.yml', 'frontend')).not.toMatch(/VITE_(API|SOCKET)_URL/);
   });
 
   it('is not taken as a build argument by the production frontend image', () => {
-    expect(read('frontend/Dockerfile.prod')).not.toMatch(/^\s*ARG\s+VITE_/m);
+    expect(read('frontend/Dockerfile.prod')).not.toMatch(/^\s*ARG\s+VITE_(API|SOCKET)_URL/m);
   });
 
   it("leaves the page's security headers as the file writes them", () => {
@@ -87,6 +87,39 @@ describe('one address for the page and the backend', () => {
     const dockerfile = read('frontend/Dockerfile.prod');
     expect(dockerfile).toMatch(/^COPY security-headers\.conf \/etc\/nginx\/security-headers\.conf$/m);
     expect(dockerfile).not.toContain('envsubst');
+  });
+});
+
+describe('the production frontend public source link', () => {
+  const fallback = 'https://github.com/rsbarroco/insulam-vtt';
+  const dockerfile = read('frontend/Dockerfile.prod');
+  const [builder, production] = dockerfile.split('FROM nginx:');
+
+  it('forwards the example setting through Compose build args, not runtime environment', () => {
+    expect(offered('.env.example')).toContain('VITE_SOURCE_CODE_URL');
+    expect(service('docker-compose.yml', 'frontend')).toContain(
+      `      args:\n        # Baked into the public bundle. Set the matching published commit for releases.\n        VITE_SOURCE_CODE_URL: \${VITE_SOURCE_CODE_URL:-${fallback}}`,
+    );
+    expect(service('docker-compose.yml', 'frontend')).not.toMatch(/environment:[\s\S]*VITE_SOURCE_CODE_URL/);
+  });
+
+  it('gives Vite the argument in the builder, with a credential-free public fallback', () => {
+    expect(builder).toContain(`ARG VITE_SOURCE_CODE_URL=${fallback}`);
+    expect(builder).toContain('RUN VITE_SOURCE_CODE_URL="$VITE_SOURCE_CODE_URL" npm run build');
+    expect(builder.indexOf('ARG VITE_SOURCE_CODE_URL=')).toBeLessThan(builder.indexOf('RUN VITE_SOURCE_CODE_URL='));
+    const url = new URL(fallback);
+    expect(url.protocol).toBe('https:');
+    expect(url.username + url.password + url.search + url.hash).toBe('');
+    expect(production).toBeDefined();
+    expect(production).not.toContain('VITE_SOURCE_CODE_URL');
+  });
+
+  it('tests an explicit commit override through the real production image in CI', () => {
+    const workflow = read('.github/workflows/ci.yml').split('\n  images:')[1];
+    expect(workflow).toContain('VITE_SOURCE_CODE_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}');
+    expect(workflow).toContain('E2E_SOURCE_CODE_URL: ${{ env.VITE_SOURCE_CODE_URL }}');
+    expect(workflow).toContain('docker compose build');
+    expect(workflow).toContain('npx playwright test');
   });
 });
 

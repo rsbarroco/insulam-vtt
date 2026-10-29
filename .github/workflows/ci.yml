@@ -191,6 +191,10 @@ jobs:
     name: Production images, nginx and smoke tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Exercise Compose -> Docker ARG -> Vite -> rendered footer, not just the
+    # repository fallback. This is public build metadata, never a credential.
+    env:
+      VITE_SOURCE_CODE_URL: https://github.com/${{ github.repository }}/tree/${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Read docker-compose.yml with the example settings
@@ -225,6 +229,7 @@ jobs:
           E2E_BASE_URL: http://localhost:8080
           E2E_SETUP_TOKEN: ci-smoke-setup-token-0123456789
           E2E_PRODUCTION: '1'
+          E2E_SOURCE_CODE_URL: ${{ env.VITE_SOURCE_CODE_URL }}
         run: npx playwright test
       - name: The stack's logs, when something failed
         if: failure()
