@@ -8,6 +8,8 @@
  *   E2E_ADMIN_PASSWORD  other spec signs in as
  *   E2E_PRODUCTION      set to 1 when the address is the production stack,
  *                       whose nginx sends the page's security headers
+ *   E2E_SOURCE_CODE_URL expected public source link baked into the frontend;
+ *                       defaults to the repository navigation fallback
  *
  * Against an instance that is already set up, the administrator must exist.
  */
@@ -15,6 +17,7 @@
 export const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 export const SETUP_TOKEN = process.env.E2E_SETUP_TOKEN ?? '';
 export const PRODUCTION = process.env.E2E_PRODUCTION === '1';
+export const SOURCE_CODE_URL = process.env.E2E_SOURCE_CODE_URL ?? 'https://github.com/rsbarroco/insulam-vtt';
 
 export const ADMIN = {
   displayName: 'Smoke Test Admin',

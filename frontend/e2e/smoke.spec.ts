@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { ADMIN, PRODUCTION } from './instance';
+import { ADMIN, PRODUCTION, SOURCE_CODE_URL } from './instance';
 
 /** How far the page reaches past the screen's right edge. A phone widens its
  * layout to whatever overflows, so the window's width would hide it. */
@@ -21,6 +21,14 @@ test('signs in and out', async ({ page }) => {
 
   await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible();
   expect((await page.request.get('/api/auth/me')).status()).toBe(401);
+});
+
+test('offers the configured source commit from the built footer without signing in', async ({ page }) => {
+  await page.goto('/auth/login');
+  const source = page.getByRole('link', { name: 'Source code (AGPL-3.0)' });
+  await expect(source).toBeVisible();
+  await expect(source).toHaveAttribute('href', SOURCE_CODE_URL);
+  await expect(source).toHaveAttribute('rel', 'noopener noreferrer');
 });
 
 test('creates a campaign and opens its table, with a live connection through the proxy', async ({ page }, testInfo) => {

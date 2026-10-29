@@ -65,20 +65,64 @@ A contract-only/unit check is not a substitute for those gates.
   MFA issuer and some secondary copy intentionally remain unchanged in this
   first incremental branding pass.
 
-For a **manual frontend build**, set `VITE_SOURCE_CODE_URL` to the public matching
-source release/commit, for example:
+### Release source link: Docker and manual builds
+
+`VITE_SOURCE_CODE_URL` is **public build-time metadata**, not a runtime setting.
+Set it to the public commit containing the complete source that matches the
+release being built, including local modifications and build instructions.
+Publish that source first; a private commit, an unrelated commit or a moving
+branch is not a matching source offer. Never put API keys, credentials, signed
+download URLs or user data in `VITE_*`; these values reach the browser bundle.
+
+For **production Docker builds**, set the variable in the root `.env` or the
+build process environment. Compose passes it through `frontend.build.args`
+to `frontend/Dockerfile.prod`, which supplies it to Vite in the builder stage.
+The nginx runtime does not read it. For a clean checkout of the already
+published release commit, from the repository root:
+
+```sh
+# Review/publish the complete source first; do not build uncommitted changes.
+test -z "$(git status --porcelain)" || exit 1
+export VITE_SOURCE_CODE_URL="https://github.com/rsbarroco/insulam-vtt/tree/$(git rev-parse HEAD)"
+: "${VITE_SOURCE_CODE_URL:?Set the public matching release source URL}"
+docker compose build frontend
+```
+
+Verify that this exact public commit can be opened without signing in before
+publishing the image. Rebuild on every release/source URL change; restarting a
+container or setting an nginx runtime environment variable cannot update the
+compiled footer. Starting/replacing the running service is a separate deployment
+step, not part of this build example.
+
+For a **manual frontend build**, from `frontend/`:
 
 ```sh
 VITE_SOURCE_CODE_URL=https://github.com/rsbarroco/insulam-vtt/tree/RELEASE_COMMIT npm run build
 ```
 
-Replace `RELEASE_COMMIT` with the actual published commit; this is not a secret.
-Only credential-free HTTPS source URLs are accepted. If absent/invalid, the UI
-links to the fork repository. Never put API keys or user data in `VITE_*`.
-The inherited Docker build does not yet forward this variable: before any
-Docker production release, add a reviewed source-version build argument or set
-the source URL in the matching release source, then verify the resulting link.
-This branch is development groundwork, not authorization to launch a service.
+Replace `RELEASE_COMMIT` with the full actual published commit SHA. Only
+credential-free HTTPS source URLs are accepted by the existing UI sanitizer.
+If absent, empty or invalid, the UI links to the public fork repository. Docker
+uses the same repository fallback, **not an exact-release guarantee**: an
+operator must supply and verify the matching commit URL for publication.
+The sanitizer cannot prove source completeness or that a URL is public; it
+also cannot make credentials safe to place in build arguments.
+
+Before publishing, check the actual built page's **Source code (AGPL-3.0)**
+footer without signing in. CI builds the production Docker image with an
+explicit commit URL and asserts the rendered link on desktop and phone.
+For a locally running candidate image built with the variable above, the same
+check can be run using the normal disposable smoke-test instance:
+
+```sh
+cd frontend
+E2E_SOURCE_CODE_URL="$VITE_SOURCE_CODE_URL" npm run test:e2e -- --grep 'configured source commit'
+```
+
+The smoke-test setup creates its test administrator on a fresh instance; never
+point it at production. See `frontend/e2e/instance.ts` for test-only settings.
+This wiring change does not by itself authorize deployment or enable the
+CharacterMaker connection.
 
 See [NOTICE.md](../NOTICE.md) for provenance/source-release obligations and
 [INSULAM_INTEGRATION.md](INSULAM_INTEGRATION.md) for the remaining integration.
