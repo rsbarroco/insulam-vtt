@@ -47,6 +47,8 @@ services:
       PORT: 4000
       SESSION_SECRET: ${SESSION_SECRET}
       SETUP_TOKEN: ${SETUP_TOKEN:-}
+      # Optional non-secret origin; empty leaves the snapshot integration off.
+      INSULAM_CHARACTER_MAKER_ORIGIN: ${INSULAM_CHARACTER_MAKER_ORIGIN:-}
       CORS_ORIGIN: ${CORS_ORIGIN}
       APP_URL: ${APP_URL:-http://localhost:3000}
       SMTP_HOST: ${SMTP_HOST}

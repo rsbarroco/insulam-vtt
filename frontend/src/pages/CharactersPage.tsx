@@ -1,4 +1,5 @@
 import { BRAND } from '@/config/brand';
+import CharacterMakerPanel from '@/integrations/insulam/CharacterMakerPanel';
 // ============================================
 // Characters Page
 // Character library management for players
@@ -248,7 +249,7 @@ export default function CharactersPage() {
       {/* Main Content */}
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-8">
-
+          <CharacterMakerPanel key={user?.id} />
 
           {/* Create Character Section */}
           <section>

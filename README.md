@@ -10,7 +10,7 @@
 
 - [Fork source](https://github.com/rsbarroco/insulam-vtt) · [Provenance and license](NOTICE.md)
 - [Insulam development notes](docs/INSULAM_DEVELOPMENT.md) · [CharacterMaker integration plan](docs/INSULAM_INTEGRATION.md)
-- Initial scope: Insulam presentation defaults, visible source/credits, and an independent read-only character projection contract. **No live CharacterMaker integration, shared login, production deployment or database migration is included.**
+- Development scope: Insulam presentation defaults, visible source/credits, and an opt-in CharacterMaker read-only snapshot preview with a strict independent transport contract. **No live synchronization, shared login, playable token integration, production deployment or database migration is included.** The paired source producer and origin allowlists are required; the feature is disabled by default.
 - CharacterMaker remains the authority for its character engine and data. Its private implementation and assets are not part of this repository.
 
 The original AGPL-3.0-only license and upstream/third-party notices remain in place. The feature and operational documentation below is retained from upstream; references to CozyVTT describe the underlying platform. Initial branding is intentionally incremental, and internal storage/protocol identifiers remain compatible.

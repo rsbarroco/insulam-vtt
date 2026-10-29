@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { UPLOAD_LIMITS, MAX_UPLOAD_BYTES } from '../utils/fileUtils';
 import { isSmtpConfigured } from '../services/email';
+import { getCharacterMakerConfig } from '../config/characterMaker';
 
 const router = Router();
 
@@ -17,7 +18,7 @@ const router = Router();
 /**
  * GET /api/config
  * Returns the upload limits the server enforces, and whether this instance can
- * send email.
+ * send email, plus an optional public CharacterMaker handoff origin.
  * Public endpoint — no authentication required, no sensitive values.
  *
  * The SMTP entry is a bare boolean on purpose: host, port, user and TLS mode
@@ -26,10 +27,12 @@ const router = Router();
  * them" option on an invitation would do anything at all.
  */
 router.get('/', (_req: Request, res: Response) => {
+  const characterMaker = getCharacterMakerConfig();
   res.json({
     uploadLimits: { ...UPLOAD_LIMITS },
     maxUploadBytes: MAX_UPLOAD_BYTES,
     smtp: { configured: isSmtpConfigured() },
+    ...(characterMaker ? { characterMaker } : {}),
   });
 });
 

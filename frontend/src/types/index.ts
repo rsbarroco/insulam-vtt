@@ -460,6 +460,8 @@ export interface ServerConfig {
    * offering something that would silently do nothing.
    */
   smtp?: { configured: boolean };
+  /** Optional trusted origin for an explicit read-only snapshot handoff; no credentials. */
+  characterMaker?: { origin: string };
 }
 
 // ============================================

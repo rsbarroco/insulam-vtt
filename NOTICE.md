@@ -36,7 +36,8 @@ correspondence; a visible link alone is not a complete compliance check.
 - Insulam VTT defaults on primary entry/setup/dashboard screens, document
   metadata and email headings; a simple new SVG development mark.
 - Public fork-source and upstream-credit links; fork project link for errors.
-- Independent, proposed read-only CharacterMaker transport contract and tests.
+- Independent read-only CharacterMaker transport contract, opt-in popup snapshot
+  receiver/preview and tests. No persistent connection credentials or data writes.
 - Integration/development documentation. No copied CharacterMaker engine,
   proprietary source, artwork, accounts, secrets or production data.
 

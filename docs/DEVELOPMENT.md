@@ -111,6 +111,7 @@ Copy `backend/.env.example` to `backend/.env` and fill in the values.
 | `APP_URL` | No | `http://localhost:3000` | Public URL used in email links |
 | `FRONTEND_URL` | No | — | An older name for `APP_URL`, read only when `APP_URL` is not set |
 | `INSTANCE_NAME` | No | — | The name emails use while the name in Admin > Settings is empty or still CozyVTT |
+| `INSULAM_CHARACTER_MAKER_ORIGIN` | No | — (disabled) | Public origin for the opt-in read-only popup snapshot handoff. HTTPS only in production; non-production also permits exact localhost, 127.0.0.1 or [::1] over HTTP. No path/query/fragment/credentials/wildcards. Empty or invalid disables the feature. This is not an API key or a sheet-access grant. |
 | `SETUP_TOKEN` | No | — | The token the setup wizard asks for; unset, the backend makes one and prints it in its log until setup has run |
 | `UPLOAD_DIR` | No | `uploads` | Where uploaded files are stored, relative to the backend folder |
 | `BACKUP_DIR` | No | `backups` | Where the Admin Dashboard writes backups; must not be inside the uploads folder |
