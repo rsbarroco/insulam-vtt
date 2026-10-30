@@ -8,7 +8,7 @@ test('a synthetic recovery fragment stays out of HTTP requests and browser histo
   });
   await page.goto('/auth/login');
   await page.goto('/reset-password#token=' + token);
-  await expect(page.getByLabel('New password')).toBeVisible();
+  await expect(page.getByLabel('New password', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/reset-password$/);
   expect(requests.every(value => !value.includes(token))).toBe(true);
   await page.reload();
@@ -19,3 +19,4 @@ test('a synthetic recovery fragment stays out of HTTP requests and browser histo
   await expect(page.getByRole('heading', { name: 'Invalid link' })).toBeVisible();
   expect(requests.every(value => !value.includes(token))).toBe(true);
 });
+
