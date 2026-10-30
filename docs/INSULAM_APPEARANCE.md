@@ -11,7 +11,7 @@ continue to override those defaults. Existing theme IDs and fonts are preserved.
 The light variant is a VTT alternative, not a claim that Character Maker has one.
 
 Fonts are served locally with their SIL Open Font Licenses in
-`frontend/public/fonts/insulam/`. No third-party font requests are introduced.
+`frontend/src/assets/fonts/`. No third-party font requests are introduced.
 The existing theme contrast suite checks both new palettes. The browser suite
 checks dashboard and character actions and creation dialogs at 320, 360, 390 and
 412 pixels in both palettes, including reloading the user's saved preference.
