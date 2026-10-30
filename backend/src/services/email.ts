@@ -248,7 +248,7 @@ export async function sendInvitationEmail(
   const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER;
   const appUrl = getAppUrl();
   const instanceName = await getInstanceName();
-  const inviteLink = `${appUrl}/accept-invite?token=${token}`;
+  const inviteLink = `${appUrl}/accept-invite#token=${encodeURIComponent(token)}`;
 
   const content =
     h2(`You're invited to ${escapeHtml(instanceName)}`) +
@@ -286,7 +286,7 @@ export async function sendPasswordResetEmail(
   const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER;
   const appUrl = getAppUrl();
   const instanceName = await getInstanceName();
-  const resetLink = `${appUrl}/reset-password?token=${token}`;
+  const resetLink = `${appUrl}/reset-password#token=${encodeURIComponent(token)}`;
 
   const content =
     h2('Password Reset Request') +

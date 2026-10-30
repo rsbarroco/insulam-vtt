@@ -228,6 +228,8 @@ jobs:
             echo "CORS_ORIGIN=http://localhost:8080"
           } > .env
           docker compose up -d --wait --wait-timeout 180
+      - name: Check access logs exclude query strings and Referer
+        run: python3 scripts/access-log-smoke.py
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
