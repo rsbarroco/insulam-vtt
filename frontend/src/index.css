@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './styles/tailwind3-palette.css';
+@import './styles/insulam-fonts.css';
 
 @theme {
   /* ── Semantic theme colors, from the --rgb-* channels below ── */
