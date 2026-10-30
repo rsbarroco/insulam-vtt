@@ -174,7 +174,7 @@ services:
       NGINX_REAL_IP_FROM: ""
       NGINX_TRUSTED_GEO: ""
       NGINX_ENVSUBST_FILTER: "NGINX_MAX_BODY_SIZE|NGINX_REAL_IP_FROM|NGINX_TRUSTED_GEO"
-      NGINX_CONF_STAMP: "d3fe8e6463a6"
+      NGINX_CONF_STAMP: "dd12243224eb"
     volumes:
       - ../../nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
       - ../../nginx/locations.conf:/etc/nginx/cozyvtt/locations.conf:ro

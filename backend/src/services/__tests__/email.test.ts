@@ -35,6 +35,20 @@ const sent = (): MailArgs => sendMail.mock.calls[0][0];
 const IMG = '<img src=x onerror=alert(1)>';
 const SCRIPT = '<script>alert(1)</script>';
 
+describe('recovery link transport', () => {
+  it.each(['reset', 'invite'])('puts the %s token only in the fragment', async kind => {
+    const token = 'a'.repeat(64);
+    if (kind === 'reset') await sendPasswordResetEmail('p@x.test', token, 'Player');
+    else await sendInvitationEmail('p@x.test', token, 'Player', 'Admin', 7);
+    const link = sent().html.match(/href="([^"]+#token=[^"]+)"/)?.[1];
+    expect(link).toBeDefined();
+    const url = new URL(link!);
+    expect(url.search).toBe('');
+    expect(url.hash).toBe('#token=' + token);
+    expect(sent().html).not.toContain('?token=');
+  });
+});
+
 describe('email HTML escaping', () => {
   it('campaign invitation: name, DM, campaign and description are escaped', async () => {
     await sendCampaignInvitationEmail('p@x.test', IMG, '<i>Tilted</i> "Campaign"', `Bob & <DM>`, SCRIPT);

@@ -2,15 +2,15 @@ import { BRAND } from '@/config/brand';
 // ============================================
 // Reset Password Page
 // Allows users to set a new password via a valid reset token
-// Accessed via /reset-password?token=<uuid>
+// Accessed via /reset-password#token=<token>. Kept only in component memory.
 //
-// Also serves invitations at /accept-invite?token=<uuid> (`invite` prop). Same
+// Also serves invitations at /accept-invite#token=<token> (`invite` prop). Same
 // token, same endpoint — an invited account has no password yet, so "set one"
 // and "reset yours" are the same operation with different wording.
 // ============================================
 
-import { useState, FormEvent, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { useState, FormEvent, useEffect, useLayoutEffect } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { KeyRound, ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
 import authService from '@/services/auth.service';
 import Button from '@/components/ui/Button';
@@ -21,9 +21,33 @@ interface ResetPasswordPageProps {
   invite?: boolean;
 }
 
+function readLinkToken(hash: string, search: string): string | null {
+  // Accept previously issued query links, but never generate new ones.
+  // An ambiguous fragment must not fall back to a different query token.
+  const fragment = new URLSearchParams(hash.slice(1));
+  const params = fragment.has('token') ? fragment : new URLSearchParams(search);
+  const tokens = params.getAll('token');
+  if (tokens.length !== 1) return null;
+  const token = tokens[0];
+  return /^(?:[a-f0-9]{64}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(token) ? token : null;
+}
+
 export default function ResetPasswordPage({ invite = false }: ResetPasswordPageProps) {
-  const [searchParams] = useSearchParams();
-  const token = searchParams.get('token');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [token, setToken] = useState(() => readLinkToken(location.hash, location.search));
+
+  useLayoutEffect(() => {
+    const search = new URLSearchParams(location.search);
+    if (location.hash || search.has('token')) {
+      search.delete('token');
+      const query = search.toString();
+      // Replace, never push: Back/reload must not restore a credential. Do not
+      // put it in history state, storage, telemetry or the rendered page.
+      navigate({ pathname: location.pathname, search: query ? `?${query}` : '', hash: '' },
+        { replace: true, state: null });
+    }
+  }, [location.hash, location.search, location.pathname, navigate]);
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -36,8 +60,8 @@ export default function ResetPasswordPage({ invite = false }: ResetPasswordPageP
     if (!token) {
       setError(
         invite
-          ? 'This invitation link is invalid. Ask your administrator to send a new one.'
-          : 'This password reset link is invalid. Please request a new one.'
+          ? 'Reopen the original invitation email. If its link has expired, ask your administrator for a new one.'
+          : 'Reopen the original reset email. If its link has expired, request a new one.'
       );
     }
   }, [token, invite]);
@@ -70,6 +94,9 @@ export default function ResetPasswordPage({ invite = false }: ResetPasswordPageP
     setLoading(true);
     try {
       await authService.resetPassword(token, password);
+      setToken(null);
+      setPassword('');
+      setConfirmPassword('');
       setSuccess(true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;

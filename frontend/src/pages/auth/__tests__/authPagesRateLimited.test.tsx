@@ -147,7 +147,7 @@ describe('the reset-password page', () => {
     resetPassword.mockRejectedValue(rateLimited('Too many authentication attempts, please try again later'));
     mockUseAuth.mockReturnValue(authState());
     render(
-      <MemoryRouter initialEntries={['/reset-password?token=some-link']}>
+      <MemoryRouter initialEntries={['/reset-password#token=' + 'a'.repeat(64)]}>
         <ResetPasswordPage />
       </MemoryRouter>
     );
