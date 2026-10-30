@@ -193,9 +193,9 @@ export default function CharactersPage() {
       {/* Header */}
       <header className="bg-moss-green/10 border-b border-moss-green/20 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-6">
+          <div className="flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between">
             {/* Left: Logo + Title */}
-            <div className="flex items-center gap-4">
+            <div className="flex min-w-0 items-center gap-3 sm:gap-4">
               <button
                 onClick={() => navigate('/dashboard')}
                 className="p-2 rounded-lg bg-moss-green/10 hover:bg-moss-green/20 transition-colors"
@@ -203,17 +203,17 @@ export default function CharactersPage() {
                 <img src={mascotUrl} alt={BRAND.name} className="w-10 h-10 object-contain" />
               </button>
               <div>
-                <h1 className="text-3xl font-bold text-brand-ink font-heading">
+                <h1 className="wrap-anywhere text-2xl sm:text-3xl font-bold text-brand-ink font-heading">
                   My Characters
                 </h1>
-                <p className="text-sm text-warm-gray">
+                <p className="wrap-anywhere text-sm text-warm-gray">
                   Manage your character library
                 </p>
               </div>
             </div>
 
             {/* Right: Actions */}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
               <Button
                 onClick={() => navigate('/dashboard')}
                 variant="secondary" className="flex items-center gap-2"
@@ -253,7 +253,7 @@ export default function CharactersPage() {
 
           {/* Create Character Section */}
           <section>
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="text-2xl font-semibold text-brand-ink font-heading">
                 Your Characters
                 {!loading && (
@@ -262,7 +262,7 @@ export default function CharactersPage() {
                   </span>
                 )}
               </h2>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <Button
                   onClick={() => setShowImportModal(true)}
                   variant="secondary" className="flex items-center gap-2"

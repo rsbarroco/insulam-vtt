@@ -14,6 +14,8 @@ import { z } from 'zod';
 // customThemeColors.
 export const THEME_IDS = [
   'cozy-default',
+  'insulam-night',
+  'insulam-day',
   'autumn-hearth',
   'desert-sand',
   'rose-garden',
@@ -34,6 +36,7 @@ export const THEME_IDS = [
 
 export const FONT_IDS = [
   'default',
+  'insulam',
   'medieval',
   'elegant',
   'modern',
