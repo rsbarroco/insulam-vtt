@@ -30,6 +30,7 @@ import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import type { Ability } from '../../rules/dnd/conditions';
 import type { HitPoints } from '../../rules/dnd/damage';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
+import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
 import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import type { Standing } from '../../utils/boardSight';
 
@@ -232,11 +233,17 @@ async function spendSlot(campaignId: string, userId: string, characterId: string
 }
 
 /** On its own turn, what a combatant just did is its action, if it had not taken one. */
-async function spendAction(io: Server, campaignId: string, tokenId: string, name: string): Promise<void> {
+async function spendAction(io: Server, campaignId: string, tokenId: string, name: string, countsAsAttack = false): Promise<void> {
   const combat = getCombatState(campaignId);
-  if (someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn && combat.turn.action === null) {
-    combat.turn = { ...combat.turn, action: name };
-    setCombatState(campaignId, combat);
+  if (someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn) {
+    const turn = combat.turn;
+    const action = turn.action ?? name;
+    // An attack counts towards the Attack action's attacks only while that is the action taken.
+    const attacks = countsAsAttack && action === 'Attack' ? turn.attacks + 1 : turn.attacks;
+    if (action !== turn.action || attacks !== turn.attacks) {
+      combat.turn = { ...turn, action, attacks };
+      setCombatState(campaignId, combat);
+    }
   }
   await resendInitiativeState(io, campaignId);
 }
@@ -381,7 +388,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
       const sheet = await sheetOf(token, socket.campaignId);
       const slots = slotsLeft(sheet as SheetSpellcasting | null);
-      if (ack) ack({ ok: true, actions: actionsOf(token, sheet).map((action, index) => summarizeAction(action, index, slots)) });
+      const features = readFeatures(sheet);
+      if (ack) {
+        ack({
+          ok: true,
+          actions: actionsOf(token, sheet).map((action, index) => summarizeAction(action, index, slots)),
+          // A stat block's Multiattack says how many attacks it makes; a character's features do.
+          attacksPerAction: sheet ? attacksPerAction(features) : null,
+          features: featureOptions(features),
+        });
+      }
     } catch (error) {
       logger.error('combat.actions failed', { err: error });
       refuseRequest(socket, ack, 'Failed to list actions');
@@ -420,6 +436,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
       const action = cast.action;
 
+      // On its own turn a character makes as many attacks with the Attack
+      // action as its features give it. A spell is the Magic action, and a
+      // stat block's Multiattack is the DM's to follow. The DM may go past
+      // the count, as they may overrule anything.
+      const turnNow = getCombatState(campaignId);
+      const acting = someoneActing(turnNow) && turnNow.currentTokenId === attackerId ? turnNow.turn : null;
+      const weapon = action.source !== 'spell';
+      const allowed = attackerSheet ? attacksPerAction(readFeatures(attackerSheet)) : null;
+      if (acting && weapon && allowed !== null && acting.action === 'Attack' && acting.attacks >= allowed && socket.role !== 'DM') {
+        return refuseRequest(
+          socket,
+          ack,
+          `${attackerToken.name} has made its ${allowed === 1 ? 'attack' : `${allowed} attacks`} with the Attack action this turn`
+        );
+      }
+
       const result = resolveAttack({
         attacker: combatant(attackerToken, attackerSheet),
         target: combatant(targetToken, targetSheet),
@@ -441,7 +473,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
-      await spendAction(io, campaignId, attackerId, 'Attack');
+      await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
       // An attack by or on a token the players are not shown goes to the DM alone.
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, result.summary, secret);

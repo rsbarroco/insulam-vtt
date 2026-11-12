@@ -407,6 +407,8 @@ When it's your turn, your name is highlighted. Describe your actions in chat and
 During combat a bar under the map shows the turn of whoever is acting: the movement they have left, and whether their action, bonus action and reaction are spent. When it is **your** token's turn the bar is yours to use:
 
 - Your **movement** goes down by itself as you move your token in the tactical view.
+- When you take the Attack action the bar counts your attacks (**Attack 1 of 2** with Extra Attack), and the VTT stops you at the number your features give you.
+- **Features** lists what your character can do with a Bonus Action or a Reaction, with the rule of each; **Use** marks the bonus action or reaction as spent.
 - At 0 hit points, on your turn, the bar shows **Death save**: the VTT rolls it and marks the result on your sheet. A 20 puts you back up with 1 hit point.
 - Pick your **action** from the list. **Dash** adds your speed to your movement for the turn.
 - Tick **Bonus action used** and **Reaction used** as you spend them.

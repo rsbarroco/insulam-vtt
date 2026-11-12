@@ -245,7 +245,7 @@ describe('combat.attack', () => {
 
     await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: 0 });
 
-    expect(getState(campaignId).turn?.action).toBe('Attack');
+    expect(getState(campaignId).turn).toMatchObject({ action: 'Attack', attacks: 1 });
   });
 
   it('refuses a payload it does not know', async () => {
@@ -377,5 +377,72 @@ describe('death saving throws', () => {
     await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: 0 });
     expect(await heroHp()).toBe(0);
     expect(await saves()).toEqual({ successes: 0, failures: 0 });
+  });
+});
+
+describe('the Attack action and what features give it', () => {
+  const fight = () =>
+    setState(campaignId, { active: true, round: 1, currentTokenId: HERO, combatants: [entry(HERO, 'Hero', 18), entry(OGRE, 'Ogre', 9)] });
+  const withFeatures = (featuresAndTraits: unknown[]) =>
+    prisma.character.update({ where: { id: heroCharacterId }, data: { data: toJson({ ...heroSheet(), featuresAndTraits }) } });
+  const swing = (socket: ClientSocket = player) => ask(socket, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: 0 });
+
+  it('tells what the character’s features give its turn', async () => {
+    await withFeatures([
+      { name: 'Extra Attack (Fighter 5)', description: 'You can attack twice instead of once whenever you take the Attack action on your turn.' },
+      { name: 'Second Wind (Fighter 1)', description: 'As a Bonus Action, you can use it to regain Hit Points equal to 1d10 plus your Fighter level.' },
+      'Lucky',
+    ]);
+    const answer = (await ask(player, 'combat.actions', { tokenId: HERO })) as Answer & { attacksPerAction?: number; features?: unknown[] };
+    expect(answer.attacksPerAction).toBe(2);
+    expect(answer.features).toEqual([{ name: 'Second Wind', cost: 'bonusAction', text: expect.stringContaining('1d10') }]);
+
+    const ogre = (await ask(dm, 'combat.actions', { tokenId: OGRE })) as Answer & { attacksPerAction?: number | null; features?: unknown[] };
+    expect(ogre).toMatchObject({ attacksPerAction: null, features: [] });
+  });
+
+  it('gives one attack to a character without Extra Attack, and the DM may go past it', async () => {
+    fight();
+    rolls = [2, 2, 2];
+    expect((await swing()).ok).toBe(true);
+    expect((await swing()).error).toBe('Hero has made its attack with the Attack action this turn');
+    expect(getState(campaignId).turn?.attacks).toBe(1);
+    expect((await swing(dm)).ok).toBe(true);
+    expect(getState(campaignId).turn?.attacks).toBe(2);
+  });
+
+  it('gives two attacks with Extra Attack', async () => {
+    await withFeatures([{ name: 'Extra Attack (Fighter 5)', description: 'You can attack twice.' }]);
+    fight();
+    rolls = [2, 2, 2];
+    expect((await swing()).ok).toBe(true);
+    expect((await swing()).ok).toBe(true);
+    expect((await swing()).error).toBe('Hero has made its 2 attacks with the Attack action this turn');
+    expect(getState(campaignId).turn).toMatchObject({ action: 'Attack', attacks: 2 });
+  });
+
+  it('counts a spell attack as the Magic action, not an attack of the Attack action', async () => {
+    fight();
+    rolls = [2];
+    expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: 1 })).ok).toBe(true);
+    expect(getState(campaignId).turn).toMatchObject({ action: 'Magic', attacks: 0 });
+  });
+
+  it('does not count attacks made off the character’s turn, nor limit them', async () => {
+    setState(campaignId, { active: true, round: 1, currentTokenId: OGRE, combatants: [entry(HERO, 'Hero', 18), entry(OGRE, 'Ogre', 9)] });
+    rolls = [2, 2];
+    expect((await swing()).ok).toBe(true);
+    expect((await swing()).ok).toBe(true);
+    expect(getState(campaignId).turn?.attacks).toBe(0);
+  });
+
+  it('starts counting again when the action is given back', async () => {
+    fight();
+    rolls = [2, 2];
+    await swing();
+    const sent = waitForEvent<{ turn: { attacks: number; action: string | null } }>(dm, 'initiative.state');
+    player.emit('turn.update', { action: null });
+    expect((await sent).turn).toMatchObject({ action: null, attacks: 0 });
+    expect((await swing()).ok).toBe(true);
   });
 });

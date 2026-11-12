@@ -11,6 +11,8 @@ export const TURN_LIMITS = {
   maxMovementFeet: 10000,
   /** Times Dash may be recorded in one turn. */
   maxDashes: 10,
+  /** Attacks one turn may record with the Attack action. */
+  maxAttacks: 20,
   /** Characters in the name of the action taken. */
   maxActionNameLength: 40,
 } as const;

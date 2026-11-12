@@ -22,6 +22,7 @@ export const TurnUpdateSchema = z
     dashes: z.number().int().min(0).max(TURN_LIMITS.maxDashes).optional(),
     action: z.string().trim().min(1).max(TURN_LIMITS.maxActionNameLength).nullable().optional(),
     bonusAction: z.boolean().optional(),
+    attacks: z.number().int().min(0).max(TURN_LIMITS.maxAttacks).optional(),
     reaction: z.object({ tokenId: z.string().uuid('A combatant is named by its token id'), spent: z.boolean() }).optional(),
   })
   .strict()

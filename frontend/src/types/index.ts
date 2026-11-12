@@ -1619,6 +1619,8 @@ export interface TurnState {
   /** The action taken this turn, by name, or null while it still has one. */
   action: string | null;
   bonusAction: boolean;
+  /** Attacks made with the Attack action this turn. */
+  attacks: number;
 }
 
 export interface CombatState {
@@ -1661,7 +1663,22 @@ export interface CombatActionSummary {
     area?: { shape: 'sphere' | 'cone' | 'cube' | 'line' | 'cylinder' | 'emanation'; sizeFeet: number };
   } | null;
 }
-export type CombatActionsAck = { ok: true; actions: CombatActionSummary[] } | { ok: false; error: string };
+/** A feature the turn can offer, with its rule. */
+export interface CombatFeatureOption {
+  name: string;
+  cost: 'bonusAction' | 'reaction';
+  text: string;
+}
+export type CombatActionsAck =
+  | {
+      ok: true;
+      actions: CombatActionSummary[];
+      /** Attacks the Attack action makes: 2 with Extra Attack. Null for a stat block, whose Multiattack says. */
+      attacksPerAction: number | null;
+      /** The character's features used with a Bonus Action or a Reaction. */
+      features: CombatFeatureOption[];
+    }
+  | { ok: false; error: string };
 
 export type AttackMode = 'normal' | 'advantage' | 'disadvantage';
 /** `combat.attack`: one attack from one token against another. */

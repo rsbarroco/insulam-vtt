@@ -95,7 +95,7 @@ describe('starting and passing the turn', () => {
 
   it("clears what was spent when the DM advances the turn", async () => {
     start();
-    getState(campaignId).turn = { movementSpent: 30, dashes: 0, action: 'Attack', bonusAction: true };
+    getState(campaignId).turn = { movementSpent: 30, dashes: 0, action: 'Attack', bonusAction: true, attacks: 0 };
     const sent = nextState(dm);
 
     dm.emit('initiative.next');
@@ -113,22 +113,22 @@ describe('turn.update', () => {
 
     player.emit('turn.update', { movementSpent: 12.5, action: 'Dash', dashes: 1 });
 
-    expect((await dmHears).turn).toEqual({ movementSpent: 12.5, dashes: 1, action: 'Dash', bonusAction: false });
+    expect((await dmHears).turn).toEqual({ movementSpent: 12.5, dashes: 1, action: 'Dash', bonusAction: false, attacks: 0 });
   });
 
   it('changes only the fields it names', async () => {
     start();
-    getState(campaignId).turn = { movementSpent: 20, dashes: 0, action: 'Attack', bonusAction: false };
+    getState(campaignId).turn = { movementSpent: 20, dashes: 0, action: 'Attack', bonusAction: false, attacks: 0 };
     const sent = nextState(dm);
 
     dm.emit('turn.update', { bonusAction: true });
 
-    expect((await sent).turn).toEqual({ movementSpent: 20, dashes: 0, action: 'Attack', bonusAction: true });
+    expect((await sent).turn).toEqual({ movementSpent: 20, dashes: 0, action: 'Attack', bonusAction: true, attacks: 0 });
   });
 
   it('gives an action back with null', async () => {
     start();
-    getState(campaignId).turn = { movementSpent: 0, dashes: 0, action: 'Dodge', bonusAction: false };
+    getState(campaignId).turn = { movementSpent: 0, dashes: 0, action: 'Dodge', bonusAction: false, attacks: 0 };
     const sent = nextState(dm);
 
     dm.emit('turn.update', { action: null });

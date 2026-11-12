@@ -16,15 +16,19 @@ const h = vi.hoisted(() => ({
   emitTurnUpdate: vi.fn(),
   emitTurnEnd: vi.fn(),
   rollDeathSave: vi.fn(),
+  listCombatActions: vi.fn(),
   showToast: vi.fn(),
 }));
 
 vi.mock('@/contexts/CampaignContext', () => ({ useCampaign: () => ({ userRole: h.role }) }));
-vi.mock('@/contexts/WebSocketContext', () => ({
-  useWebSocket: () => ({
-    socket: { emitTurnUpdate: h.emitTurnUpdate, emitTurnEnd: h.emitTurnEnd, rollDeathSave: h.rollDeathSave },
-  }),
-}));
+// One socket for the life of the test, as the real context gives.
+const socket = {
+  emitTurnUpdate: (...args: unknown[]) => h.emitTurnUpdate(...args),
+  emitTurnEnd: (...args: unknown[]) => h.emitTurnEnd(...args),
+  rollDeathSave: (...args: unknown[]) => h.rollDeathSave(...args),
+  listCombatActions: (...args: unknown[]) => h.listCombatActions(...args),
+};
+vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({ socket }) }));
 vi.mock('@/contexts/ToastContext', () => ({ useToast: () => ({ showToast: h.showToast }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: h.userId } }) }));
 
@@ -52,7 +56,7 @@ const HERO = token('hero', 'Hero', {
 });
 const OGRE = token('ogre', 'Ogre', { statBlock: { speed: '40 ft.' } } as Partial<Token>);
 
-const fresh: TurnState = { movementSpent: 0, dashes: 0, action: null, bonusAction: false };
+const fresh: TurnState = { movementSpent: 0, dashes: 0, action: null, bonusAction: false, attacks: 0 };
 function fight(over: Partial<CombatState> = {}) {
   useGameStore.getState().setTokens([HERO, OGRE]);
   useGameStore.getState().setCombatState({
@@ -74,6 +78,7 @@ function fight(over: Partial<CombatState> = {}) {
     ...over,
   });
 }
+h.listCombatActions.mockResolvedValue({ ok: false, error: 'none' });
 const as = (role: string, userId: string) => {
   h.role = role;
   h.userId = userId;
@@ -220,5 +225,58 @@ describe('a character at 0 Hit Points', () => {
     down(0);
     render(<TurnBar />);
     expect(screen.queryByRole('button', { name: 'Death save' })).not.toBeInTheDocument();
+  });
+});
+
+describe('what the character’s features give its turn', () => {
+  const abilities = {
+    ok: true,
+    actions: [],
+    attacksPerAction: 2,
+    features: [
+      { name: 'Second Wind', cost: 'bonusAction', text: 'As a Bonus Action, you regain Hit Points equal to 1d10 plus your Fighter level.' },
+      { name: 'Uncanny Dodge', cost: 'reaction', text: 'You can take a Reaction to halve the attack’s damage.' },
+    ],
+  };
+
+  it('counts the attacks of the Attack action against what Extra Attack allows', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue(abilities);
+    fight({ turn: { ...fresh, action: 'Attack', attacks: 1 } });
+    render(<TurnBar />);
+    expect(await screen.findByText('Attack 1 of 2')).toBeInTheDocument();
+    expect(h.listCombatActions).toHaveBeenCalledWith('hero');
+  });
+
+  it('lists the features used with a Bonus Action or a Reaction, with their rule, and spends what one costs', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue(abilities);
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Features' }));
+    expect(screen.getByText(/1d10 plus your Fighter level/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use Second Wind as a Bonus Action' }));
+    expect(h.emitTurnUpdate).toHaveBeenCalledWith({ bonusAction: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Use Uncanny Dodge as a Reaction' }));
+    expect(h.emitTurnUpdate).toHaveBeenCalledWith({ reaction: { tokenId: 'hero', spent: true } });
+  });
+
+  it('shows a feature as spent once its Bonus Action is', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue(abilities);
+    fight({ turn: { ...fresh, bonusAction: true } });
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Features' }));
+    expect(screen.getByRole('button', { name: 'Use Second Wind as a Bonus Action' })).toBeDisabled();
+  });
+
+  it('offers nothing to someone who cannot act for the character', async () => {
+    as('PLAYER', 'player-2');
+    h.listCombatActions.mockResolvedValue({ ok: false, error: 'You can only act for your own token' });
+    fight();
+    render(<TurnBar />);
+    await waitFor(() => expect(h.listCombatActions).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Features' })).not.toBeInTheDocument();
   });
 });
