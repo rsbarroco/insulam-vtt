@@ -19,13 +19,13 @@ import { extractCharacterHp } from '../../utils/characterHp';
 import { canControlToken } from '../../services/permissions';
 import { ackFrom, refuseRequest, type SocketAck } from '../ack';
 import { broadcastMapData, withinCeiling, type Token } from '../shared';
-import { bestEffort, campaignSockets, stillInCampaign } from '../utils';
+import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } from '../utils';
 import { getState as getCombatState, setState as setCombatState, someoneActing } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
 import { CombatActionsSchema, CombatAttackSchema, CombatSaveSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
-import { spellActionsFromSheet, type SheetSpellcasting } from '../../rules/dnd/spells';
+import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import type { Ability } from '../../rules/dnd/conditions';
 import type { HitPoints } from '../../rules/dnd/damage';
@@ -42,6 +42,8 @@ interface ActionSummary {
   cost: CombatAction['cost'];
   /** Present when the VTT can make the attack roll. */
   attack: { kind: 'melee' | 'ranged'; bonus: number; reachFeet?: number; rangeFeet?: { normal: number; long: number | null }; damage: string } | null;
+  /** For a spell: its level, and for a levelled one the slot levels the caster can cast it with now. */
+  spell: { level: number; slotLevels: number[] } | null;
   /** Present when the VTT can roll the targets' saving throws. */
   save: { ability: Ability; dc: number; halfOnSuccess: boolean; damage: string; rangeFeet?: number; area?: AreaOfEffect } | null;
 }
@@ -61,7 +63,7 @@ function damageText(action: CombatAction): string {
   return (action.attack?.damage ?? []).map(damageLine).filter(Boolean).join(' + ');
 }
 
-function summarizeAction(action: CombatAction, index: number): ActionSummary {
+function summarizeAction(action: CombatAction, index: number, slots: Record<number, number>): ActionSummary {
   const attack = action.attack;
   return {
     index,
@@ -69,6 +71,12 @@ function summarizeAction(action: CombatAction, index: number): ActionSummary {
     cost: action.cost,
     attack: attack
       ? { kind: attack.kind, bonus: attack.bonus, reachFeet: attack.reachFeet, rangeFeet: attack.rangeFeet, damage: damageText(action) }
+      : null,
+    spell: action.spell
+      ? {
+          level: action.spell.level,
+          slotLevels: Object.keys(slots).map(Number).filter((level) => action.spell!.level > 0 && level >= action.spell!.level),
+        }
       : null,
     save: action.save
       ? {
@@ -189,6 +197,26 @@ async function applyDealt(
   if (updated) {
     await bestEffort('map after damage', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
   }
+}
+
+/**
+ * Spend one spell slot of `level` on a character's sheet and tell the table.
+ * False when the sheet has none left there by the time it is asked, which a
+ * second cast sent at the same moment can bring about.
+ */
+async function spendSlot(campaignId: string, userId: string, characterId: string, level: number): Promise<boolean> {
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+    const fresh = await tx.character.findUnique({ where: { id: characterId } });
+    const spent = fresh ? withSlotSpent((fresh.data ?? {}) as SheetSpellcasting, level) : null;
+    if (!spent) return null;
+    return tx.character.update({ where: { id: characterId }, data: { data: toJson(spent) } });
+  });
+  if (!updated) return false;
+  await bestEffort('sheet after a spell slot was spent', () =>
+    emitCharacterUpdated(campaignId, updated, { characterId, userId, tokensChanged: false })
+  );
+  return true;
 }
 
 /** On its own turn, what a combatant just did is its action, if it had not taken one. */
@@ -339,8 +367,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!token || !canControlToken(socket.role, token.controlledBy, socket.userId)) {
         return refuseRequest(socket, ack, 'You can only act for your own token');
       }
-      const actions = actionsOf(token, await sheetOf(token, socket.campaignId));
-      if (ack) ack({ ok: true, actions: actions.map(summarizeAction) });
+      const sheet = await sheetOf(token, socket.campaignId);
+      const slots = slotsLeft(sheet as SheetSpellcasting | null);
+      if (ack) ack({ ok: true, actions: actionsOf(token, sheet).map((action, index) => summarizeAction(action, index, slots)) });
     } catch (error) {
       logger.error('combat.actions failed', { err: error });
       refuseRequest(socket, ack, 'Failed to list actions');
@@ -358,7 +387,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, action: actionIndex, mode } = parsed.data;
+      const { attackerId, targetId, action: actionIndex, mode, slotLevel } = parsed.data;
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -373,8 +402,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       const [attackerSheet, targetSheet] = await Promise.all([sheetOf(attackerToken, campaignId), sheetOf(targetToken, campaignId)]);
-      const action = actionsOf(attackerToken, attackerSheet)[actionIndex];
-      if (!action) return refuseRequest(socket, ack, 'That action is not one the attacker has');
+      const listed = actionsOf(attackerToken, attackerSheet)[actionIndex];
+      if (!listed) return refuseRequest(socket, ack, 'That action is not one the attacker has');
+      const cast = castWithSlot(attackerSheet as SheetSpellcasting | null, listed, slotLevel);
+      if ('error' in cast) return refuseRequest(socket, ack, cast.error);
+      const action = cast.action;
 
       const result = resolveAttack({
         attacker: combatant(attackerToken, attackerSheet),
@@ -391,6 +423,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         mode,
       });
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      // The slot goes before the damage: a cast that finds it gone changes nothing.
+      if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, attackerToken.characterId!, cast.slotLevel))) {
+        return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
+      }
 
       await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp }]);
       await spendAction(io, campaignId, attackerId, 'Attack');
@@ -417,7 +453,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.save', ack)) return;
       const parsed = CombatSaveSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { sourceId, targetIds, action: actionIndex } = parsed.data;
+      const { sourceId, targetIds, action: actionIndex, slotLevel } = parsed.data;
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -436,8 +472,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       const sourceSheet = await sheetOf(sourceToken, campaignId);
-      const action = actionsOf(sourceToken, sourceSheet)[actionIndex];
-      if (!action) return refuseRequest(socket, ack, 'That action is not one the creature has');
+      const listed = actionsOf(sourceToken, sourceSheet)[actionIndex];
+      if (!listed) return refuseRequest(socket, ack, 'That action is not one the creature has');
+      const cast = castWithSlot(sourceSheet as SheetSpellcasting | null, listed, slotLevel);
+      if ('error' in cast) return refuseRequest(socket, ack, cast.error);
+      const action = cast.action;
       const ability = action.save?.ability;
       if (!ability) return refuseRequest(socket, ack, `${action.name} calls for no saving throw the VTT can make`);
 
@@ -460,6 +499,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         },
       });
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, sourceToken.characterId!, cast.slotLevel))) {
+        return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
+      }
 
       await applyDealt(
         io,

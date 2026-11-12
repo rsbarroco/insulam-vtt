@@ -6,7 +6,7 @@
  * areas holds on spells whose rules are well known.
  */
 
-import { spellActionsFromSheet, actionFromSpell, allSpells, filterSpells, findSpell, spellDamage, spellMechanics, SRD_ATTRIBUTION } from '../spells';
+import { castWithSlot, slotsLeft, withSlotSpent, spellActionsFromSheet, actionFromSpell, allSpells, filterSpells, findSpell, spellDamage, spellMechanics, SRD_ATTRIBUTION } from '../spells';
 
 const spell = (name: string) => {
   const found = findSpell(name);
@@ -164,5 +164,51 @@ describe('the spells on a sheet', () => {
   it('lists nothing for a sheet that does not cast', () => {
     expect(spellActionsFromSheet({ spellcasting: { cantrips: ['Fire Bolt'] } })).toEqual([]);
     expect(spellActionsFromSheet(null)).toEqual([]);
+  });
+});
+
+describe('spell slots', () => {
+  const sheet = {
+    level: 5,
+    spellcasting: {
+      spellAttackBonus: 7,
+      spellSaveDC: 15,
+      cantrips: ['Fire Bolt'],
+      spells: [{ name: 'Fireball', level: 3, prepared: true }],
+      slots: { '1': { total: 4, expended: 4 }, '3': { total: 2, expended: 1 }, '4': { total: 1, expended: 0 } },
+    },
+  };
+  const [bolt, fireball] = spellActionsFromSheet(sheet);
+
+  it('counts what is left at each level', () => {
+    expect(slotsLeft(sheet)).toEqual({ 3: 1, 4: 1 });
+    expect(slotsLeft(null)).toEqual({});
+  });
+
+  it('casts a spell at its own level by default, and stronger with a higher slot', () => {
+    expect(castWithSlot(sheet, fireball)).toMatchObject({ slotLevel: 3, action: { save: { damage: [{ roll: { count: 8 } }] } } });
+    expect(castWithSlot(sheet, fireball, 4)).toMatchObject({ slotLevel: 4, action: { save: { damage: [{ roll: { count: 9 } }] } } });
+  });
+
+  it('refuses a slot too low, and a level with nothing left', () => {
+    expect(castWithSlot(sheet, fireball, 1)).toEqual({ error: 'Fireball needs a spell slot of level 3 or higher' });
+    expect(castWithSlot(sheet, fireball, 5)).toEqual({ error: 'No level 5 spell slot left to cast Fireball' });
+  });
+
+  it('takes no slot for a cantrip or for an action that is not a spell', () => {
+    expect(castWithSlot(sheet, bolt)).toMatchObject({ slotLevel: null });
+    expect(castWithSlot(sheet, bolt, 1)).toEqual({ error: 'Fire Bolt is a cantrip, and takes no spell slot' });
+    const sword = { name: 'Longsword', cost: 'action' as const, source: 'sheet' as const };
+    expect(castWithSlot(sheet, sword)).toEqual({ action: sword, slotLevel: null });
+    expect(castWithSlot(sheet, sword, 1)).toMatchObject({ error: expect.stringContaining('not a spell') });
+  });
+
+  it('spends one slot and nothing else', () => {
+    const spent = withSlotSpent(sheet, 3);
+    expect(spent?.spellcasting.slots['3']).toEqual({ total: 2, expended: 2 });
+    expect(spent?.spellcasting.slots['4']).toEqual({ total: 1, expended: 0 });
+    expect(sheet.spellcasting.slots['3'].expended).toBe(1);
+    expect(withSlotSpent(spent!, 3)).toBeNull();
+    expect(withSlotSpent(sheet, 2)).toBeNull();
   });
 });

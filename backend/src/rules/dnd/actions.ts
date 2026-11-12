@@ -55,6 +55,8 @@ export interface CombatAction {
   rangeFeet?: number;
   /** The area it fills, when it fills one. */
   area?: AreaOfEffect;
+  /** The spell it casts, when it is one: its catalogue id and its own level (0 for a cantrip). */
+  spell?: { id: string; level: number };
   /** The action as written, for the table to read and for what could not be read here. */
   text?: string;
 }

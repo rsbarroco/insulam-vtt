@@ -187,7 +187,13 @@ export function actionFromSpell(spell: Spell, caster: Caster, slotLevel: number 
   const mechanics = spellMechanics(spell);
   if (!mechanics.cost) return null;
   const damage = spellDamage(spell, mechanics, slotLevel, caster.level);
-  const action: CombatAction = { name: spell.name, cost: mechanics.cost, source: 'spell', text: spell.description.join('\n\n') };
+  const action: CombatAction = {
+    name: spell.name,
+    cost: mechanics.cost,
+    source: 'spell',
+    spell: { id: spell.id, level: spell.level },
+    text: spell.description.join('\n\n'),
+  };
   if (mechanics.rangeFeet !== null) action.rangeFeet = mechanics.rangeFeet;
   if (mechanics.area) action.area = mechanics.area;
   if (mechanics.attack === 'melee') {
@@ -208,6 +214,7 @@ export interface SheetSpellcasting {
     spellAttackBonus?: number;
     cantrips?: readonly string[];
     spells?: ReadonlyArray<{ name: string; level: number; prepared?: boolean }>;
+    slots?: Partial<Record<string, { total?: number; expended?: number } | undefined>> | null;
   } | null;
 }
 
@@ -235,4 +242,58 @@ export function spellActionsFromSheet(data: SheetSpellcasting | null | undefined
     if (action) actions.push(action);
   }
   return actions;
+}
+
+/** The spell slots a sheet has left, by level. Levels with none left are absent. */
+export function slotsLeft(data: SheetSpellcasting | null | undefined): Record<number, number> {
+  const left: Record<number, number> = {};
+  for (let level = 1; level <= 9; level++) {
+    const slot = data?.spellcasting?.slots?.[String(level)];
+    const remaining = Math.max(0, Math.floor(slot?.total ?? 0) - Math.floor(slot?.expended ?? 0));
+    if (remaining > 0) left[level] = remaining;
+  }
+  return left;
+}
+
+/**
+ * A spell action of a sheet as it is cast with a slot of `slotLevel`: the
+ * same action with the damage of that slot. A cantrip takes no slot. Refuses
+ * a slot below the spell's level, and a level the sheet has no slot left at.
+ * `slotLevel` left out means the spell's own level.
+ */
+export function castWithSlot(
+  data: SheetSpellcasting | null | undefined,
+  action: CombatAction,
+  slotLevel?: number
+): { action: CombatAction; slotLevel: number | null } | { error: string } {
+  const cast = action.spell;
+  const spell = cast ? findSpell(cast.id) : null;
+  const casting = data?.spellcasting;
+  if (!spell || !casting || typeof casting.spellAttackBonus !== 'number' || typeof casting.spellSaveDC !== 'number') {
+    return slotLevel === undefined ? { action, slotLevel: null } : { error: `${action.name} is not a spell, and takes no spell slot` };
+  }
+  if (spell.level === 0) {
+    return slotLevel === undefined || slotLevel === 0 ? { action, slotLevel: null } : { error: `${spell.name} is a cantrip, and takes no spell slot` };
+  }
+  const level = slotLevel ?? spell.level;
+  if (level < spell.level) return { error: `${spell.name} needs a spell slot of level ${spell.level} or higher` };
+  if (!slotsLeft(data)[level]) return { error: `No level ${level} spell slot left to cast ${spell.name}` };
+  const caster: Caster = { spellAttackBonus: casting.spellAttackBonus, spellSaveDC: casting.spellSaveDC, level: data?.level };
+  return { action: actionFromSpell(spell, caster, level) ?? action, slotLevel: level };
+}
+
+/**
+ * The sheet with one slot of `level` spent, or null when it has none left
+ * there. Changes nothing but that slot's `expended`.
+ */
+export function withSlotSpent<T extends SheetSpellcasting>(data: T, level: number): T | null {
+  const slot = data.spellcasting?.slots?.[String(level)];
+  if (!data.spellcasting || !slot || !slotsLeft(data)[level]) return null;
+  return {
+    ...data,
+    spellcasting: {
+      ...data.spellcasting,
+      slots: { ...data.spellcasting.slots, [String(level)]: { ...slot, expended: Math.floor(slot.expended ?? 0) + 1 } },
+    },
+  };
 }
