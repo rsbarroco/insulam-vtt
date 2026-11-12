@@ -34,7 +34,7 @@ This guide covers deploying CozyVTT to a **production server** using Docker Comp
 - A domain name pointing to your server's IP (optional for LAN-only use)
 - At least 1 GB RAM; 2 GB recommended for comfortable operation
 
-Once it is built, CozyVTT needs no internet access to run, and visitors' browsers contact no site but yours: the pages, pictures and fonts all come from your own server. Building the images downloads software, and the Creature Library's **Import D&D 5e SRD** button fetches the creatures from Open5e (api.open5e.com) when an administrator presses it; email is sent only through the SMTP server you configure.
+Once it is built, CozyVTT needs no internet access to run, and visitors' browsers contact no site but yours: the pages, pictures and fonts all come from your own server. Building the images downloads software; the Creature Library's creatures come with CozyVTT and are imported without contacting anything; email is sent only through the SMTP server you configure.
 
 ---
 

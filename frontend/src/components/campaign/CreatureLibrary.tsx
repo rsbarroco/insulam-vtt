@@ -62,7 +62,7 @@ const SOURCE_FILTERS = [
 ];
 
 /**
- * The credit the SRD 5.1's licence, CC BY 4.0, asks for wherever its material
+ * The credit the SRD 5.2.1's licence, CC BY 4.0, asks for wherever its material
  * is shown: beside the import, and at the foot of the library whenever it
  * lists an SRD creature. SRD_ATTRIBUTION.md has the full notice.
  */
@@ -71,12 +71,12 @@ function SrdCredit({ className = '' }: { className?: string }) {
     <p className={`text-[10px] text-stone-gray/60 ${className}`}>
       Includes material from the{' '}
       <a
-        href="https://dnd.wizards.com/resources/systems-reference-document"
+        href="https://www.dndbeyond.com/srd"
         target="_blank"
         rel="noopener noreferrer"
         className="underline hover:text-brand-ink"
       >
-        System Reference Document 5.1
+        System Reference Document 5.2.1
       </a>{' '}
       by Wizards of the Coast LLC, licensed under{' '}
       <a
@@ -87,7 +87,7 @@ function SrdCredit({ className = '' }: { className?: string }) {
       >
         CC BY 4.0
       </a>
-      . Served by Open5e.
+      .
     </p>
   );
 }
@@ -149,6 +149,8 @@ export default function CreatureLibrary({ isOpen, onClose }: CreatureLibraryProp
   const [srdCount, setSrdCount] = useState<number | null>(null);
   // Only an administrator may import the SRD creatures; the server says who.
   const [canSeed, setCanSeed] = useState(false);
+  // The SRD creatures stored are from an earlier import (the 2014 ones): an import replaces them.
+  const [srdOutdated, setSrdOutdated] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [seedResult, setSeedResult] = useState<string | null>(null);
   // Kept apart from `error`, which every list load clears, so a failed
@@ -201,7 +203,11 @@ export default function CreatureLibrary({ isOpen, onClose }: CreatureLibraryProp
     fetchCreatures(true);
     // Also check seed status and load favorites
     api.getSeedStatus(campaign.id)
-      .then((s) => { setSrdCount(s.srdCount); setCanSeed(s.canSeed === true); })
+      .then((s) => {
+        setSrdCount(s.srdCount);
+        setCanSeed(s.canSeed === true);
+        setSrdOutdated(s.srdOutdated === true);
+      })
       .catch(() => {}); // non-critical
     setIsLoadingFavorites(true);
     api.listCreatureFavorites(campaign.id)
@@ -238,15 +244,18 @@ export default function CreatureLibrary({ isOpen, onClose }: CreatureLibraryProp
 
     try {
       const result = await api.seedSrdCreatures(campaign.id);
-      const updatedNote = result.updated ? `, ${result.updated} updated with hit points` : '';
-      setSeedResult(
-        `Seeded ${result.created} SRD creatures${updatedNote} (${result.skipped} already existed).`
-      );
-      setSrdCount((result.alreadyExisted || 0) + result.created);
+      const notes = [
+        result.updated ? `${result.updated} replaced with the 2024 stat block` : '',
+        result.removed ? `${result.removed} that the 2024 rules do not have removed` : '',
+        result.skipped ? `${result.skipped} already up to date` : '',
+      ].filter(Boolean);
+      setSeedResult(`Imported ${result.created} SRD creatures${notes.length > 0 ? ` (${notes.join(', ')})` : ''}.`);
+      setSrdCount((result.alreadyExisted || 0) + result.created - (result.removed || 0));
+      setSrdOutdated(false);
       // Refresh the list
       fetchCreatures(true);
     } catch (err) {
-      setSeedError(apiErrorMessage(err) || 'Failed to seed SRD creatures. Check that the server can reach api.open5e.com.');
+      setSeedError(apiErrorMessage(err) || 'Failed to import the SRD creatures.');
     } finally {
       setIsSeeding(false);
     }
@@ -609,7 +618,7 @@ export default function CreatureLibrary({ isOpen, onClose }: CreatureLibraryProp
             {!searchQuery && srdCount === 0 && canSeed && (
               <div className="mt-4 space-y-2">
                 <p className="text-xs text-stone-gray/60">
-                  Import ~320 official D&D 5e SRD creatures with full stat blocks, for every campaign on this server.
+                  Import the 330 creatures of the D&D 2024 SRD with full stat blocks, for every campaign on this server.
                 </p>
                 <Button
                   onClick={handleSeedSrd}
@@ -617,7 +626,7 @@ export default function CreatureLibrary({ isOpen, onClose }: CreatureLibraryProp
                   className="text-xs py-2 px-4"
                 >
                   {isSeeding ? (
-                    <><Loader2 className="w-3 h-3 animate-spin inline mr-1" /> Importing from Open5e...</>
+                    <><Loader2 className="w-3 h-3 animate-spin inline mr-1" /> Importing...</>
                   ) : (
                     'Import D&D 5e SRD Creatures'
                   )}
@@ -672,6 +681,18 @@ export default function CreatureLibrary({ isOpen, onClose }: CreatureLibraryProp
           </div>
         )}
       </div>
+      {srdOutdated && canSeed && (
+        <div className="px-4 py-2 border-t border-moss-green/10 space-y-1">
+          <p className="text-xs text-stone-gray">
+            The SRD creatures here are from an earlier import. Updating replaces them with the 330
+            creatures of the D&D 2024 rules and removes the ones those rules do not have, for every
+            campaign on this server. Custom creatures are not touched.
+          </p>
+          <Button onClick={handleSeedSrd} disabled={isSeeding} variant="secondary" className="text-xs py-1 px-3">
+            {isSeeding ? 'Updating…' : 'Update to the 2024 creatures'}
+          </Button>
+        </div>
+      )}
       {creatures.some((c) => c.source === 'srd') && (
         <SrdCredit className="px-4 py-2 border-t border-moss-green/10" />
       )}

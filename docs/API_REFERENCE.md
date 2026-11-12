@@ -1129,9 +1129,9 @@ Check whether SRD creatures have been seeded, and whether you may run the import
 
 ### `POST /api/campaigns/:id/creatures/seed`
 
-Seed SRD creatures from Open5e. Administrators only: anyone else, a campaign's DM included, gets `403` with "Only an administrator can import the SRD creatures, because every campaign on this server shares them. Ask an administrator to import them." The campaign in the address plays no part, and the creatures appear in every campaign's library. Safe to call multiple times; existing SRD creatures are not duplicated. Returns `409` if seeding is already in progress, and `502`, having written nothing, when Open5e cannot be read, does not answer a page within 15 seconds, or answers something the import will not follow; the `message` says which. A creature whose stat block the Creature Library would refuse is left out and counted in `rejected`.
+Fill the library with the 330 creatures of the System Reference Document 5.2.1, which come with the server; nothing is fetched. Administrators only: anyone else, a campaign's DM included, gets `403` with "Only an administrator can import the SRD creatures, because every campaign on this server shares them. Ask an administrator to import them." The campaign in the address plays no part, and the creatures appear in every campaign's library. Safe to call again: a creature already stored with the same stat block is left alone. Returns `409` if seeding is already in progress.
 
-SRD creatures stored before hit points were tracked are updated in place with `hpMax` and `hitDice`; only those missing keys are added, and custom creatures are never modified.
+An SRD creature stored before under the same name, such as a 2014 one from an earlier import, gets the 2024 stat block and keeps its picture; an SRD creature the 2024 document does not have is removed, with its favourites. Custom creatures are never modified. The answer counts `created`, `updated`, `removed`, `skipped` and `rejected`.
 
 **Response:**
 ```json
