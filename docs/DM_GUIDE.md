@@ -969,6 +969,16 @@ The tactical view shows where a token can go this turn, by the D&D rules of move
 
 The reach is a guide, not a lock: a token can still be put down outside it, on a square tinted amber, where the hint says "out of reach". Players see the reach of any token that has a speed, worked out from the tokens they can see. Difficult terrain, climbing and flying speeds, and Dash are not counted yet.
 
+### Distance and cover
+
+Pick a token up and carry it over another token, and the tactical view measures from where the carried token **stands** to the one under the pointer. A dashed line joins the two, and the hint reads, for example, "40 ft to Knight, half cover (+2 AC)". Press **Esc** to put the token back without moving it.
+
+- **Distance** counts the squares between the two tokens' nearest edges, by the map's diagonal setting. If one stands much higher than the other, the difference in height is used when it is the greater.
+- **Cover** comes from the ground between them. A creature stands two height steps tall for each square of its size, and the view looks from the top of the attacker at four heights on the target: none hidden is no cover, one or two is half cover, three is three-quarters cover, and all four is total cover, which the rules say cannot be targeted. Another creature standing on the line gives at least half cover. The line is green for no cover, amber for some, red for total.
+- High ground matters: an archer on a tower sees over a wall that hides the target from the ground, and the creatures below have cover from the tower's own edge.
+
+Walls drawn in the top-down view are not counted, only tile heights and creatures. The view tells you the cover; applying the bonus to Armor Class is still yours.
+
 ## Fog of War
 
 Fog of war covers your map and lets you reveal it a piece at a time, so players discover a dungeon room by room instead of seeing the whole floor plan at once. You control it by hand — nothing is revealed until you say so.

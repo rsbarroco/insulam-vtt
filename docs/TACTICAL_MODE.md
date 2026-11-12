@@ -94,7 +94,7 @@ own data.
 | 5 | Movement reach | Move and Jump values on a token, the reach flood fill, highlighted cells and a path preview while a token is carried. | `map/iso/reach.ts`, `map/iso/tacticalStats.ts` |
 | 6 | Movement by the rules | Speed read from the character sheet or stat block and turned into squares, eight-way movement with the map's diagonal rule, slopes, climbs and drops by height. The reach and its cost in feet. | `map/iso/reach.ts`, `map/iso/tacticalStats.ts` |
 | 7 | The turn | What a creature has spent this turn, kept by the server beside the initiative order: movement, action, bonus action and reaction. An action bar in the tactical view, with Dash, Disengage and the other standard actions that change movement. | `initiativeState.ts`, `InitiativeTracker.tsx`, `TacticalMapCanvas.tsx` |
-| 8 | Reach, range and cover | Whether a target is within a weapon's reach or range, long range, line of sight over raised ground, cover from terrain, and the rules' areas of effect drawn on the tactical board. | `map/iso/`, `map/aoeGeometry.ts` |
+| 8 | Distance, sight and cover | The distance between two creatures in feet, whether one can see the other over raised ground, and the cover the ground and other creatures give, shown while a token is carried over a target. Weapon ranges and areas of effect come with actions as data (phase 10) and combat resolution (phase 14). | `map/iso/sight.ts`, `TacticalMapCanvas.tsx` |
 
 ### The game on the board
 
@@ -135,12 +135,20 @@ off for ordinary single-class characters.
   caster levels, never above the character's level.
 - **Multiclassing** within either track stays as the rules have it.
 
-On top of that a campaign chooses its house rules, each a switch in the
-campaign's settings that character creation obeys. Which ones exist is the
-owner's call and is still open; the candidates are free feats on a schedule,
-ability score increases not tied to background, swapping a class feature for
-another, multiclassing without ability prerequisites, an early or second
-subclass, and a larger point buy.
+On top of that a campaign has house rules, each a switch in the campaign's
+settings that character creation obeys. They are on by default, and a
+campaign that wants the rules as written turns them off.
+
+- **Ability scores go to 22**, not 20.
+- **Every fourth level gives both a feat and +2 to ability scores** (+2 to
+  one score or +1 to two), at character levels 4, 8, 12, 16 and 20, in place
+  of the choice between the two. A feat's own +1 to a score still applies.
+  The extra improvements some classes get at other levels give the same
+  pair. Gestalt does not double it: one such gain per level.
+- **Background ability scores are unlinked.** The increases a background
+  gives go to any scores the player chooses.
+- **The background's feat is free.** A character takes any origin feat,
+  whatever the background.
 
 ### Where the rules meet the board
 
@@ -159,6 +167,15 @@ matters, change per map.
   foot costs a foot more, as the rules say of climbing.
 - **Falls.** A drop of 10 feet or more can be jumped instead of climbed; the
   view warns of the fall and its damage.
+- **Distance.** Between two creatures: the squares between their nearest
+  edges, counted by the map's diagonal setting, or the difference in the
+  height of the ground they stand on if that is the greater.
+- **Sight and cover.** A creature stands two height steps tall for each
+  square of its size. Lines run from the top of the attacker to four heights
+  on the target. Ground that rises above a line blocks it. None blocked is no
+  cover, one or two is half cover, three is three-quarters cover, and four is
+  total cover: the target cannot be seen. Another creature in the way gives
+  at least half cover, as the rules say.
 - **Turn order.** Initiative, as the tracker keeps it. No facing.
 
 ## Status
@@ -173,4 +190,5 @@ matters, change per map.
 | 5 Movement reach | Done, then reworked by phase 6: the reach flood fill, highlighted cells and path preview |
 | 6 Movement by the rules | Done: speed from the stat block or set on the token, eight-way movement with the map's diagonal rule, slopes, climbs and falls, in `map/iso/reach.ts`. Replaces phase 5's Move and Jump. Player character speed is set by hand until the server reads sheets |
 | 7 The turn | Done: `turn` and `reactionsSpent` in the combat state, the `turn.update` and `turn.end` events, and `TurnBar.tsx` under the map. Movement is counted for moves in the tactical view. Counts are kept, not enforced |
-| 8 to 14 | Not started |
+| 8 Distance, sight and cover | Done: `map/iso/sight.ts`, shown as a line and a hint while a token is carried over another. Walls from the top-down view are not counted |
+| 9 to 14 | Not started |

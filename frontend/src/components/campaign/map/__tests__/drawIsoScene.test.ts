@@ -49,6 +49,7 @@ function recordingContext() {
     closePath: noop,
     clip: noop,
     stroke: noop,
+    setLineDash: noop,
     drawImage: () => calls.push('image'),
     ellipse: noop,
     arc: (x: number, y: number) => calls.push(`arc:${Math.round(x)},${Math.round(y)}`),
