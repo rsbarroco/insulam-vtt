@@ -134,7 +134,9 @@ def parse(lines):
 def main():
     if len(sys.argv) != 2:
         raise SystemExit(__doc__)
-    lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+    text = Path(sys.argv[1]).read_text(encoding="utf-8")
+    # A soft hyphen at the end of a line joins the two halves of a word; anywhere else it is dropped.
+    lines = re.sub(r"\u00ad\n\s*", "", text).replace("\u00ad", "").splitlines()
     spells = parse(section([line.strip() for line in lines]))
     document = {
         "source": "System Reference Document 5.2.1",
