@@ -17,12 +17,13 @@ This guide focuses on DM-specific features. For general platform features (chara
 7. [Managing Your Players](#managing-your-players)
 8. [Running a Session](#running-a-session)
 9. [Combat and Initiative](#combat-and-initiative)
-10. [Fog of War](#fog-of-war)
-11. [Walls & Dynamic Lighting](#walls--dynamic-lighting)
-12. [The Spirit Layer](#the-spirit-layer)
-13. [Atmosphere Controls](#atmosphere-controls)
-14. [Session State and Continuity](#session-state-and-continuity)
-15. [Tips and Best Practices](#tips-and-best-practices)
+10. [The Tactical View](#the-tactical-view)
+11. [Fog of War](#fog-of-war)
+12. [Walls & Dynamic Lighting](#walls--dynamic-lighting)
+13. [The Spirit Layer](#the-spirit-layer)
+14. [Atmosphere Controls](#atmosphere-controls)
+15. [Session State and Continuity](#session-state-and-continuity)
+16. [Tips and Best Practices](#tips-and-best-practices)
 
 ---
 
@@ -917,6 +918,16 @@ Click the remove button next to any combatant to pull them from the tracker (whe
 Click **End combat** (the circled ✕ beside **Next Turn**) and confirm with **End Combat**. The order is cleared for everyone; the initiative values stay on the tokens, and the next fight starts from an empty order as you add combatants to it.
 
 ---
+
+## The Tactical View
+
+The **Tactical view** button at the top of the map draws the current map on a diamond grid, seen from an angle, with each square raised to its height. Your map picture is laid over the tops of the tiles, so any map you already have works. **Top-down view** switches back. Each person chooses their own view.
+
+- Turn the view a quarter turn at a time with the arrow buttons or **Q** and **E**. Zoom with the wheel, drag to pan.
+- Tokens are picked up and put down with a click, as in the top-down view, and the move reaches everyone in either view.
+- The grid button hides or shows the grid lines.
+
+**What it does not do yet.** The tactical view draws no fog of war and no dynamic lighting, so players are offered it only on a map where both are off; on any other map they stay in the top-down view, and are returned to it if you switch either on. You may use it on any map. Walls, lights, fog, the ruler, hit point bars and the token menu are in the top-down view only. A square's height is set through the API for now (`PUT /api/campaigns/{campaignId}/maps/{id}/heights`); a brush for painting heights on the map comes next. The plan is in [TACTICAL_MODE.md](TACTICAL_MODE.md).
 
 ## Fog of War
 
