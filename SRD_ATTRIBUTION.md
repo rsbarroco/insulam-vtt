@@ -74,6 +74,13 @@ of the document's "Monsters A–Z" and "Animals" sections, built by
 creature's Initiative, its gear and the number of its legendary actions have
 no field there and are kept in its notes.
 
+`backend/src/rules/dnd/data/srd-5.2.1-rules.json` is the text of the
+document's "Playing the Game" chapter and of its "Rules Glossary", built by
+`scripts/srd-rules.py`: every heading with its paragraphs, tables and
+sidebars, in the document's words. The **Rules of play** panel of a campaign
+shows it, with this credit at its foot. Bold and italic inside a paragraph
+are not kept.
+
 SRD 5.2.1 is released under the Creative Commons Attribution 4.0 International
 Licence only. The required notice is in [SRD_LICENSE.txt](SRD_LICENSE.txt) and
 reads:

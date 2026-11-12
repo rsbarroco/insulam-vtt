@@ -701,6 +701,10 @@ The notes stay with your campaign. If the investigator is moved into another cam
 
 Players assign their own characters to your campaign when they accept an invitation. If a player needs to swap characters (e.g., death, retirement, trying a new one), they can reassign from their Characters page, or you can coordinate with them.
 
+### The Rules of Play
+
+The **Rules of play** button (the scales icon beside the book) opens the rules the VTT resolves by, for you and for every player: the "Playing the Game" chapter and the "Rules Glossary" of the System Reference Document 5.2.1, in the document's own words, with a search. It is offered in a campaign set to D&D 5e or to no system. It is the open reference document only; a rulebook of your own goes in the campaign's documents.
+
 ### Sharing Rulebooks and Handouts
 
 The **Campaign documents** button (the book icon to the right of the DM toolbar) opens the documents shared with this campaign. Every member sees it; what the DM sees in addition is the means to change it.

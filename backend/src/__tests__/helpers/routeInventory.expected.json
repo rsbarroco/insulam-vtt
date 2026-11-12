@@ -797,6 +797,16 @@
       ]
     },
     {
+      "method": "GET",
+      "path": "/api/campaigns/:campaignId/rules/dnd/reference",
+      "handlers": [
+        "requireAuth",
+        "loadCampaignMembership",
+        "requireCampaignMember",
+        "<anonymous>"
+      ]
+    },
+    {
       "method": "POST",
       "path": "/api/campaigns/:campaignId/rules/dnd/build",
       "handlers": [

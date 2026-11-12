@@ -134,6 +134,7 @@ const TESTED: Record<string, string> = {
   'PUT /api/campaigns/:campaignId/maps/:id/lighting': 'routes/__tests__/mapSettings.e2e.test.ts',
   'GET /api/campaigns/:campaignId/rules/dnd': 'routes/__tests__/rulesDnd.e2e.test.ts',
   'POST /api/campaigns/:campaignId/rules/dnd/build': 'routes/__tests__/rulesDnd.e2e.test.ts',
+  'GET /api/campaigns/:campaignId/rules/dnd/reference': 'routes/__tests__/rulesDnd.e2e.test.ts',
   'POST /api/characters': 'routes/__tests__/characterValidate.e2e.test.ts',
   'GET /api/characters/:id': 'routes/__tests__/memberRemovalCharacters.e2e.test.ts',
   'GET /api/characters/:id/validate': 'routes/__tests__/characterValidate.e2e.test.ts',

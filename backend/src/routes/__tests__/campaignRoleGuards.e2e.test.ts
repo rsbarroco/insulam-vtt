@@ -97,6 +97,7 @@ const ANY_MEMBER = [
   'DELETE /api/campaigns/:campaignId/macros/:macroId',
   'GET /api/campaigns/:campaignId/rules/dnd',
   'POST /api/campaigns/:campaignId/rules/dnd/build',
+  'GET /api/campaigns/:campaignId/rules/dnd/reference',
   'GET /api/campaigns/:campaignId/documents',
   'GET /api/campaigns/:campaignId/creatures/seed/status',
   'GET /api/campaigns/:campaignId/maps',

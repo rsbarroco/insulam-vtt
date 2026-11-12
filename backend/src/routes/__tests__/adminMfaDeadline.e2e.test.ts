@@ -175,10 +175,13 @@ describe('an invited administrator', () => {
   it('gains nothing from a reset link, which is not an invitation', async () => {
     await policyStartedLongAgo();
     const { user, token } = await invited(6.5, { linkLastsMs: 7 * DAY });
-    // A reset link lasts an hour and was issued just now.
+    // A reset link lasts an hour and was issued just now. Both ends are read
+    // off one clock reading: a millisecond between two made the link an hour
+    // and a millisecond long, which is an invitation.
+    const now = Date.now();
     await prisma.passwordResetToken.updateMany({
       where: { userId: user.id },
-      data: { createdAt: new Date(Date.now() - 60_000), expiresAt: new Date(Date.now() + 59 * 60_000) },
+      data: { createdAt: new Date(now - 60_000), expiresAt: new Date(now + 59 * 60_000) },
     });
     const days = await acceptAndReadDeadline(user.email, token);
     expect(days).toBeGreaterThan(0.4);

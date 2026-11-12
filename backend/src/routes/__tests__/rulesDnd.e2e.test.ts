@@ -101,6 +101,27 @@ describe('GET /api/campaigns/:campaignId/rules/dnd', () => {
   });
 });
 
+describe('GET /api/campaigns/:campaignId/rules/dnd/reference', () => {
+  it('gives a member the rules of play, in the document’s words', async () => {
+    const res = await player.get(`/api/campaigns/${campaignId}/rules/dnd/reference`);
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe('System Reference Document 5.2.1');
+    const titles = res.body.sections.map((section: { title: string }) => section.title);
+    expect(titles).toEqual(expect.arrayContaining(['Opportunity Attacks', 'Dodge [Action]', 'Prone [Condition]', 'Falling [Hazard]']));
+    const falling = res.body.sections.find((section: { id: string }) => section.id === 'rules-glossary-falling-hazard');
+    expect(falling.blocks[0].text).toMatch(/^A creature that falls takes 1d6 Bludgeoning damage/);
+  });
+
+  it('is for members, of a campaign the VTT resolves D&D for', async () => {
+    expect((await outsider.get(`/api/campaigns/${campaignId}/rules/dnd/reference`)).status).toBe(403);
+    // A campaign with no system set has its combat resolved by these rules too.
+    expect((await player.get(`/api/campaigns/${otherSystemId}/rules/dnd/reference`)).status).toBe(200);
+    await prisma.campaign.update({ where: { id: otherSystemId }, data: { gameSystem: 'PATHFINDER_2E' } });
+    expect((await player.get(`/api/campaigns/${otherSystemId}/rules/dnd/reference`)).status).toBe(404);
+    await prisma.campaign.update({ where: { id: otherSystemId }, data: { gameSystem: null } });
+  });
+});
+
 describe('POST /api/campaigns/:campaignId/rules/dnd/build', () => {
   it('builds a sheet the character route accepts', async () => {
     const res = await player.post(`/api/campaigns/${campaignId}/rules/dnd/build`).send(choices);
