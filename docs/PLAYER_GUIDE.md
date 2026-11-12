@@ -294,6 +294,17 @@ A creature at **zero hit points** is the exception. It's drawn faded to show it'
 
 If your token ends up underneath another one anyway — your DM can place tokens wherever they like — clicking the square still picks up **your** token, not the one drawn over it. You can always get your own token back.
 
+### The tactical view
+
+When your DM is using a map without fog of war or dynamic lighting, a **Tactical view** button appears at the top of the map. It shows the same map from an angle, with raised ground drawn as raised tiles, the way tactical role-playing games do. **Top-down view** takes you back. The choice is yours alone; nobody else's view changes.
+
+- **Turn the view** a quarter turn at a time with the two arrow buttons or the **Q** and **E** keys, so nothing stays hidden behind a tall tile.
+- **Zoom** with the mouse wheel, **drag** to pan, and use the frame button to fit the whole map back on screen.
+- **Move your token** exactly as in the top-down view: click it to pick it up, click a square to put it down, or press **Esc** to put it back.
+- The bottom-left corner shows the square under your pointer and its height.
+
+The ruler and spell areas are in the top-down view only for now. If the DM switches fog or lighting on while you are in the tactical view, the map goes back to the top-down view by itself.
+
 ## Your Own Notes
 
 The **Notes** tab is yours alone. Keep up to 200 notes for a campaign — a plan for next session, what you've worked out about the villain, who owes whom money.

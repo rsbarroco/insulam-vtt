@@ -41,7 +41,7 @@ import CampaignRoster from '@/components/campaign/CampaignRoster';
 // Lazy-loaded — MapCanvas is by far the largest component in the app; splitting
 // it into its own chunk keeps the CampaignPage shell fast to load and paints
 // the sidebars while the canvas code downloads.
-const MapCanvas = lazy(() => import('@/components/campaign/MapCanvas'));
+const MapView = lazy(() => import('@/components/campaign/MapView'));
 import MapManager from '@/components/campaign/MapManager';
 import TokenManager from '@/components/campaign/TokenManager';
 import SpiritLayerControls from '@/components/campaign/SpiritLayerControls';
@@ -467,7 +467,7 @@ function CampaignPageContent() {
                   </div>
                 }
               >
-                <MapCanvas onEditToken={setQuickEditToken} />
+                <MapView onEditToken={setQuickEditToken} />
               </Suspense>
             </section>
           </Panel>

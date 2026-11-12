@@ -64,9 +64,10 @@ own data.
 6. **Movement limits are advisory by default.** Reach is highlighted for
    everyone. A per-campaign setting lets the DM have the server refuse a
    player's move outside the highlighted cells. The DM is never limited.
-7. **Hidden things stay hidden.** The isometric view draws fog from the same
-   data as the top-down view. Until dynamic lighting is projected (phase 8), a
-   player on a map with dynamic lighting sees the top-down view only.
+7. **Hidden things stay hidden.** Until the isometric view draws fog and
+   dynamic lighting (phase 8), a player is offered it only on a map with
+   neither, and is returned to the top-down view if either is switched on.
+   The DM, who sees everything, may use it on any map.
 8. **Shared maths is shared code.** Reach and timeline rules live in
    `utils/rules/` in both projects, byte-identical, under the existing parity
    test.
@@ -78,12 +79,12 @@ own data.
 | 0 | Plan | This page. | `docs/TACTICAL_MODE.md` |
 | 1 | Geometry core | Pure, tested modules: the height grid type, cell-to-screen projection with height and camera rotation, draw order, and screen-to-cell picking. No visible change. | `frontend/src/components/campaign/map/iso/` |
 | 2 | Height data | The `Map.tileHeights` column and migration, validation, a DM route and a socket event to set heights, and the API and event documentation. | `backend/prisma/`, `backend/src/routes/maps.ts`, `backend/src/validators/`, `backend/docs/` |
-| 3 | Isometric view | A view switch and camera rotation on the map. Terrain as raised tiles with the map picture on top, grid, fog, and tokens as upright markers. Picking, so tokens can be moved in this view. | `MapCanvas.tsx`, `map/layers/` |
+| 3 | Isometric view | A view switch and camera rotation on the map. Terrain as raised tiles with the map picture on top, grid, and tokens as upright markers. Picking, so tokens can be moved in this view. | `MapView.tsx`, `TacticalMapCanvas.tsx`, `map/iso/` |
 | 4 | Height brush | A DM tool to raise, lower, flatten and fill cells, with undo. | `map/tools/` |
 | 5 | Movement reach | Move and Jump values on a token, the reach flood fill, highlighted cells and a path preview while a token is carried, and the optional server check. | `utils/rules/tacticalReach.ts`, `backend/src/websocket/handlers/tokens.ts` |
 | 6 | Turn timeline | A speed-based ordering mode for the initiative tracker with a preview of upcoming turns. | `utils/rules/turnTimeline.ts`, `InitiativeTracker.tsx`, `initiativeState.ts` |
 | 7 | Facing and attack geometry | Four-way facing with front, side and back arcs, a range template with minimum, maximum and vertical tolerance, and a height-difference readout. | `map/iso/`, `map/layers/drawOverlays.ts` |
-| 8 | Turn flow and finish | The move, act and wait action bar, dynamic lighting in the isometric view, and the DM and player guides. | `components/campaign/`, `docs/` |
+| 8 | Turn flow and finish | The move, act and wait action bar, fog and dynamic lighting in the isometric view, and the DM and player guides. | `components/campaign/`, `docs/` |
 
 Every phase carries its own tests, updates the documentation it touches in the
 same pull request, and must pass the full CI run before it merges.
@@ -95,4 +96,5 @@ same pull request, and must pass the full CI run before it merges.
 | 0 Plan | Done |
 | 1 Geometry core | Done: `map/iso/heightGrid.ts`, `map/iso/projection.ts` |
 | 2 Height data | Done: `Map.tileHeights`, `GET` and `PUT /maps/:id/heights`, the `heights:replaced` event, carried through resize, export and import |
-| 3 to 8 | Not started |
+| 3 Isometric view | Done: `MapView.tsx` switches between `MapCanvas` and `TacticalMapCanvas.tsx`, drawn by `map/iso/drawIsoScene.ts`. No fog, lighting, hit point bars or token menu in this view yet |
+| 4 to 8 | Not started |
