@@ -61,6 +61,14 @@ the 17 feats of its "Feats" section, built from the same PDF by
 `scripts/srd-origins.py`. Its three tables (Draconic Ancestors, Elven
 Lineages, Fiendish Legacies) are kept as rows.
 
+`backend/src/rules/dnd/data/srd-5.2.1-classes.json` is the document's
+"Classes" section: for each of the twelve classes its Core Traits table, its
+features table, its features by level, its lists of options (Metamagic,
+Eldritch Invocations) and its one subclass, built by `scripts/srd-classes.py`.
+The class spell lists are not repeated there (each spell of the catalogue
+names its classes), and small tables set inside a feature's text are not
+kept.
+
 SRD 5.2.1 is released under the Creative Commons Attribution 4.0 International
 Licence only. The required notice is in [SRD_LICENSE.txt](SRD_LICENSE.txt) and
 reads:
