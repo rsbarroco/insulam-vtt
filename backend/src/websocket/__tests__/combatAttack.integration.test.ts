@@ -72,6 +72,7 @@ const heroSheet = () => ({
   hp: { current: 30, maximum: 30, temporary: 0 },
   armorClass: 16,
   attacks: [{ name: 'Longsword', attackBonus: 5, damageRoll: '1d8+3', damageType: 'slashing' }],
+  spellcasting: { spellAttackBonus: 6, spellSaveDC: 14, cantrips: ['Fire Bolt'], spells: [{ name: 'Fireball', level: 3, prepared: true, ritual: false, concentration: false }] },
 });
 
 let rolls: number[] = [];
@@ -137,6 +138,9 @@ describe('combat.actions', () => {
     expect(answer.ok).toBe(true);
     expect(answer.actions).toEqual([
       expect.objectContaining({ index: 0, name: 'Longsword', attack: expect.objectContaining({ kind: 'melee', bonus: 5, damage: '1d8+3 slashing' }) }),
+      expect.objectContaining({ index: 1, name: 'Fire Bolt', attack: expect.objectContaining({ kind: 'ranged', bonus: 6, damage: '1d10 fire' }) }),
+      // A spell that calls for a saving throw is listed, and is not yet the server's to roll.
+      expect.objectContaining({ index: 2, name: 'Fireball', attack: null }),
     ]);
   });
 
@@ -189,6 +193,16 @@ describe('combat.attack', () => {
     expect(answer).toMatchObject({ ok: true, hit: false, dealt: 0 });
     expect((await logged).result).toBe(7);
     expect((await ogreHp())?.current).toBe(59);
+  });
+
+  it('makes a spell attack from the sheet, at range', async () => {
+    rolls = [10, 7];
+
+    const answer = await ask(player, 'combat.attack', { attackerId: HERO, targetId: FAR, action: 1 });
+
+    expect(answer).toMatchObject({ ok: true, hit: true, dealt: 7, distanceFeet: 35 });
+    // The nearer ogre stands in the way: half cover.
+    expect(answer.summary).toBe('Fire Bolt vs Far Ogre (AC 13): hit, 7 fire damage');
   });
 
   it('refuses a target out of reach, and rolls nothing', async () => {

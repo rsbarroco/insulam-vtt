@@ -981,7 +981,7 @@ Walls drawn in the top-down view are not counted, only tile heights and creature
 
 ### Making an attack
 
-While you carry a token over the board, **right-click another creature** to have the carried one attack it. A menu lists the attacks the VTT can roll for it: the attacks on its character sheet, or the actions of its stat block that say how they hit and what they deal. Choose one and the VTT does the rest by the D&D rules:
+While you carry a token over the board, **right-click another creature** to have the carried one attack it. A menu lists the attacks the VTT can roll for it: the attacks on its character sheet, or the actions of its stat block that say how they hit and what they deal. A character's cantrips and prepared spells that make a spell attack, such as Fire Bolt, are listed too, when the spell is one of the 339 in the SRD 5.2.1 and the sheet has a spell attack bonus; a cantrip's damage grows with the character's level. Choose one and the VTT does the rest by the D&D rules:
 
 - It refuses an attack that cannot be made: the target out of reach or range, behind total cover, or an attacker whose conditions stop it acting.
 - It rolls the d20 with what both creatures' conditions give, **Disadvantage** at long range, and the target's cover added to its Armor Class. **Roll with** adds Advantage or Disadvantage for anything the VTT cannot see, such as a Help action.
@@ -989,7 +989,7 @@ While you carry a token over the board, **right-click another creature** to have
 - The roll and its outcome go to the dice log for everyone. An attack by or against a token hidden from players is logged for you alone.
 - If it is the attacker's turn and its action is unspent, the turn bar marks the action as **Attack**.
 
-The attacker stays where it stood. The target needs an Armor Class, from its sheet or its stat block. You can attack with any token; a player only with their own. The VTT makes one attack roll at a time, so Multiattack is each attack in turn, and actions that call for a saving throw are still yours to resolve. Nothing here stops you changing hit points by hand afterwards.
+The attacker stays where it stood. The target needs an Armor Class, from its sheet or its stat block. You can attack with any token; a player only with their own. The VTT makes one attack roll at a time, so Multiattack is each attack in turn, and actions and spells that call for a saving throw are still yours to resolve. Casting through the menu does not spend a spell slot yet; mark it on the sheet. Nothing here stops you changing hit points by hand afterwards.
 
 ## Fog of War
 

@@ -44,8 +44,16 @@ rules. The code in `backend/src/rules/dnd/` implements rules of play from the
 **System Reference Document 5.2.1 (SRD 5.2.1)**: D20 Tests with Advantage and
 Disadvantage, attack rolls and cover, saving throws, damage types with
 Resistance, Vulnerability and Immunity, Critical Hits, Temporary Hit Points,
-the conditions, Concentration and death saving throws. It is the project's own
-code, written from that document; no text of the document is reproduced.
+the conditions, Concentration and death saving throws. That code is the
+project's own, written from that document.
+
+The spell catalogue in `backend/src/rules/dnd/data/srd-5.2.1-spells.json` is
+text of the document itself: the 339 spells of its "Spell Descriptions"
+section, with each spell's name, level, school, class lists, casting time,
+range, components, duration and description as the document gives them.
+`scripts/srd-spells.py` builds the file from the published PDF and adds
+nothing to it. Line breaks are rejoined and tables inside a description are
+flattened into running text; nothing else is changed.
 
 SRD 5.2.1 is released under the Creative Commons Attribution 4.0 International
 Licence only. The required notice is in [SRD_LICENSE.txt](SRD_LICENSE.txt) and
