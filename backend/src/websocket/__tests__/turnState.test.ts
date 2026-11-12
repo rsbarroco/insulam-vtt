@@ -21,7 +21,7 @@ const entry = (tokenId: string): CombatantEntry => ({
   tokenId, mapId: 'map-1', name: tokenId, imageUrl: '', initiative: 10, hp: null, type: 'npc', disposition: null,
 });
 const token = (id: string) => ({ id, name: id, imageUrl: '' });
-const spent = { movementSpent: 15, dashes: 1, action: 'Dash', bonusAction: true };
+const spent = { movementSpent: 15, dashes: 1, action: 'Dash', bonusAction: true, attacks: 0 };
 const fight = (over: Partial<CombatState> = {}): CombatState => ({
   active: true, round: 1, currentTokenId: 'a', combatants: [entry('a'), entry('b'), entry('c')],
   turn: { ...spent }, reactionsSpent: ['b', 'c'], ...over,
@@ -29,7 +29,7 @@ const fight = (over: Partial<CombatState> = {}): CombatState => ({
 
 describe('freshTurn', () => {
   it('has nothing spent', () => {
-    expect(freshTurn()).toEqual({ movementSpent: 0, dashes: 0, action: null, bonusAction: false });
+    expect(freshTurn()).toEqual({ movementSpent: 0, dashes: 0, action: null, bonusAction: false, attacks: 0 });
   });
 });
 

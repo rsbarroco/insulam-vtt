@@ -36,6 +36,8 @@ export interface TurnState {
   action: string | null;
   /** Whether the bonus action is spent. */
   bonusAction: boolean;
+  /** Attacks made with the Attack action this turn. Extra Attack lets a character make more than one. */
+  attacks: number;
 }
 
 export interface CombatState {
@@ -58,7 +60,7 @@ export function someoneActing(state: CombatState): boolean {
 
 /** A turn with nothing spent. */
 export function freshTurn(): TurnState {
-  return { movementSpent: 0, dashes: 0, action: null, bonusAction: false };
+  return { movementSpent: 0, dashes: 0, action: null, bonusAction: false, attacks: 0 };
 }
 
 /**
@@ -146,7 +148,8 @@ export function setState(campaignId: string, input: CombatStateInput): void {
   // acting has none, and only combatants in the order have a spent reaction.
   const state: CombatState = {
     ...input,
-    turn: input.active && input.currentTokenId ? (input.turn ?? freshTurn()) : null,
+    // A turn stored before attacks were counted has made none.
+    turn: input.active && input.currentTokenId ? { ...freshTurn(), ...(input.turn ?? {}) } : null,
     reactionsSpent: (input.reactionsSpent ?? []).filter((tokenId) => listed.has(tokenId)),
   };
   campaignStates.set(campaignId, state);

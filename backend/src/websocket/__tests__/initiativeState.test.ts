@@ -20,7 +20,7 @@ describe('projectCombatState', () => {
   const state: CombatState = {
     active: true, round: 2, currentTokenId: 'hidden',
     combatants: [entry('hero'), entry('goblin'), entry('hidden')],
-    turn: { movementSpent: 15, dashes: 0, action: 'Attack', bonusAction: false },
+    turn: { movementSpent: 15, dashes: 0, action: 'Attack', bonusAction: false, attacks: 0 },
     reactionsSpent: ['goblin', 'hidden'],
   };
 

@@ -739,7 +739,12 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       // Read again after the awaits above: the turn may have passed on.
       const state = getCombatState(socket.campaignId);
       if (!someoneActing(state) || state.currentTokenId !== before.currentTokenId) return;
-      if (turnChanges) state.turn = { ...(state.turn ?? freshTurn()), ...spent };
+      if (turnChanges) {
+        const turn = { ...(state.turn ?? freshTurn()), ...spent };
+        // Attacks are those of the Attack action: another action, or none, has made none.
+        if (spent.action !== undefined && spent.action !== 'Attack' && spent.attacks === undefined) turn.attacks = 0;
+        state.turn = turn;
+      }
       if (reaction && state.combatants.some((c) => c.tokenId === reaction.tokenId)) {
         const others = state.reactionsSpent.filter((tokenId) => tokenId !== reaction.tokenId);
         state.reactionsSpent = reaction.spent ? [...others, reaction.tokenId] : others;

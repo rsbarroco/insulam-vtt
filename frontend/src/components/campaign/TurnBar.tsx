@@ -11,13 +11,14 @@
 // enforced. Movement is counted for moves made in the tactical view.
 // ============================================
 
-import { Footprints, HeartPulse, SkipForward } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Footprints, HeartPulse, SkipForward, Sparkles } from 'lucide-react';
 import { useCampaign } from '@/contexts/CampaignContext';
 import { useWebSocket } from '@/contexts/WebSocketContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCharacterHp, useCombatState, useTokenList } from '@/stores/gameStore';
 import { useToast } from '@/contexts/ToastContext';
-import type { Token } from '@/types';
+import type { CombatFeatureOption, Token } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import {
@@ -39,6 +40,40 @@ export default function TurnBar() {
   const characterHp = useCharacterHp();
   const { showToast } = useToast();
   const isDM = userRole === 'DM';
+
+  // What the acting character's features give its turn: how many attacks the
+  // Attack action makes, and what it can do with a Bonus Action or a Reaction.
+  // The server answers only for a token the viewer may act for.
+  const [abilities, setAbilities] = useState<{
+    tokenId: string;
+    attacksPerAction: number | null;
+    features: CombatFeatureOption[];
+  } | null>(null);
+  const [showFeatures, setShowFeatures] = useState(false);
+  const watching = combat.active ? combat.currentTokenId : null;
+  useEffect(() => {
+    setShowFeatures(false);
+    if (!watching) {
+      setAbilities(null);
+      return;
+    }
+    let current = true;
+    void socket.listCombatActions(watching).then((answer) => {
+      if (!current) return;
+      setAbilities(
+        answer.ok
+          ? {
+              tokenId: watching,
+              attacksPerAction: answer.attacksPerAction,
+              features: answer.features,
+            }
+          : null
+      );
+    });
+    return () => {
+      current = false;
+    };
+  }, [socket, watching]);
 
   if (!combat.active || !combat.turn || !combat.currentTokenId) return null;
   const turn = combat.turn;
@@ -66,6 +101,17 @@ export default function TurnBar() {
     if (answer.ok) showToast(answer.summary, answer.result === 'dead' ? 'error' : 'info');
     else showToast(answer.error, 'error');
   };
+
+  const known = abilities?.tokenId === actingId ? abilities : null;
+  const features = canAct ? (known?.features ?? []) : [];
+  const attacksAllowed = known?.attacksPerAction ?? null;
+  const spendFeature = (feature: CombatFeatureOption) => {
+    if (feature.cost === 'bonusAction') socket.emitTurnUpdate({ bonusAction: true });
+    else socket.emitTurnUpdate({ reaction: { tokenId: actingId, spent: true } });
+    showToast(`${actingName} uses ${feature.name}`, 'info');
+  };
+  const spent = (feature: CombatFeatureOption) =>
+    feature.cost === 'bonusAction' ? turn.bonusAction : combat.reactionsSpent.includes(actingId);
 
   const speed = acting ? (tokenSpeed(acting)?.feet ?? null) : null;
   const movement =
@@ -108,6 +154,13 @@ export default function TurnBar() {
               )}
             </select>
           </label>
+          {turn.action === 'Attack' && turn.attacks > 0 && (
+            <span title="Attacks made with the Attack action this turn">
+              {attacksAllowed !== null
+                ? `Attack ${turn.attacks} of ${attacksAllowed}`
+                : `${turn.attacks} ${turn.attacks === 1 ? 'attack' : 'attacks'} made`}
+            </span>
+          )}
           <label className="flex items-center gap-1">
             <input
               type="checkbox"
@@ -138,6 +191,49 @@ export default function TurnBar() {
           {token.id === actingId ? 'Reaction used' : `${tokenDisplayName(token)}: reaction used`}
         </label>
       ))}
+
+      {features.length > 0 && (
+        <span className="relative">
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={Sparkles}
+            aria-expanded={showFeatures}
+            onClick={() => setShowFeatures((open) => !open)}
+          >
+            Features
+          </Button>
+          {showFeatures && (
+            <ul
+              aria-label={`Features of ${actingName}`}
+              className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-80 max-h-80 overflow-y-auto glass-panel bg-parchment/95 backdrop-blur-xs p-2 space-y-2 text-left shadow-lg"
+            >
+              {features.map((feature) => (
+                <li key={`${feature.name}:${feature.cost}`} className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">
+                      {feature.name}{' '}
+                      <span className="text-xs font-normal text-ink-muted">
+                        {feature.cost === 'bonusAction' ? 'Bonus Action' : 'Reaction'}
+                      </span>
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={spent(feature)}
+                      aria-label={`Use ${feature.name} as a ${feature.cost === 'bonusAction' ? 'Bonus Action' : 'Reaction'}`}
+                      onClick={() => spendFeature(feature)}
+                    >
+                      {spent(feature) ? 'Spent' : 'Use'}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-ink-muted whitespace-pre-line">{feature.text}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </span>
+      )}
 
       {dying && (
         <Button

@@ -189,7 +189,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   setCombatState: (combat) =>
-    set({ combat: { ...combat, turn: combat.turn ?? null, reactionsSpent: combat.reactionsSpent ?? [] } }),
+    set({
+      combat: {
+        ...combat,
+        // A server from before attacks were counted sends a turn without them.
+        turn: combat.turn ? { ...combat.turn, attacks: combat.turn.attacks ?? 0 } : null,
+        reactionsSpent: combat.reactionsSpent ?? [],
+      },
+    }),
 
   setPeekToken: (tokenId, source) => {
     const s = get();
