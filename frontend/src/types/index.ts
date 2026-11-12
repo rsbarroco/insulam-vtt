@@ -1730,3 +1730,101 @@ export interface UserPreferences {
 // ============================================
 
 export * from './game-systems';
+
+// ============================================
+// D&D character creation (GET/POST /api/campaigns/:campaignId/rules/dnd…)
+// ============================================
+
+export type DndAbility = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
+export type DndPoints = Partial<Record<DndAbility, number>>;
+
+export interface DndTrait {
+  name: string;
+  text: string;
+  options?: DndTrait[];
+}
+
+export interface DndSpecies {
+  id: string;
+  name: string;
+  creatureType: string;
+  size: string;
+  speedFeet: number;
+  traits: DndTrait[];
+  tables?: Record<string, Array<Record<string, string>>>;
+}
+
+export interface DndBackground {
+  id: string;
+  name: string;
+  /** The three ability scores it names, in full: "Strength". */
+  abilityScores: string[];
+  feat: string;
+  skillProficiencies: string[];
+  toolProficiency: string;
+  equipment: string;
+}
+
+export interface DndFeat {
+  id: string;
+  name: string;
+  category: 'Origin' | 'General' | 'Fighting Style' | 'Epic Boon';
+  prerequisite: string | null;
+  description: string;
+  benefits: DndTrait[];
+  repeatable: string | null;
+  /** The ability score points the feat itself gives under this campaign's rules, or null. */
+  abilityPoints: { total: number; among: DndAbility[]; cap: number } | null;
+}
+
+/** What a level gives towards feats and ability scores. */
+export interface DndImprovement {
+  level: number;
+  kind: 'both' | 'feat' | 'epicBoon';
+  /** Points beside the feat's own: 2 to one score or 1 to two. */
+  abilityPoints: number;
+}
+
+export interface DndClassSummary {
+  id: string;
+  name: string;
+  coreTraits: Record<string, string>;
+  hitDie: number;
+  savingThrows: DndAbility[];
+  caster: 'full' | 'half' | 'pact' | null;
+  skillChoices: { count: number; among: string[] | 'any' };
+  featuresByLevel: string[][];
+  subclass: string;
+  improvements: DndImprovement[];
+}
+
+export interface DndRulesCatalogue {
+  source: string;
+  characterRules: CharacterRules;
+  species: DndSpecies[];
+  backgrounds: DndBackground[];
+  feats: DndFeat[];
+  classes: DndClassSummary[];
+}
+
+export interface DndCharacterChoices {
+  name: string;
+  species: string;
+  background: string;
+  /** One class, or two for a gestalt character. */
+  classes: string[];
+  level: number;
+  /** The six scores before anything is added, each 3 to 18. */
+  abilityScores: Record<DndAbility, number>;
+  backgroundIncreases: DndPoints;
+  originFeat: string;
+  skills: string[];
+  improvements: Array<{ level: number; feat: string; featPoints?: DndPoints; abilityPoints?: DndPoints }>;
+}
+
+export interface DndBuildSummary {
+  scores: Record<DndAbility, number>;
+  hitPoints: number;
+  proficiencyBonus: number;
+  feats: string[];
+}
