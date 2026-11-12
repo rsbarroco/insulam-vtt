@@ -191,4 +191,5 @@ matters, change per map.
 | 6 Movement by the rules | Done: speed from the stat block or set on the token, eight-way movement with the map's diagonal rule, slopes, climbs and falls, in `map/iso/reach.ts`. Replaces phase 5's Move and Jump. Player character speed is set by hand until the server reads sheets |
 | 7 The turn | Done: `turn` and `reactionsSpent` in the combat state, the `turn.update` and `turn.end` events, and `TurnBar.tsx` under the map. Movement is counted for moves in the tactical view. Counts are kept, not enforced |
 | 8 Distance, sight and cover | Done: `map/iso/sight.ts`, shown as a line and a hint while a token is carried over another. Walls from the top-down view are not counted |
-| 9 to 14 | Not started |
+| 9 Rules engine | Done as a library: `backend/src/rules/dnd/` (D20 Tests, attacks and cover, saves, damage and healing, conditions, death saves). Nothing calls it yet; phase 14 puts it behind combat resolution |
+| 10 to 14 | Not started |
