@@ -45,11 +45,22 @@ import {
   isTokenDowned,
   isTokenVisibleTo,
   pickMovableTokenAt,
+  pickTokenAt,
 } from './map/tokenHitTest';
 import { releaseHeldToken } from './map/tokenHold';
 import { isTypingInto } from './map/typingTarget';
 import { heightAt, isHeightGrid, MAX_TILE_HEIGHT } from './map/iso/heightGrid';
 import { useHeightBrush } from './map/iso/useHeightBrush';
+import { computeReach, pathTo } from './map/iso/reach';
+import {
+  readTacticalStats,
+  reachObstacles,
+  tacticalStatsPatch,
+  TACTICAL_LIMITS,
+  type TacticalStats,
+} from './map/iso/tacticalStats';
+import api from '@/services/api';
+import { apiErrorMessage } from '@/utils/errors';
 import type { BrushMode } from './map/iso/heightBrush';
 import {
   isoBoardSize,
@@ -144,7 +155,10 @@ export default function TacticalMapCanvas() {
     y: number;
     pan: { x: number; y: number };
     moved: boolean;
+    button: number;
   } | null>(null);
+  /** The token whose movement numbers the DM is editing, and where the editor sits. */
+  const [editing, setEditing] = useState<{ tokenId: string; x: number; y: number } | null>(null);
 
   const heights = isHeightGrid(currentMap?.tileHeights) ? currentMap.tileHeights : null;
   // Heights for another size of board would put tiles in the wrong place;
@@ -322,16 +336,72 @@ export default function TacticalMapCanvas() {
     [visibleTokens, characterHpCache, held?.id, tokenImages, currentTurnTokenId, peekTokenId]
   );
 
+  const hoverToken = useMemo(() => {
+    if (!hoverCell) return null;
+    for (let i = visibleTokens.length - 1; i >= 0; i--) {
+      const token = visibleTokens[i];
+      const { x, y } = token.position;
+      if (
+        hoverCell.x >= x &&
+        hoverCell.x < x + token.size.width &&
+        hoverCell.y >= y &&
+        hoverCell.y < y + token.size.height
+      ) {
+        return token;
+      }
+    }
+    return null;
+  }, [hoverCell, visibleTokens]);
+
+  // ── Reach ──────────────────────────────────────────────────────────────
+  // Shown for the held token, or the one pointed at, when the DM has given
+  // it movement numbers. What is in the way is what this viewer can see.
+  const reachToken = held ?? (brushMode ? null : hoverToken);
+  const reachStats = reachToken ? readTacticalStats(reachToken) : null;
+  const reach = useMemo(() => {
+    if (!reachToken || !reachStats || !currentMap) return null;
+    const obstacles = reachObstacles(reachToken, visibleTokens, characterHpCache);
+    return computeReach(
+      {
+        cell: { x: Math.floor(reachToken.position.x), y: Math.floor(reachToken.position.y) },
+        size: reachToken.size,
+        move: reachStats.move,
+        jump: reachStats.jump,
+      },
+      { cols: currentMap.width, rows: currentMap.height, heights: boardHeights, ...obstacles }
+    );
+  }, [reachToken, reachStats, currentMap, visibleTokens, characterHpCache, boardHeights]);
+
+  const dropCell = useMemo(
+    () =>
+      held && hoverCell && currentMap
+        ? footprintOriginAt(hoverCell, held.size, {
+            cols: currentMap.width,
+            rows: currentMap.height,
+          })
+        : null,
+    [held, hoverCell, currentMap]
+  );
+  const dropPath = useMemo(
+    () => (reach && dropCell ? pathTo(reach, dropCell) : null),
+    [reach, dropCell]
+  );
+  const sceneReach = useMemo(
+    () =>
+      reach && reachToken
+        ? { stops: new Set(reach.stops.keys()), size: reachToken.size, path: dropPath ?? [] }
+        : null,
+    [reach, reachToken, dropPath]
+  );
+
   const drop = useMemo(() => {
-    if (!held || !hoverCell || !currentMap) return null;
-    const cell = footprintOriginAt(hoverCell, held.size, {
-      cols: currentMap.width,
-      rows: currentMap.height,
-    });
-    const blocked = !isDM && blockingTokensAt(tokens, held, cell, characterHpCache).length > 0;
+    if (!held || !dropCell) return null;
+    const blocked = !isDM && blockingTokensAt(tokens, held, dropCell, characterHpCache).length > 0;
     const token = sceneTokens.find((candidate) => candidate.id === held.id);
-    return token ? { token, cell, blocked } : null;
-  }, [held, hoverCell, currentMap, isDM, tokens, characterHpCache, sceneTokens]);
+    return token
+      ? { token, cell: dropCell, blocked, outOfReach: reach !== null && dropPath === null }
+      : null;
+  }, [held, dropCell, isDM, tokens, characterHpCache, sceneTokens, reach, dropPath]);
 
   // ── Drawing ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -356,6 +426,7 @@ export default function TacticalMapCanvas() {
           tokens: sceneTokens,
           hoverCell: held ? null : hoverCell,
           drop,
+          reach: sceneReach,
         },
         { zoom: camera.zoom * ratio, pan: { x: camera.pan.x * ratio, y: camera.pan.y * ratio } },
         { width, height }
@@ -371,6 +442,7 @@ export default function TacticalMapCanvas() {
     hoverCell,
     held,
     drop,
+    sceneReach,
     camera,
     canvasSize,
   ]);
@@ -450,6 +522,45 @@ export default function TacticalMapCanvas() {
     if (canEmit()) socket!.emitTokenMoveStart({ tokenId: token.id, mapId: currentMap.id });
   };
 
+  /** The token under the pointer: the disc first, then the cell. */
+  const tokenUnder = (event: { clientX: number; clientY: number }): Token | null => {
+    const iso = toIso(event);
+    if (!iso || !view) return null;
+    const disc = pickTokenDisc(iso.x, iso.y, sceneTokens, boardHeights, view);
+    if (disc) return visibleTokens.find((token) => token.id === disc.id) ?? null;
+    const cell = pickCell(iso.x, iso.y, view, boardHeights);
+    return cell ? pickTokenAt(tokens, cell.x, cell.y, tokenView) : null;
+  };
+
+  const openStatsEditor = (event: React.PointerEvent) => {
+    if (!isDM || held) return;
+    const token = tokenUnder(event);
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!token || !rect) {
+      setEditing(null);
+      return;
+    }
+    setEditing({ tokenId: token.id, x: event.clientX - rect.left, y: event.clientY - rect.top });
+  };
+
+  const saveStats = async (tokenId: string, stats: TacticalStats | null) => {
+    if (!campaign?.id || !currentMap?.id) return;
+    const token = useGameStore.getState().tokens[tokenId];
+    if (!token) return;
+    const before = token.metadata;
+    const metadata = { ...(before ?? {}), ...tacticalStatsPatch(stats) };
+    useGameStore.getState().patchToken(tokenId, { metadata });
+    setEditing(null);
+    try {
+      await api.updateToken(campaign.id, currentMap.id, tokenId, {
+        metadata: tacticalStatsPatch(stats),
+      });
+    } catch (error) {
+      useGameStore.getState().patchToken(tokenId, { metadata: before });
+      showToast(apiErrorMessage(error) ?? 'The movement numbers could not be saved', 'error');
+    }
+  };
+
   const paintAt = (event: { clientX: number; clientY: number }) => {
     const iso = toIso(event);
     if (!iso || !view) return;
@@ -459,9 +570,16 @@ export default function TacticalMapCanvas() {
 
   const onPointerDown = (event: React.PointerEvent) => {
     // The right button always pans, so the map can be moved with a brush up.
+    // A right click that does not travel opens a token's movement numbers.
     if (event.button === 2) {
       event.currentTarget.setPointerCapture(event.pointerId);
-      pressRef.current = { x: event.clientX, y: event.clientY, pan: camera.pan, moved: true };
+      pressRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+        pan: camera.pan,
+        moved: false,
+        button: 2,
+      };
       return;
     }
     if (event.button !== 0) return;
@@ -472,7 +590,13 @@ export default function TacticalMapCanvas() {
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
-    pressRef.current = { x: event.clientX, y: event.clientY, pan: camera.pan, moved: false };
+    pressRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      pan: camera.pan,
+      moved: false,
+      button: 0,
+    };
   };
 
   const onPointerMove = (event: React.PointerEvent) => {
@@ -518,7 +642,9 @@ export default function TacticalMapCanvas() {
     }
     const press = pressRef.current;
     pressRef.current = null;
-    if (press && !press.moved) click(event);
+    if (!press || press.moved) return;
+    if (press.button === 2) openStatsEditor(event);
+    else click(event);
   };
 
   // The wheel zooms about the pointer. React's wheel listener is passive, so
@@ -579,22 +705,9 @@ export default function TacticalMapCanvas() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const hoverToken = useMemo(() => {
-    if (!hoverCell) return null;
-    for (let i = visibleTokens.length - 1; i >= 0; i--) {
-      const token = visibleTokens[i];
-      const { x, y } = token.position;
-      if (
-        hoverCell.x >= x &&
-        hoverCell.x < x + token.size.width &&
-        hoverCell.y >= y &&
-        hoverCell.y < y + token.size.height
-      ) {
-        return token;
-      }
-    }
-    return null;
-  }, [hoverCell, visibleTokens]);
+  const editingToken = editing
+    ? (tokens.find((token) => token.id === editing.tokenId) ?? null)
+    : null;
 
   if (!currentMap) return null;
 
@@ -726,7 +839,21 @@ export default function TacticalMapCanvas() {
       {held && (
         <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
           Click a square to put {tokenDisplayName(held)} down, or press Esc to cancel
+          {reachStats &&
+            drop &&
+            (dropPath ? ` · ${dropPath.length} of ${reachStats.move} squares` : ' · out of reach')}
         </div>
+      )}
+
+      {editing && editingToken && (
+        <TacticalStatsEditor
+          key={editing.tokenId}
+          name={tokenDisplayName(editingToken)}
+          stats={readTacticalStats(editingToken)}
+          style={{ left: Math.max(8, editing.x), top: Math.max(8, editing.y) }}
+          onSave={(stats) => void saveStats(editing.tokenId, stats)}
+          onClose={() => setEditing(null)}
+        />
       )}
 
       {brushMode && !held && (
@@ -736,5 +863,81 @@ export default function TacticalMapCanvas() {
         </div>
       )}
     </div>
+  );
+}
+
+interface TacticalStatsEditorProps {
+  name: string;
+  stats: TacticalStats | null;
+  style: React.CSSProperties;
+  onSave: (stats: TacticalStats | null) => void;
+  onClose: () => void;
+}
+
+/** The DM's small form for a token's Move and Jump. */
+function TacticalStatsEditor({ name, stats, style, onSave, onClose }: TacticalStatsEditorProps) {
+  const [move, setMove] = useState(String(stats?.move ?? 4));
+  const [jump, setJump] = useState(String(stats?.jump ?? 2));
+  const parsed = (text: string, max: number): number | null => {
+    const value = Number(text);
+    return text.trim() !== '' && Number.isInteger(value) && value >= 0 && value <= max
+      ? value
+      : null;
+  };
+  const moveValue = parsed(move, TACTICAL_LIMITS.maxMove);
+  const jumpValue = parsed(jump, TACTICAL_LIMITS.maxJump);
+  const valid = moveValue !== null && jumpValue !== null;
+
+  return (
+    <form
+      className="absolute z-30 glass-panel p-3 space-y-2 w-56 bg-parchment/95 backdrop-blur-xs shadow-lg"
+      style={style}
+      aria-label={`Movement of ${name}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (valid) onSave({ move: moveValue, jump: jumpValue });
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose();
+      }}
+    >
+      <p className="text-sm font-medium text-ink truncate">{name}</p>
+      <label className="flex items-center justify-between gap-2 text-sm text-ink">
+        Move
+        <input
+          type="number"
+          min={0}
+          max={TACTICAL_LIMITS.maxMove}
+          value={move}
+          onChange={(event) => setMove(event.target.value)}
+          className="input-cozy w-20 text-sm py-1"
+          autoFocus
+        />
+      </label>
+      <label className="flex items-center justify-between gap-2 text-sm text-ink">
+        Jump
+        <input
+          type="number"
+          min={0}
+          max={TACTICAL_LIMITS.maxJump}
+          value={jump}
+          onChange={(event) => setJump(event.target.value)}
+          className="input-cozy w-20 text-sm py-1"
+        />
+      </label>
+      <div className="flex items-center justify-end gap-1 pt-1">
+        {stats && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onSave(null)}>
+            Clear
+          </Button>
+        )}
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="primary" size="sm" disabled={!valid}>
+          Save
+        </Button>
+      </div>
+    </form>
   );
 }

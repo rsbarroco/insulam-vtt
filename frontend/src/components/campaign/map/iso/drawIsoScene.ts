@@ -58,6 +58,16 @@ export interface IsoScene {
     readonly token: IsoToken;
     readonly cell: Cell;
     readonly blocked: boolean;
+    /** The token has a reach and this cell is outside it. The move is still allowed. */
+    readonly outOfReach?: boolean;
+  } | null;
+  /** Cells a token can walk to this move, and the way to the pointed one. */
+  readonly reach?: {
+    /** Bottom-left cells the token can stop on, as `x,y`. */
+    readonly stops: ReadonlySet<string>;
+    readonly size: { readonly width: number; readonly height: number };
+    /** Bottom-left cells walked to reach the pointed cell, in order. */
+    readonly path: readonly Cell[];
   } | null;
 }
 
@@ -69,6 +79,9 @@ export const ISO_COLOURS = {
   hover: 'rgba(255, 255, 255, 0.28)',
   dropAllowed: 'rgba(96, 200, 120, 0.45)',
   dropBlocked: 'rgba(220, 80, 70, 0.5)',
+  dropOutOfReach: 'rgba(235, 170, 60, 0.5)',
+  reach: 'rgba(80, 150, 255, 0.3)',
+  path: 'rgba(80, 150, 255, 0.6)',
   shadow: 'rgba(0, 0, 0, 0.35)',
   tokenEdge: 'rgba(0, 0, 0, 0.75)',
 } as const;
@@ -307,6 +320,24 @@ export function drawIsoScene(
   const ghost = scene.drop ? { ...scene.drop.token, cell: scene.drop.cell, alpha: 0.6 } : null;
   if (ghost) stand(ghost);
 
+  // The cells under every footprint the token could stop on, and under the
+  // way to the pointed one.
+  const reachCells = new Set<string>();
+  const pathCells = new Set<string>();
+  if (scene.reach) {
+    const { size } = scene.reach;
+    const cover = (into: Set<string>, origin: Cell) => {
+      for (let dy = 0; dy < size.height; dy++) {
+        for (let dx = 0; dx < size.width; dx++) into.add(`${origin.x + dx},${origin.y + dy}`);
+      }
+    };
+    for (const stop of scene.reach.stops) {
+      const [x, y] = stop.split(',').map(Number);
+      cover(reachCells, { x, y });
+    }
+    for (const step of scene.reach.path) cover(pathCells, step);
+  }
+
   const tinted = (cell: Cell, origin: Cell, size: { width: number; height: number }) =>
     cell.x >= origin.x &&
     cell.y >= origin.y &&
@@ -330,12 +361,21 @@ export function drawIsoScene(
       ctx.strokeStyle = ISO_COLOURS.grid;
       ctx.stroke();
     }
+    const key = `${cell.x},${cell.y}`;
+    if (pathCells.has(key))
+      tintFootprint(ctx, cell, { width: 1, height: 1 }, ISO_COLOURS.path, scene);
+    else if (reachCells.has(key))
+      tintFootprint(ctx, cell, { width: 1, height: 1 }, ISO_COLOURS.reach, scene);
     if (scene.drop && tinted(cell, scene.drop.cell, scene.drop.token.size)) {
       tintFootprint(
         ctx,
         cell,
         { width: 1, height: 1 },
-        scene.drop.blocked ? ISO_COLOURS.dropBlocked : ISO_COLOURS.dropAllowed,
+        scene.drop.blocked
+          ? ISO_COLOURS.dropBlocked
+          : scene.drop.outOfReach
+            ? ISO_COLOURS.dropOutOfReach
+            : ISO_COLOURS.dropAllowed,
         scene
       );
     } else if (scene.hoverCell && scene.hoverCell.x === cell.x && scene.hoverCell.y === cell.y) {

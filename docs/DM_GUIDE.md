@@ -940,6 +940,17 @@ In the tactical view you have a second row of buttons for the height of each squ
 
 Each stroke is saved when you release the button and reaches everyone at once. Heights stay with the map: they follow its squares when you resize it, and travel with a campaign export.
 
+### How far a token can walk
+
+Give a token a **Move** and a **Jump** and the tactical view shows where it can go. **Right-click** the token (without dragging) and fill in the two numbers:
+
+- **Move** is how many squares it walks in one move, one step at a time along the grid, never diagonally.
+- **Jump** is how many height steps it can climb or drop between two neighbouring squares.
+
+Point at the token, or pick it up, and the squares it can stop on are tinted blue. While you carry it, the way to the square under the pointer is drawn darker and the hint counts the squares, such as "4 of 5 squares". A token walks through others of its own side and round the rest (hostile tokens are one side, everyone else the other), and stops on no occupied square; a downed token holds no square.
+
+The reach is a guide, not a lock: a token can still be put down outside it, where the square is tinted amber and the hint says "out of reach". Players see the reach of any token that has the numbers, worked out from the tokens they can see. **Clear** in the same form removes the numbers, and the token goes back to moving freely. You choose the numbers; no game system fills them in yet.
+
 ## Fog of War
 
 Fog of war covers your map and lets you reveal it a piece at a time, so players discover a dungeon room by room instead of seeing the whole floor plan at once. You control it by hand — nothing is revealed until you say so.

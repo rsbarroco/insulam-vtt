@@ -302,6 +302,7 @@ When your DM is using a map without fog of war or dynamic lighting, a **Tactical
 - **Zoom** with the mouse wheel, **drag** to pan, and use the frame button to fit the whole map back on screen.
 - **Move your token** exactly as in the top-down view: click it to pick it up, click a square to put it down, or press **Esc** to put it back.
 - The bottom-left corner shows the square under your pointer and its height.
+- If the DM has given a token movement numbers, pointing at it or picking it up tints the squares it can reach in blue, and the hint counts the squares to the one you are pointing at. You can still put your token down outside them, on a square tinted amber; your DM decides whether that stands.
 
 The ruler and spell areas are in the top-down view only for now. If the DM switches fog or lighting on while you are in the tactical view, the map goes back to the top-down view by itself.
 
