@@ -68,6 +68,7 @@ const DM_ONLY = [
   'POST /api/campaigns/:campaignId/maps/:id/walls',
   'DELETE /api/campaigns/:campaignId/maps/:id/walls/:sid',
   'PATCH /api/campaigns/:campaignId/maps/:id/walls/:sid',
+  'PUT /api/campaigns/:campaignId/maps/:id/heights',
   'PUT /api/campaigns/:campaignId/maps/:id/lights',
   'POST /api/campaigns/:campaignId/maps/:id/lights',
   'PATCH /api/campaigns/:campaignId/maps/:id/lights/:lightId',
@@ -100,6 +101,7 @@ const ANY_MEMBER = [
   'GET /api/campaigns/:campaignId/maps/:id',
   'PUT /api/campaigns/:campaignId/maps/:id/tokens/:tokenId',
   'GET /api/campaigns/:campaignId/maps/:id/walls',
+  'GET /api/campaigns/:campaignId/maps/:id/heights',
   'GET /api/campaigns/:campaignId/maps/:id/lights',
 ];
 
