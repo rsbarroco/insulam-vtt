@@ -261,6 +261,8 @@ export const SOCKET_CEILINGS = {
   // A click apiece, from the DM or the player whose turn it is.
   'turn.update': turnEvents,
   'turn.end': turnEvents,
+  'combat.actions': turnEvents,
+  'combat.attack': turnEvents,
   'dice.clearHistory': dmEvent('requests to clear the dice log'),
   'exploration:reset': dmEvent('explored-area resets'),
 } satisfies Record<string, SocketCeiling>;

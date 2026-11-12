@@ -49,7 +49,7 @@ type Refusal = { error: string };
  * character in one of several systems, and nothing else is read or written.
  * The values stay `unknown` until the checks below establish they are numbers.
  */
-function applyHpDelta(
+export function applyHpDelta(
   gameSystem: string | null,
   stored: unknown,
   delta: number

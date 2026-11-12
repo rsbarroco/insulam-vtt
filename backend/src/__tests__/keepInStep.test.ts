@@ -406,6 +406,14 @@ describe('the limits on a turn in combat', () => {
   });
 });
 
+describe('distance, sight and cover on the board', () => {
+  // The browser shows them and the server resolves an attack with them, so
+  // an attack must not be refused, or allowed, against what the screen says.
+  it('are the same file in the browser and on the server', () => {
+    expect(read('frontend/src/utils/boardSight.ts')).toBe(read('backend/src/utils/boardSight.ts'));
+  });
+});
+
 describe('the token centre', () => {
   it('is the same file in the browser and on the server', () => {
     expect(read('frontend/src/utils/tokenCentre.ts')).toBe(read('backend/src/utils/tokenCentre.ts'));

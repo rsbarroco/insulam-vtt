@@ -16,6 +16,7 @@ import { registerMapHandlers } from './handlers/maps';
 import { registerAtmosphereHandlers } from './handlers/atmosphere';
 import { registerCharacterHandlers } from './handlers/characters';
 import { registerInitiativeHandlers } from './handlers/initiative';
+import { registerCombatHandlers } from './handlers/combat';
 import { registerWallHandlers } from './handlers/walls';
 import { registerFogHandlers } from './handlers/fog';
 import { registerExplorationHandlers } from './handlers/exploration';
@@ -257,6 +258,7 @@ export function registerEventHandlers(io: Server): void {
     registerAtmosphereHandlers(io, socket);
     registerCharacterHandlers(io, socket);
     registerInitiativeHandlers(io, socket);
+    registerCombatHandlers(io, socket);
     registerWallHandlers(io, socket);
     registerFogHandlers(io, socket);
     registerExplorationHandlers(io, socket);

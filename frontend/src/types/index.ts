@@ -1629,6 +1629,30 @@ export interface CombatState {
 /** `turn.update`: any of the turn fields, and optionally one combatant's reaction. */
 export type TurnUpdateEvent = Partial<TurnState> & { reaction?: { tokenId: string; spent: boolean } };
 
+/** One thing a token can do, as `combat.actions` lists it. */
+export interface CombatActionSummary {
+  /** Its place in the list, which is how `combat.attack` names it. */
+  index: number;
+  name: string;
+  cost: 'action' | 'bonusAction' | 'reaction' | 'legendary';
+  /** What the server can roll for it, or null when it only has text. */
+  attack: {
+    kind: 'melee' | 'ranged';
+    bonus: number;
+    reachFeet?: number;
+    rangeFeet?: { normal: number; long: number | null };
+    damage: string;
+  } | null;
+}
+export type CombatActionsAck = { ok: true; actions: CombatActionSummary[] } | { ok: false; error: string };
+
+export type AttackMode = 'normal' | 'advantage' | 'disadvantage';
+/** `combat.attack`: one attack from one token against another. */
+export interface CombatAttackEvent { attackerId: string; targetId: string; action: number; mode?: AttackMode; }
+export type CombatAttackAck =
+  | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
+  | { ok: false; error: string };
+
 export interface InitiativeAddEvent    { tokenId: string; mapId: string; }
 export interface InitiativeRemoveEvent { tokenId: string; }
 export interface InitiativeSetEvent    { tokenId: string; mapId: string; value: number | null; }

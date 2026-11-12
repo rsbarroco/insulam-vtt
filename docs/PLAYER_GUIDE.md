@@ -306,6 +306,8 @@ When your DM is using a map without fog of war or dynamic lighting, a **Tactical
 
 - Carry your token over another one, without putting it down, to measure: a line joins the two and the hint gives the distance from where your token stands and the cover the other has, such as "30 ft to Ogre, half cover (+2 AC)". **Esc** puts your token back.
 
+**Attacking.** While you carry your token, right-click a creature to attack it. Choose one of the attacks from your character sheet and the VTT checks the reach or range and the cover, rolls the attack, and on a hit rolls the damage and takes it from the target's hit points. The result appears on screen and in the dice log. Your token stays where it stood. **Roll with** lets you add Advantage or Disadvantage when your DM says you have it.
+
 The ruler and spell areas are in the top-down view only for now. If the DM switches fog or lighting on while you are in the tactical view, the map goes back to the top-down view by itself.
 
 ## Your Own Notes
