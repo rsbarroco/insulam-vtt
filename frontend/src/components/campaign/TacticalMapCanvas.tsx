@@ -39,6 +39,7 @@ import { TokenLayer } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import Button from '@/components/ui/Button';
+import AttackMenu from './AttackMenu';
 import { formatFeet, movementLeft } from '@/utils/turn';
 import { useTokenImages } from './map/useTokenImages';
 import { cachedTokenImage, placeholderColor, DOWNED_TOKEN_ALPHA } from './map/layers/drawTokens';
@@ -170,6 +171,10 @@ export default function TacticalMapCanvas() {
   } | null>(null);
   /** The token whose movement numbers the DM is editing, and where the editor sits. */
   const [editing, setEditing] = useState<{ tokenId: string; x: number; y: number } | null>(null);
+  /** The target the held token is about to attack, and where its menu opens. */
+  const [attacking, setAttacking] = useState<{ targetId: string; x: number; y: number } | null>(
+    null
+  );
 
   const heights = isHeightGrid(currentMap?.tileHeights) ? currentMap.tileHeights : null;
   // Heights for another size of board would put tiles in the wrong place;
@@ -548,6 +553,7 @@ export default function TacticalMapCanvas() {
       socket!.emitTokenMove(releaseHeldToken(held, heldOnMapRef.current ?? currentMap.id));
     }
     setHeld(null);
+    setAttacking(null);
   }, [held, currentMap, canEmit, socket]);
 
   // A held token goes back if the map changes under it or this view closes.
@@ -561,6 +567,10 @@ export default function TacticalMapCanvas() {
     if (!iso || !view || !currentMap) return;
     const cell = pickCell(iso.x, iso.y, view, boardHeights);
 
+    if (attacking) {
+      setAttacking(null);
+      return;
+    }
     if (held) {
       if (!cell) return;
       const target = footprintOriginAt(cell, held.size, {
@@ -619,8 +629,27 @@ export default function TacticalMapCanvas() {
     return cell ? pickTokenAt(tokens, cell.x, cell.y, tokenView) : null;
   };
 
+  /** Right-click on another token while one is held: the held one attacks it. */
+  const openAttackMenu = (event: React.PointerEvent) => {
+    const target = tokenUnder(event);
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!held || !target || target.id === held.id || !rect) {
+      setAttacking(null);
+      return;
+    }
+    setAttacking({
+      targetId: target.id,
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    });
+  };
+
   const openStatsEditor = (event: React.PointerEvent) => {
-    if (!isDM || held) return;
+    if (held) {
+      openAttackMenu(event);
+      return;
+    }
+    if (!isDM) return;
     const token = tokenUnder(event);
     const rect = containerRef.current?.getBoundingClientRect();
     if (!token || !rect) {
@@ -801,6 +830,9 @@ export default function TacticalMapCanvas() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const attackTarget =
+    attacking && held ? (tokens.find((token) => token.id === attacking.targetId) ?? null) : null;
+
   const editingToken = editing
     ? (tokens.find((token) => token.id === editing.tokenId) ?? null)
     : null;
@@ -934,7 +966,8 @@ export default function TacticalMapCanvas() {
 
       {held && (
         <div className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
-          Click a square to put {tokenDisplayName(held)} down, or press Esc to cancel
+          Click a square to put {tokenDisplayName(held)} down, right-click a creature to attack it,
+          or press Esc to cancel
           {sight && sightTarget
             ? ` · ${formatFeet(sight.feet)} ft to ${tokenDisplayName(sightTarget)}, ${coverLabel(sight.cover)}`
             : reachSpeed !== null && drop && ` · ${moveSummary}`}
@@ -950,6 +983,28 @@ export default function TacticalMapCanvas() {
           style={{ left: Math.max(8, editing.x), top: Math.max(8, editing.y) }}
           onSave={(speed) => void saveSpeed(editing.tokenId, speed)}
           onClose={() => setEditing(null)}
+        />
+      )}
+
+      {attacking && attackTarget && held && socket && (
+        <AttackMenu
+          key={`${held.id}:${attackTarget.id}`}
+          socket={socket}
+          attacker={{ id: held.id, name: tokenDisplayName(held) }}
+          target={{ id: attackTarget.id, name: tokenDisplayName(attackTarget) }}
+          situation={
+            sight && sightTarget?.id === attackTarget.id
+              ? `${formatFeet(sight.feet)} ft away, ${coverLabel(sight.cover)}`
+              : null
+          }
+          style={{ left: Math.max(8, attacking.x), top: Math.max(8, attacking.y) }}
+          onResolved={(answer) => {
+            if (answer.ok) showToast(answer.summary, answer.hit ? 'success' : 'info');
+            else showToast(answer.error, 'error');
+            // The attacker stays where it stood: it was held to choose a target.
+            cancelHold();
+          }}
+          onClose={() => setAttacking(null)}
         />
       )}
 

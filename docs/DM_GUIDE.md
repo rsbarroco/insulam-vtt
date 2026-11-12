@@ -979,6 +979,18 @@ Pick a token up and carry it over another token, and the tactical view measures 
 
 Walls drawn in the top-down view are not counted, only tile heights and creatures. The view tells you the cover; applying the bonus to Armor Class is still yours.
 
+### Making an attack
+
+While you carry a token over the board, **right-click another creature** to have the carried one attack it. A menu lists the attacks the VTT can roll for it: the attacks on its character sheet, or the actions of its stat block that say how they hit and what they deal. Choose one and the VTT does the rest by the D&D rules:
+
+- It refuses an attack that cannot be made: the target out of reach or range, behind total cover, or an attacker whose conditions stop it acting.
+- It rolls the d20 with what both creatures' conditions give, **Disadvantage** at long range, and the target's cover added to its Armor Class. **Roll with** adds Advantage or Disadvantage for anything the VTT cannot see, such as a Help action.
+- On a hit it rolls the damage, doubles the dice on a critical hit, applies the target's resistances, vulnerabilities and immunities, and takes the result from its hit points, temporary ones first.
+- The roll and its outcome go to the dice log for everyone. An attack by or against a token hidden from players is logged for you alone.
+- If it is the attacker's turn and its action is unspent, the turn bar marks the action as **Attack**.
+
+The attacker stays where it stood. The target needs an Armor Class, from its sheet or its stat block. You can attack with any token; a player only with their own. The VTT makes one attack roll at a time, so Multiattack is each attack in turn, and actions that call for a saving throw are still yours to resolve. Nothing here stops you changing hit points by hand afterwards.
+
 ## Fog of War
 
 Fog of war covers your map and lets you reveal it a piece at a time, so players discover a dungeon room by room instead of seeing the whole floor plan at once. You control it by hand — nothing is revealed until you say so.

@@ -15,6 +15,9 @@ import type {
   ChatMessageAck,
   DiceRollAck,
   DoneAck,
+  CombatActionsAck,
+  CombatAttackAck,
+  CombatAttackEvent,
   ChatMessageBroadcast,
   ChatSystemBroadcast,
   SessionStartedBroadcast,
@@ -738,6 +741,16 @@ class SocketClient {
   /** End the named combatant's turn. */
   emitTurnEnd(tokenId: string) {
     this.socket?.emit('turn.end', { tokenId });
+  }
+
+  /** What a token can do in combat: its sheet's attacks or its stat block's actions. */
+  listCombatActions(tokenId: string): Promise<CombatActionsAck> {
+    return this.askFor<CombatActionsAck>('combat.actions', { tokenId }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  }
+
+  /** Have the server make an attack, apply its damage and log the roll. */
+  resolveAttack(attack: CombatAttackEvent): Promise<CombatAttackAck> {
+    return this.askFor<CombatAttackAck>('combat.attack', attack, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   onInitiativeState(callback: EventCallback<CombatState>) {
