@@ -37,6 +37,29 @@ SRD 5.1 and to the licence: at the foot of the library whenever it lists an
 SRD creature, and under the button that imports them, which only an
 administrator is offered, while no SRD creatures are imported.
 
+## The rules of play (SRD 5.2.1)
+
+The tactical mode resolves combat by the 2024 revision of the fifth edition
+rules. The code in `backend/src/rules/dnd/` implements rules of play from the
+**System Reference Document 5.2.1 (SRD 5.2.1)**: D20 Tests with Advantage and
+Disadvantage, attack rolls and cover, saving throws, damage types with
+Resistance, Vulnerability and Immunity, Critical Hits, Temporary Hit Points,
+the conditions, Concentration and death saving throws. It is the project's own
+code, written from that document; no text of the document is reproduced.
+
+SRD 5.2.1 is released under the Creative Commons Attribution 4.0 International
+Licence only. The required notice is in [SRD_LICENSE.txt](SRD_LICENSE.txt) and
+reads:
+
+> This work includes material from the System Reference Document 5.2.1
+> ("SRD 5.2.1") by Wizards of the Coast LLC, available at
+> https://www.dndbeyond.com/srd. The SRD 5.2.1 is licensed under the Creative
+> Commons Attribution 4.0 International License, available at
+> https://creativecommons.org/licenses/by/4.0/legalcode.
+
+Nothing from the rulebooks beyond that document is included. The plan for what
+follows is in [docs/TACTICAL_MODE.md](docs/TACTICAL_MODE.md).
+
 ## Open5e
 
 The data reaches CozyVTT through the [Open5e API](https://open5e.com), which
