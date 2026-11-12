@@ -211,6 +211,10 @@ model Campaign {
   chatCooldownEnabled Boolean @default(false)
   chatCooldownSeconds Int     @default(5)
 
+  // Character rules: how the campaign's characters are built (gestalt and the
+  // house rules; see utils/characterRules.ts). Null means the defaults.
+  characterRules Json?
+
   // Dice Settings
   // When the DM clears roll history, this records when — rolls older than it
   // are hidden from the panel. A watermark rather than a delete, because every

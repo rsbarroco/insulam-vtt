@@ -1,4 +1,5 @@
 import type { CharacterHpInfo } from '@/utils/characterHp';
+import type { CharacterRules } from '@/utils/characterRules';
 // ============================================
 // CozyVTT Frontend Type Definitions
 // Mirrors backend API models (Prisma schema)
@@ -562,6 +563,8 @@ export interface Campaign {
   spiritLayerStyle: string;
   chatCooldownEnabled: boolean;
   chatCooldownSeconds: number;
+  /** How the campaign's characters are built; null means the defaults (utils/characterRules.ts). */
+  characterRules: Partial<CharacterRules> | null;
   createdAt: string;
   updatedAt: string;
   lastPlayedAt: string | null;
@@ -1193,6 +1196,8 @@ export interface UpdateCampaignRequest {
   spiritLayerStyle?: string;
   chatCooldownEnabled?: boolean;
   chatCooldownSeconds?: number;
+  /** Only the switches sent are changed. */
+  characterRules?: Partial<CharacterRules>;
 }
 
 // Character
@@ -1473,6 +1478,7 @@ export interface CampaignSettingsUpdatedBroadcast {
   gameSystem: GameSystem | null;
   chatCooldownEnabled: boolean;
   chatCooldownSeconds: number;
+  characterRules: CharacterRules;
 }
 
 // Atmosphere Events

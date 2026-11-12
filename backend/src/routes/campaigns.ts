@@ -1,3 +1,4 @@
+import { readCharacterRules } from '../utils/characterRules';
 import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { AuthenticatedRequest } from '../middleware/rbac';
@@ -470,7 +471,7 @@ router.put('/:campaignId', campaignDM, async (req: AuthenticatedRequest, res: Re
         message: parsed.error.issues[0]?.message ?? 'Invalid campaign data',
       });
     }
-    const { name, description, status, vibeSettings, spiritLayerEnabled, spiritLayerStyle, gameSystem, chatCooldownEnabled, chatCooldownSeconds } = parsed.data;
+    const { name, description, status, vibeSettings, spiritLayerEnabled, spiritLayerStyle, gameSystem, chatCooldownEnabled, chatCooldownSeconds, characterRules } = parsed.data;
 
     const updateData: Prisma.CampaignUpdateInput = {};
     if (name !== undefined) updateData.name = name;
@@ -487,6 +488,12 @@ router.put('/:campaignId', campaignDM, async (req: AuthenticatedRequest, res: Re
     if (spiritLayerStyle !== undefined) updateData.spiritLayerStyle = spiritLayerStyle;
     if (chatCooldownEnabled !== undefined) updateData.chatCooldownEnabled = chatCooldownEnabled;
     if (chatCooldownSeconds !== undefined) updateData.chatCooldownSeconds = chatCooldownSeconds;
+    // The switches sent are laid over the ones stored, so a client that
+    // knows fewer of them changes only its own.
+    if (characterRules !== undefined) {
+      const stored = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { characterRules: true } });
+      updateData.characterRules = { ...readCharacterRules(stored?.characterRules), ...characterRules };
+    }
 
     // Handle gameSystem update
     if (gameSystem !== undefined) {
@@ -517,7 +524,7 @@ router.put('/:campaignId', campaignDM, async (req: AuthenticatedRequest, res: Re
     // Every member's page shows these, so a player at the table follows them
     // without a reload: the chat box's cooldown, the campaign's name.
     // The change is saved either way, so a failed broadcast is only logged.
-    if ([name, description, gameSystem, chatCooldownEnabled, chatCooldownSeconds].some((value) => value !== undefined)) {
+    if ([name, description, gameSystem, chatCooldownEnabled, chatCooldownSeconds, characterRules].some((value) => value !== undefined)) {
       try {
         broadcastToCampaign(campaignId, 'campaign.settings.updated', {
           campaignId,
@@ -526,6 +533,7 @@ router.put('/:campaignId', campaignDM, async (req: AuthenticatedRequest, res: Re
           gameSystem: campaign.gameSystem,
           chatCooldownEnabled: campaign.chatCooldownEnabled,
           chatCooldownSeconds: campaign.chatCooldownSeconds,
+          characterRules: readCharacterRules(campaign.characterRules),
         });
       } catch (error) {
         logger.error('Campaign settings saved but not sent to the table', { err: error, campaignId });

@@ -406,6 +406,14 @@ describe('the limits on a turn in combat', () => {
   });
 });
 
+describe('how a campaign builds its characters', () => {
+  // The browser shows the switches and the server stores them; a default
+  // that differed would build a character the server then refuses.
+  it('is the same file in the browser and on the server', () => {
+    expect(read('frontend/src/utils/characterRules.ts')).toBe(read('backend/src/utils/characterRules.ts'));
+  });
+});
+
 describe('distance, sight and cover on the board', () => {
   // The browser shows them and the server resolves an attack with them, so
   // an attack must not be refused, or allowed, against what the screen says.

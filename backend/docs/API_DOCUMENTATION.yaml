@@ -2604,6 +2604,21 @@ paths:
                   type: integer
                   minimum: 1
                   maximum: 300
+                characterRules:
+                  type: object
+                  additionalProperties: false
+                  description: How the campaign's D&D characters are built - gestalt and the house rules, each a switch. Only the switches sent change; the rest keep their stored value, or `true` when nothing is stored.
+                  properties:
+                    gestalt:
+                      type: boolean
+                    abilityScoreCap22:
+                      type: boolean
+                    featAndAbilityScores:
+                      type: boolean
+                    freeBackgroundAbilityScores:
+                      type: boolean
+                    freeOriginFeat:
+                      type: boolean
       responses:
         '200':
           description: Campaign updated
@@ -12369,6 +12384,21 @@ components:
           type: integer
           default: 5
           description: 1 to 300 when written.
+        characterRules:
+          type: object
+          nullable: true
+          description: How the campaign's D&D characters are built. `null` until a DM saves them, which means every switch is on.
+          properties:
+            gestalt:
+              type: boolean
+            abilityScoreCap22:
+              type: boolean
+            featAndAbilityScores:
+              type: boolean
+            freeBackgroundAbilityScores:
+              type: boolean
+            freeOriginFeat:
+              type: boolean
         rollHistoryClearedAt:
           type: string
           format: date-time

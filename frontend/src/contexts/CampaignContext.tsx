@@ -393,8 +393,21 @@ export function CampaignProvider({ children }: CampaignProviderProps) {
   useEffect(() => {
     const handleSettings = (data: CampaignSettingsUpdatedBroadcast) => {
       if (shownCampaignId.current !== data?.campaignId) return;
-      const { name, description, gameSystem, chatCooldownEnabled, chatCooldownSeconds } = data;
-      setCampaign((prev) => (prev ? { ...prev, name, description, gameSystem, chatCooldownEnabled, chatCooldownSeconds } : null));
+      const { name, description, gameSystem, chatCooldownEnabled, chatCooldownSeconds, characterRules } = data;
+      setCampaign((prev) =>
+        prev
+          ? {
+              ...prev,
+              name,
+              description,
+              gameSystem,
+              chatCooldownEnabled,
+              chatCooldownSeconds,
+              // An older server does not send them; keep what the page has.
+              characterRules: characterRules ?? prev.characterRules,
+            }
+          : null
+      );
     };
     socketClient.on('campaign.settings.updated', handleSettings);
     return () => {
