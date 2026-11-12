@@ -120,7 +120,9 @@ backend/tests/
 .VSCodeCounter/
 
 # ---- Claude Code local settings ---------------------------------------------
-.claude/
+.claude/*
+# Project skills are shared with the team and with cloud sessions.
+!.claude/skills/
 
 # ---- Scratch space -----------------------------------------------------------
 # Throwaway compose overrides, env files and fixtures used to stand a test
