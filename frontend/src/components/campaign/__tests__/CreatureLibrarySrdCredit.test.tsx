@@ -1,5 +1,5 @@
 /**
- * The SRD 5.1 credit, which its CC BY 4.0 licence asks for wherever the
+ * The SRD 5.2.1 credit, which its CC BY 4.0 licence asks for wherever the
  * material is shown.
  *
  * The library credited the SRD only beside the import button, which an
@@ -36,7 +36,7 @@ function creature(over: Partial<CreatureTemplate>): CreatureTemplate {
   } as unknown as CreatureTemplate;
 }
 
-const CREDIT = /System Reference Document 5\.1/;
+const CREDIT = /System Reference Document 5\.2\.1/;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -52,8 +52,8 @@ describe('the SRD credit in the Creature Library', () => {
     expect(await screen.findByText('Goblin')).toBeInTheDocument();
     const credit = screen.getByText(CREDIT);
     expect(credit).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'System Reference Document 5.1' }))
-      .toHaveAttribute('href', 'https://dnd.wizards.com/resources/systems-reference-document');
+    expect(screen.getByRole('link', { name: 'System Reference Document 5.2.1' }))
+      .toHaveAttribute('href', 'https://www.dndbeyond.com/srd');
     expect(screen.getByRole('link', { name: 'CC BY 4.0' }))
       .toHaveAttribute('href', 'https://creativecommons.org/licenses/by/4.0/legalcode');
   });

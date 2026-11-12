@@ -1261,13 +1261,16 @@ class ApiClient {
     return response.data;
   }
 
-  /** `canSeed`: whether the caller may run the SRD import, which only an administrator may. */
-  async getSeedStatus(campaignId: string): Promise<{ srdCount: number; customCount: number; seedInProgress: boolean; canSeed: boolean }> {
+  /**
+   * `canSeed`: whether the caller may run the SRD import, which only an administrator may.
+   * `srdOutdated`: the SRD creatures stored are not the 2024 set, and an import would replace them.
+   */
+  async getSeedStatus(campaignId: string): Promise<{ srdCount: number; customCount: number; srdOutdated?: boolean; seedInProgress: boolean; canSeed: boolean }> {
     const response = await this.client.get(`/api/campaigns/${campaignId}/creatures/seed/status`);
     return response.data;
   }
 
-  async seedSrdCreatures(campaignId: string): Promise<{ message: string; fetched: number; created: number; updated: number; skipped: number; alreadyExisted: number; rejected: number }> {
+  async seedSrdCreatures(campaignId: string): Promise<{ message: string; fetched: number; created: number; updated: number; skipped: number; removed?: number; alreadyExisted: number; rejected: number }> {
     const response = await this.client.post(`/api/campaigns/${campaignId}/creatures/seed`);
     return response.data;
   }

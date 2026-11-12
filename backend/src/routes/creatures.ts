@@ -11,7 +11,7 @@ import { campaignMember, campaignDM } from '../middleware/compose';
 import { requireAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
 import type { Prisma } from '@prisma/client';
-import { seedSrdCreatures, getSrdSeedStatus, SeedSourceError } from '../services/creatureSeed';
+import { seedSrdCreatures, getSrdSeedStatus } from '../services/creatureSeed';
 import { normalizeAssetUrl } from '../utils/asset-urls';
 import { canReferenceAsset } from '../services/permissions';
 import { CreateCreatureSchema, UpdateCreatureSchema } from '../validators/creatures';
@@ -26,7 +26,7 @@ const router = Router({ mergeParams: true });
 
 /**
  * Whether this process is running a seed, so a second request answers 409
- * at once instead of fetching from Open5e again. Two seeds in different
+ * at once instead of writing the library again. Two seeds in different
  * processes (the command-line script, or a second backend) are kept from
  * writing a creature twice by the lock inside seedSrdCreatures.
  */
@@ -55,7 +55,7 @@ router.get('/seed/status', campaignMember, async (req: AuthenticatedRequest, res
 
 // ============================================
 // SEED SRD — POST /seed
-// Fetches SRD creatures from Open5e and populates the library.
+// Fills the library with the SRD 5.2.1 monsters that come with the server.
 // Platform admins only. Safe to call multiple times.
 // ============================================
 
@@ -64,8 +64,9 @@ export const SEED_ADMIN_ONLY =
   'Ask an administrator to import them.';
 
 /**
- * The import writes creatures every campaign shares and fetches from Open5e
- * each time, so it is the instance's administrators' to run, not any DM's:
+ * The import writes creatures every campaign shares, and replaces or removes
+ * the SRD creatures stored before, so it is the instance's administrators' to
+ * run, not any DM's:
  * any user can be the DM of a campaign of their own. The campaign in the
  * address plays no part.
  */
@@ -93,14 +94,10 @@ router.post('/seed', requireAuth, adminToSeed, async (_req: AuthenticatedRequest
       ...result,
     });
   } catch (error) {
-    if (error instanceof SeedSourceError) {
-      logger.warn('SRD creature import stopped', { reason: error.message });
-      return res.status(502).json({ error: 'Bad Gateway', message: error.message });
-    }
     logger.error('Error seeding SRD creatures:', error);
     return res.status(500).json({
       error: 'Internal Server Error',
-      message: 'Failed to seed SRD creatures. Check that the server can reach api.open5e.com.',
+      message: 'Failed to seed SRD creatures',
     });
   } finally {
     seedInProgress = false;

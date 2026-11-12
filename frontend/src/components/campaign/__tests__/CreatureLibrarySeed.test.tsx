@@ -46,13 +46,13 @@ describe('the SRD import in an empty library', () => {
   it('offers an administrator the import, and shows the server\'s reason when it fails', async () => {
     api.getSeedStatus.mockResolvedValue({ srdCount: 0, customCount: 0, seedInProgress: false, canSeed: true });
     api.seedSrdCreatures.mockRejectedValue({
-      response: { status: 502, data: { error: 'Bad Gateway', message: 'api.open5e.com did not answer within 15 seconds.' } },
+      response: { status: 500, data: { error: 'Internal Server Error', message: 'Failed to seed SRD creatures' } },
     });
     render(<CreatureLibrary isOpen onClose={() => {}} />);
 
     await userEvent.click(await screen.findByRole('button', { name: 'Import D&D 5e SRD Creatures' }));
 
-    expect(await screen.findByText('api.open5e.com did not answer within 15 seconds.')).toBeInTheDocument();
+    expect(await screen.findByText('Failed to seed SRD creatures')).toBeInTheDocument();
   });
 
   it('keeps the server\'s reason on screen when the list reloads after it', async () => {
@@ -61,18 +61,18 @@ describe('the SRD import in an empty library', () => {
     // must not take the reason away.
     api.getSeedStatus.mockResolvedValue({ srdCount: 0, customCount: 0, seedInProgress: false, canSeed: true });
     api.seedSrdCreatures.mockRejectedValue({
-      response: { status: 502, data: { error: 'Bad Gateway', message: 'api.open5e.com did not answer within 15 seconds.' } },
+      response: { status: 500, data: { error: 'Internal Server Error', message: 'Failed to seed SRD creatures' } },
     });
     render(<CreatureLibrary isOpen onClose={() => {}} />);
     await waitForDialogFocus();
 
     await userEvent.click(await screen.findByRole('button', { name: 'Import D&D 5e SRD Creatures' }));
-    expect(await screen.findByText('api.open5e.com did not answer within 15 seconds.')).toBeInTheDocument();
+    expect(await screen.findByText('Failed to seed SRD creatures')).toBeInTheDocument();
 
     const loadsBefore = api.listCreatures.mock.calls.length;
     await userEvent.type(screen.getByPlaceholderText('Search creatures...'), 'gob');
     await waitFor(() => expect(api.listCreatures.mock.calls.length).toBeGreaterThan(loadsBefore), { timeout: 2000 });
-    expect(screen.getByText('api.open5e.com did not answer within 15 seconds.')).toBeInTheDocument();
+    expect(screen.getByText('Failed to seed SRD creatures')).toBeInTheDocument();
   });
 });
 
@@ -112,5 +112,33 @@ describe('the Creature Library as a dialog', () => {
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a library imported before the 2024 creatures', () => {
+  const outdated = { srdCount: 322, customCount: 0, srdOutdated: true, seedInProgress: false };
+
+  it('offers an administrator the update, and says what it did', async () => {
+    api.getSeedStatus.mockResolvedValue({ ...outdated, canSeed: true });
+    api.seedSrdCreatures.mockResolvedValue({ message: 'ok', fetched: 330, created: 40, updated: 290, skipped: 0, removed: 32, alreadyExisted: 322, rejected: 0 });
+    render(<CreatureLibrary isOpen onClose={() => {}} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Update to the 2024 creatures' }));
+
+    expect(await screen.findByText(/Imported 40 SRD creatures \(290 replaced with the 2024 stat block, 32 that the 2024 rules do not have removed\)/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Update to the 2024 creatures' })).not.toBeInTheDocument();
+  });
+
+  it('offers nothing to a DM who is not an administrator, nor when the library is up to date', async () => {
+    api.getSeedStatus.mockResolvedValue({ ...outdated, canSeed: false });
+    const { unmount } = render(<CreatureLibrary isOpen onClose={() => {}} />);
+    await screen.findByText('Create Custom');
+    expect(screen.queryByRole('button', { name: 'Update to the 2024 creatures' })).not.toBeInTheDocument();
+    unmount();
+
+    api.getSeedStatus.mockResolvedValue({ srdCount: 330, customCount: 0, srdOutdated: false, seedInProgress: false, canSeed: true });
+    render(<CreatureLibrary isOpen onClose={() => {}} />);
+    await screen.findByText('Create Custom');
+    expect(screen.queryByRole('button', { name: 'Update to the 2024 creatures' })).not.toBeInTheDocument();
   });
 });

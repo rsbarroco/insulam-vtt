@@ -303,7 +303,7 @@ After setting a token's image, you can save it back to the creature template so 
 
 1. In the quick editor, below the token image, click **Save image to creature template**
 
-**SRD creatures are read-only.** If the token is based on an SRD creature (imported from Open5e), CozyVTT will automatically create a custom duplicate of that creature for your campaign:
+**SRD creatures are read-only.** If the token is based on an SRD creature, CozyVTT will automatically create a custom duplicate of that creature for your campaign:
 
 - You'll be prompted to **name the duplicate** (e.g., "Ancient Red Dragon (Fire Variant)"), then click **Create & Save Image**
 - If a duplicate of that SRD creature already exists in your campaign, a warning appears asking if you want to create another
@@ -373,16 +373,17 @@ The Creature Library is your DM-side catalog of creature templates — stat bloc
 
 ### Opening the Creature Library
 
-Click **Creature Library** (the skull icon) in the campaign header's DM toolbar to open the Creature Library panel. The toolbar's buttons are icons; point at one to see its name. The library shows all available creature templates: both **SRD creatures** (imported from Open5e) and **custom creatures** you've created for this campaign.
+Click **Creature Library** (the skull icon) in the campaign header's DM toolbar to open the Creature Library panel. The toolbar's buttons are icons; point at one to see its name. The library shows all available creature templates: both **SRD creatures** (the creatures of the D&D 2024 System Reference Document) and **custom creatures** you've created for this campaign.
 
 ### SRD Creature Seeding
 
-The first time you open the Creature Library on a new server, it may be empty. An administrator clicks **Import D&D 5e SRD** to fetch the full D&D 5e SRD bestiary from Open5e. This is a one-time operation that populates the library with hundreds of ready-to-use creatures, for every campaign on the server.
+The first time you open the Creature Library on a new server, it may be empty. An administrator clicks **Import D&D 5e SRD Creatures** to fill it with the 330 creatures of the D&D 2024 System Reference Document, which come with CozyVTT: nothing is downloaded. This populates the library with ready-to-use creatures, for every campaign on the server.
 
 **Only an administrator can run the import**, because every campaign on the server shares what it adds. If you are a DM but not an administrator, the empty library says so instead of offering the button: ask your server's administrator to open the Creature Library in any campaign of theirs and import the creatures, and they appear in yours too.
 
 - The button names the system it imports because it always seeds **D&D 5e** content, whatever system your campaign uses. It stays available in any campaign — a D&D stat block is a reasonable starting point for homebrew — but you'll be importing D&D monsters
-- Seeding takes a few seconds — a progress indicator shows while it runs. If Open5e cannot be reached, or takes more than 15 seconds over a page, the import stops, says why, and adds nothing; try again later
+- Seeding takes a few seconds — a progress indicator shows while it runs
+- **A library imported before the 2024 creatures** holds the 2014 ones. An administrator sees a note at the foot of the library with **Update to the 2024 creatures**: it gives each creature its 2024 stat block, keeping its picture, and removes the SRD creatures the 2024 rules do not have, along with any favourites on those. Custom creatures, and tokens already placed on maps, are not changed
 - SRD creatures are **global** (shared across all campaigns on the instance) and **read-only**
 - You can duplicate any SRD creature to create an editable custom version
 - The button is offered only while no SRD creatures have been imported, so it disappears once they are in. An import that runs again adds no creature twice, and on a library seeded before CozyVTT 1.1.1 it fills in each SRD creature's hit points; custom creatures are never modified

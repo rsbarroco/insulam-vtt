@@ -2,11 +2,11 @@
 
 ## What this covers
 
-CozyVTT ships no game content. When an administrator seeds the creature library,
-the server fetches creature stat blocks from the [Open5e API](https://open5e.com)
-into that instance's own database. Those stat blocks come from the **Dungeons &
-Dragons 5th Edition System Reference Document 5.1 (SRD 5.1)**, published by
-Wizards of the Coast LLC.
+CozyVTT includes material from the **System Reference Document 5.2.1
+(SRD 5.2.1)**, the 2024 revision of the fifth edition rules, published by
+Wizards of the Coast LLC: the creatures of the creature library, and the
+spells, classes, species, backgrounds and feats that character creation and
+combat use. The sections below say what each file holds.
 
 This file exists to attribute that content. It covers nothing else — the rest of
 CozyVTT is the project's own work, and third-party software is credited in
@@ -15,27 +15,26 @@ CozyVTT is the project's own work, and third-party software is credited in
 
 ## Licence
 
-SRD 5.1 is released under **two** licences, and a user may choose either:
-the Open Game License 1.0a, or the Creative Commons Attribution 4.0
-International Licence.
-
-**CozyVTT uses it under CC-BY-4.0.** That choice means a single attribution
-notice rather than bundling the full OGL text and maintaining its Section 15
-copyright chain. It is also the direction Wizards themselves have taken —
-SRD 5.2.1 and everything after it is Creative Commons only.
-
-The required notice is in [SRD_LICENSE.txt](SRD_LICENSE.txt) and reads:
-
-> This work includes material from the System Reference Document 5.1
-> ("SRD 5.1") by Wizards of the Coast LLC, available at
-> https://dnd.wizards.com/resources/systems-reference-document. The SRD 5.1 is
-> licensed under the Creative Commons Attribution 4.0 International License,
-> available at https://creativecommons.org/licenses/by/4.0/legalcode.
+SRD 5.2.1 is released under the Creative Commons Attribution 4.0
+International Licence only. The required notice is in
+[SRD_LICENSE.txt](SRD_LICENSE.txt) and is quoted in the next section.
 
 The app shows a shorter credit in the creature library, with links to the
-SRD 5.1 and to the licence: at the foot of the library whenever it lists an
+SRD 5.2.1 and to the licence: at the foot of the library whenever it lists an
 SRD creature, and under the button that imports them, which only an
 administrator is offered, while no SRD creatures are imported.
+
+## The creature library
+
+When an administrator imports the SRD creatures, the server stores the 330
+stat blocks of `backend/src/rules/dnd/data/srd-5.2.1-monsters.json` in that
+instance's database. Nothing is fetched.
+
+Before this, the library was filled from the [Open5e API](https://open5e.com)
+with the 2014 creatures of the SRD 5.1, also under CC-BY-4.0. An instance
+that imported those keeps them until an administrator imports again, which
+replaces them with the 2024 creatures. Open5e is a community project that
+served the creature library well, and is no longer contacted.
 
 ## The rules of play (SRD 5.2.1)
 
@@ -87,29 +86,3 @@ reads:
 
 Nothing from the rulebooks beyond that document is included. The plan for what
 follows is in [docs/TACTICAL_MODE.md](docs/TACTICAL_MODE.md).
-
-## Open5e
-
-The data reaches CozyVTT through the [Open5e API](https://open5e.com), which
-serves the SRD in a structured form so applications do not each have to parse
-the source document. That work is not ours and is worth naming: Open5e is a
-community project, and the creature library would be a great deal more effort
-without it.
-
-The seeder requests the `wotc-srd` document specifically, so only SRD material
-is imported.
-
-## Trademarks
-
-Dungeons & Dragons, D&D, and all related logos are trademarks of Wizards of the
-Coast LLC. They are **not** included in CozyVTT, and nothing here implies
-endorsement or affiliation. What the SRD makes freely usable is the mechanical
-content — ability scores, hit points, actions, traits — and that is all CozyVTT
-imports.
-
-## If you add another game system
-
-Attribute it here, in its own section, naming the licence it is published under
-(OGL, ORC, Creative Commons, a fan-content policy) and where the content came
-from. If a system is not openly licensed, restrict the contribution to sheet
-structure and data the user enters themselves.
