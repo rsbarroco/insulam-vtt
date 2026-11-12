@@ -12,6 +12,12 @@ import { SHEET_NAME_MAX } from '@/constants/sheetLimits';
 import api from '@/services/api';
 import Button from '@/components/ui/Button';
 import { apiErrorMessage, apiValidationIssues, errorMessage, errorSummary } from '@/utils/errors';
+import DndCharacterBuilder from './dnd/DndCharacterBuilder';
+import { initialState, missing, toChoices, type BuilderState } from './dnd/builderState';
+import type { DndRulesCatalogue } from '@/types';
+
+/** The template choice that builds the sheet by the campaign's D&D rules, instead of copying a starter sheet. */
+const GUIDED = 'guided';
 
 /** Set when the character was made and publishing it as a template was not. */
 export interface TemplatePublishFailure {
@@ -111,6 +117,10 @@ export default function NewCharacterModal({
   const [loading, setLoading] = useState(false);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const [error, setError] = useState('');
+  // The guided D&D builder: what is chosen so far, and the campaign's rules once loaded.
+  const [builder, setBuilder] = useState<BuilderState>(initialState);
+  const [catalogue, setCatalogue] = useState<DndRulesCatalogue | null>(null);
+  const guided = selectedTemplate === GUIDED && gameSystem === GameSystem.DND_5E && !!selectedCampaignId;
 
   // Fetch user's campaigns when modal opens
   useEffect(() => {
@@ -124,6 +134,8 @@ export default function NewCharacterModal({
   // nothing locking it. A new system starts from its blank sheet.
   const chooseCampaign = (campaignId: string | null) => {
     setSelectedCampaignId(campaignId);
+    // Building by the rules is a campaign's; without one, back to a starter sheet.
+    if (!campaignId && selectedTemplate === GUIDED) setSelectedTemplate('blank');
     const chosen = availableCampaigns.find((c) => c.id === campaignId);
     if (!chosen) return;
     const system = chosen.gameSystem ?? null;
@@ -176,7 +188,20 @@ export default function NewCharacterModal({
       ];
     }
 
-    return TEMPLATE_OPTIONS_BY_SYSTEM[gameSystem] || [];
+    const options = TEMPLATE_OPTIONS_BY_SYSTEM[gameSystem] || [];
+    // Building by the rules needs a campaign: the rules are the campaign's.
+    if (gameSystem === GameSystem.DND_5E && selectedCampaignId) {
+      return [
+        ...options,
+        {
+          value: GUIDED,
+          label: 'Build by the campaign’s rules',
+          description:
+            'Choose a species, a background, classes, ability scores and feats, and the sheet is filled in for you',
+        },
+      ];
+    }
+    return options;
   };
 
   /**
@@ -213,7 +238,30 @@ export default function NewCharacterModal({
       // Always fetch the template from the backend (even for 'blank') so that
       // the character is created with all required schema fields populated.
       let templateData: Record<string, unknown> = {};
-      if (selectedTemplate) {
+      if (guided) {
+        if (!catalogue) {
+          setError('The campaign’s rules are still loading');
+          return;
+        }
+        const lacking = missing(name, builder, catalogue);
+        if (lacking.length > 0) {
+          setError(`Still to choose: ${lacking.join(', ')}`);
+          return;
+        }
+        try {
+          const built = await api.buildDndCharacter(selectedCampaignId!, toChoices(name, builder, catalogue));
+          templateData = built.sheet;
+        } catch (buildErr) {
+          // The server lists everything the rules refuse about the choices.
+          const reasons = (buildErr as { response?: { data?: { errors?: unknown } } }).response?.data?.errors;
+          setError(
+            Array.isArray(reasons) && reasons.length > 0
+              ? reasons.map((reason) => `• ${String(reason)}`).join('\n')
+              : (apiErrorMessage(buildErr) ?? 'The character could not be built')
+          );
+          return;
+        }
+      } else if (selectedTemplate) {
         const systemParam = gameSystem || 'null';
         const starter = await api.getStarterSheet(systemParam, selectedTemplate);
         templateData = starter.data || {};
@@ -252,6 +300,7 @@ export default function NewCharacterModal({
       setSelectedCampaignId(campaign?.id || null);
       setGameSystem(preselectedGameSystem || campaign?.gameSystem || null);
       setSelectedTemplate('blank');
+      setBuilder(initialState());
 
       // Notify parent
       if (templateFailure) {
@@ -285,6 +334,7 @@ export default function NewCharacterModal({
       setSelectedCampaignId(campaign?.id || null);
       setGameSystem(preselectedGameSystem || campaign?.gameSystem || null);
       setSelectedTemplate('blank');
+      setBuilder(initialState());
       setError('');
       onClose();
     }
@@ -445,6 +495,16 @@ export default function NewCharacterModal({
                       Templates pre-fill the character sheet with example data
                     </p>
                   </div>
+                )}
+
+                {guided && (
+                  <DndCharacterBuilder
+                    campaignId={selectedCampaignId!}
+                    state={builder}
+                    onChange={setBuilder}
+                    onCatalogue={setCatalogue}
+                    disabled={loading}
+                  />
                 )}
 
                 {/* Info Box */}

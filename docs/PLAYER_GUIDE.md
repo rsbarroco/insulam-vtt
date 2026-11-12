@@ -92,6 +92,19 @@ Ask your DM which system you're playing:
 
 Give your character a name and click **Create Character**. The dialog closes, **Character created successfully!** appears, and the new character is on your Characters page. Choose **Edit Character** from its card's menu (**⋮**) to open the **Character Editor**. This is your character sheet — fill it out just like you would on paper.
 
+**Building a D&D character by the rules.** If you choose a campaign set to D&D 5e, a third option appears under the templates: **Build by the campaign's rules**. Instead of an empty sheet you make the choices and the VTT fills the sheet in:
+
+- a **species** and a **background**, with the background's ability score increases (+2 and +1, or +1 to three) and an **origin feat**
+- a **class**, and a **second class** if your campaign builds gestalt characters, which advance in two classes at once
+- a **level**, from 1 to 20
+- the six **ability scores** before anything is added, from 3 to 18: roll them, buy them or use **Standard array**, as your table does. Under each box is the score with everything added
+- the **skills** your class lets you choose
+- for each level that gives one, a **feat** and where its ability score points go. Pick the same ability twice to add 2 to it
+
+What you are offered follows your campaign's own rules, which the line at the top of the form sums up: a campaign may let a background raise any ability scores, let you take any origin feat, raise scores to 22, or give a feat and +2 at every fourth level. If something is missing or not allowed, **Create Character** says what, and nothing is created until it is right.
+
+The sheet comes filled in with your scores, Hit Points, saving throws, skills, spell slots, and the traits, feats and class features written out. It does not choose your equipment or your spells, and Armor Class starts at 10 plus Dexterity: set those in the Character Editor. The species, backgrounds, feats and classes are those of the System Reference Document 5.2.1.
+
 *Screenshot pending — Character editor (D&D 5e example).*
 
 The sheet is split into sections depending on the system. Take your time — you can save partial work and come back. The header shows the last time you saved.
