@@ -999,7 +999,7 @@ export default function TacticalMapCanvas() {
           }
           style={{ left: Math.max(8, attacking.x), top: Math.max(8, attacking.y) }}
           onResolved={(answer) => {
-            if (answer.ok) showToast(answer.summary, answer.hit ? 'success' : 'info');
+            if (answer.ok) showToast(answer.summary, answer.landed ? 'success' : 'info');
             else showToast(answer.error, 'error');
             // The attacker stays where it stood: it was held to choose a target.
             cancelHold();

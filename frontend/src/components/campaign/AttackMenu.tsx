@@ -7,7 +7,7 @@
 // ============================================
 
 import { useEffect, useState } from 'react';
-import type { AttackMode, CombatActionSummary, CombatAttackAck } from '@/types';
+import type { AttackMode, CombatActionSummary } from '@/types';
 import type socketService from '@/services/socket';
 import Button from '@/components/ui/Button';
 
@@ -18,7 +18,10 @@ interface AttackMenuProps {
   /** Distance and cover as the board shows them, for the heading. */
   situation: string | null;
   style: React.CSSProperties;
-  onResolved: (answer: CombatAttackAck) => void;
+  /** The outcome in one line, and whether it went the acting creature's way. */
+  onResolved: (
+    answer: { ok: true; summary: string; landed: boolean } | { ok: false; error: string }
+  ) => void;
   onClose: () => void;
 }
 
@@ -29,6 +32,26 @@ function rangeText(attack: NonNullable<CombatActionSummary['attack']>): string {
   const range = attack.rangeFeet;
   if (!range) return 'ranged';
   return range.long ? `range ${range.normal}/${range.long} ft` : `range ${range.normal} ft`;
+}
+
+function attackText(attack: NonNullable<CombatActionSummary['attack']>): string {
+  return `${signed(attack.bonus)} to hit · ${rangeText(attack)}${attack.damage ? ` · ${attack.damage}` : ''}`;
+}
+
+const ABILITY_LABELS = {
+  str: 'Strength',
+  dex: 'Dexterity',
+  con: 'Constitution',
+  int: 'Intelligence',
+  wis: 'Wisdom',
+  cha: 'Charisma',
+} as const;
+
+function saveText(save: NonNullable<CombatActionSummary['save']>): string {
+  const parts = [`DC ${save.dc} ${ABILITY_LABELS[save.ability]} save`];
+  if (save.damage) parts.push(save.halfOnSuccess ? `${save.damage}, half on a save` : save.damage);
+  if (save.area) parts.push(`${save.area.sizeFeet} ft ${save.area.shape}`);
+  return parts.join(' · ');
 }
 
 export default function AttackMenu({
@@ -57,18 +80,35 @@ export default function AttackMenu({
     };
   }, [socket, attacker.id]);
 
-  const attacks = (actions ?? []).filter((action) => action.attack !== null);
+  const attacks = (actions ?? []).filter(
+    (action) => action.attack !== null || action.save !== null
+  );
+  const anyAttackRoll = attacks.some((action) => action.attack !== null);
 
   const make = async (action: CombatActionSummary) => {
     setBusy(true);
-    const answer = await socket.resolveAttack({
-      attackerId: attacker.id,
-      targetId: target.id,
+    if (action.attack) {
+      const answer = await socket.resolveAttack({
+        attackerId: attacker.id,
+        targetId: target.id,
+        action: action.index,
+        ...(mode !== 'normal' ? { mode } : {}),
+      });
+      setBusy(false);
+      onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
+      return;
+    }
+    const answer = await socket.resolveSave({
+      sourceId: attacker.id,
+      targetIds: [target.id],
       action: action.index,
-      ...(mode !== 'normal' ? { mode } : {}),
     });
     setBusy(false);
-    onResolved(answer);
+    onResolved(
+      answer.ok
+        ? { ok: true, summary: answer.summary, landed: answer.targets.some((t) => !t.saved) }
+        : answer
+    );
   };
 
   return (
@@ -95,8 +135,8 @@ export default function AttackMenu({
       {!problem && actions === null && <p className="text-sm text-ink-muted">Loading attacks…</p>}
       {actions !== null && attacks.length === 0 && (
         <p className="text-sm text-ink-muted">
-          {attacker.name} has no attack the VTT can roll. Add attacks to its character sheet, or
-          actions to its stat block.
+          {attacker.name} has no attack or saving-throw effect the VTT can roll. Add attacks to its
+          character sheet, or actions to its stat block.
         </p>
       )}
 
@@ -113,25 +153,26 @@ export default function AttackMenu({
                 >
                   <span className="block text-sm font-medium text-ink">{action.name}</span>
                   <span className="block text-xs text-ink-muted">
-                    {signed(action.attack!.bonus)} to hit · {rangeText(action.attack!)}
-                    {action.attack!.damage ? ` · ${action.attack!.damage}` : ''}
+                    {action.attack ? attackText(action.attack) : saveText(action.save!)}
                   </span>
                 </button>
               </li>
             ))}
           </ul>
-          <label className="flex items-center justify-between gap-2 text-sm text-ink">
-            Roll with
-            <select
-              value={mode}
-              onChange={(event) => setMode(event.target.value as AttackMode)}
-              className="input-cozy text-sm py-1"
-            >
-              <option value="normal">What the rules give</option>
-              <option value="advantage">Advantage</option>
-              <option value="disadvantage">Disadvantage</option>
-            </select>
-          </label>
+          {anyAttackRoll && (
+            <label className="flex items-center justify-between gap-2 text-sm text-ink">
+              Roll with
+              <select
+                value={mode}
+                onChange={(event) => setMode(event.target.value as AttackMode)}
+                className="input-cozy text-sm py-1"
+              >
+                <option value="normal">What the rules give</option>
+                <option value="advantage">Advantage</option>
+                <option value="disadvantage">Disadvantage</option>
+              </select>
+            </label>
+          )}
         </>
       )}
 

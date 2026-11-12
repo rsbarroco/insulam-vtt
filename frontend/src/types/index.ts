@@ -1643,6 +1643,15 @@ export interface CombatActionSummary {
     rangeFeet?: { normal: number; long: number | null };
     damage: string;
   } | null;
+  /** The saving throw the server can roll for its targets, or null. */
+  save: {
+    ability: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
+    dc: number;
+    halfOnSuccess: boolean;
+    damage: string;
+    rangeFeet?: number;
+    area?: { shape: 'sphere' | 'cone' | 'cube' | 'line' | 'cylinder' | 'emanation'; sizeFeet: number };
+  } | null;
 }
 export type CombatActionsAck = { ok: true; actions: CombatActionSummary[] } | { ok: false; error: string };
 
@@ -1651,6 +1660,12 @@ export type AttackMode = 'normal' | 'advantage' | 'disadvantage';
 export interface CombatAttackEvent { attackerId: string; targetId: string; action: number; mode?: AttackMode; }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
+  | { ok: false; error: string };
+
+/** `combat.save`: an action that calls for a saving throw, against one or more tokens. */
+export interface CombatSaveEvent { sourceId: string; targetIds: string[]; action: number; }
+export type CombatSaveAck =
+  | { ok: true; summary: string; dc: number; ability: string; targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }> }
   | { ok: false; error: string };
 
 export interface InitiativeAddEvent    { tokenId: string; mapId: string; }
