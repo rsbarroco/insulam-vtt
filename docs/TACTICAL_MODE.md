@@ -93,4 +93,5 @@ same pull request, and must pass the full CI run before it merges.
 | Phase | State |
 | --- | --- |
 | 0 Plan | Done |
-| 1 to 8 | Not started |
+| 1 Geometry core | Done: `map/iso/heightGrid.ts`, `map/iso/projection.ts` |
+| 2 to 8 | Not started |
