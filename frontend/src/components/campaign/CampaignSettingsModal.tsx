@@ -298,8 +298,8 @@ export default function CampaignSettingsModal({
                   ? [
                       { id: 'general', label: 'General' },
                       { id: 'chat', label: 'Chat' },
-                      // The rules engine is D&D's; a campaign set to another system has no use for these.
-                      ...(campaign.gameSystem === null || campaign.gameSystem === 'DND_5E'
+                      // Characters are built by the D&D rules only in a campaign set to D&D 5e.
+                      ...(campaign.gameSystem === 'DND_5E'
                         ? [{ id: 'characters', label: 'Characters' }]
                         : []),
                     ]

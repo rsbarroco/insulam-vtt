@@ -719,6 +719,29 @@ class ApiClient {
   // ============================================
 
   /**
+   * What D&D character creation chooses from in this campaign: the species,
+   * backgrounds, feats and classes of the SRD 5.2.1, with the campaign's
+   * character rules applied.
+   */
+  async getDndRules(campaignId: string): Promise<import('@/types').DndRulesCatalogue> {
+    const response = await this.client.get(`/api/campaigns/${campaignId}/rules/dnd`);
+    return response.data;
+  }
+
+  /**
+   * The D&D 5e sheet a set of choices makes under the campaign's rules. Stores
+   * nothing: save the sheet as a character. A refusal carries every reason in
+   * the response's `errors`.
+   */
+  async buildDndCharacter(
+    campaignId: string,
+    choices: import('@/types').DndCharacterChoices
+  ): Promise<{ sheet: Record<string, unknown>; summary: import('@/types').DndBuildSummary }> {
+    const response = await this.client.post(`/api/campaigns/${campaignId}/rules/dnd/build`, choices);
+    return response.data;
+  }
+
+  /**
    * Your own saved dice macros for this campaign, oldest first, the order they
    * appear as buttons, which stays put when one is edited.
    */

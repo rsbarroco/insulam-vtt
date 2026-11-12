@@ -280,6 +280,8 @@ tags:
     description: PDF, text and Markdown files uploaded as assets, shared with a campaign by its DM and read inline
   - name: Dice Macros
     description: A player's own saved dice rolls for one campaign, private to whoever saved them
+  - name: Rules
+    description: The D&D rules a campaign builds its characters by, from the System Reference Document 5.2.1
   - name: Admin
     description: Admin-only platform management endpoints (requires ADMIN platform role)
   - name: Notes
@@ -3808,6 +3810,151 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/campaigns/{campaignId}/rules/dnd:
+    get:
+      tags:
+        - Rules
+      summary: What D&D character creation chooses from
+      description: >
+        The species, backgrounds, feats and classes of the System Reference
+        Document 5.2.1, with the campaign's own character rules applied: each
+        feat says the ability score points it gives and up to what score, and
+        each class the levels that give a feat or ability score points. 404
+        for a campaign that is not set to D&D 5e.
+      operationId: getDndRules
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: The catalogue and the campaign's switches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    type: string
+                  characterRules:
+                    type: object
+                    description: The campaign's switches, every one filled in.
+                  species:
+                    type: array
+                    items:
+                      type: object
+                  backgrounds:
+                    type: array
+                    items:
+                      type: object
+                  feats:
+                    type: array
+                    items:
+                      type: object
+                  classes:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: The campaign is not set to D&D 5e
+  /api/campaigns/{campaignId}/rules/dnd/build:
+    post:
+      tags:
+        - Rules
+      summary: Build a D&D 5e sheet from a character's choices
+      description: >
+        Checks the choices against the rules as the campaign has them and
+        returns the sheet they make: scores, Hit Points, saving throws, skills,
+        spell slots, and the features of the species, the feats and the
+        classes. Stores nothing; save the sheet with `POST /api/characters`.
+        A refusal lists everything wrong in `errors`.
+      operationId: buildDndCharacter
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, species, background, classes, level, abilityScores, backgroundIncreases, originFeat, skills, improvements]
+              properties:
+                name:
+                  type: string
+                species:
+                  type: string
+                background:
+                  type: string
+                classes:
+                  type: array
+                  minItems: 1
+                  maxItems: 2
+                  description: One class, or two for a gestalt character.
+                  items:
+                    type: string
+                level:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+                abilityScores:
+                  type: object
+                  description: The six scores (`str`, `dex`, `con`, `int`, `wis`, `cha`) before anything is added, each 3 to 18.
+                backgroundIncreases:
+                  type: object
+                  description: 2 to one score and 1 to another, or 1 to three.
+                originFeat:
+                  type: string
+                skills:
+                  type: array
+                  description: The class's skill choices, as the sheet keys them (`sleightOfHand`).
+                  items:
+                    type: string
+                improvements:
+                  type: array
+                  description: One for each level that gives a feat or ability score points.
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [level, feat]
+                    properties:
+                      level:
+                        type: integer
+                      feat:
+                        type: string
+                      featPoints:
+                        type: object
+                        description: The ability score points the feat itself gives.
+                      abilityPoints:
+                        type: object
+                        description: The 2 points the campaign's house rule adds beside the feat.
+      responses:
+        '200':
+          description: The sheet and a summary of it
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sheet:
+                    type: object
+                    description: D&D 5e character data, as `POST /api/characters` takes it.
+                  summary:
+                    type: object
+        '400':
+          description: The choices are not allowed; `errors` lists every reason
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: The campaign is not set to D&D 5e
   /api/campaigns/{campaignId}/macros:
     get:
       tags:

@@ -25,6 +25,7 @@ import setupRoutes from './routes/setup';
 import authRoutes from './routes/auth';
 import campaignRoutes from './routes/campaigns';
 import campaignMacroRoutes from './routes/campaignMacros';
+import rulesRoutes from './routes/rules';
 import campaignDocumentRoutes from './routes/campaignDocuments';
 import userRoutes from './routes/users';
 import characterRoutes from './routes/characters';
@@ -229,6 +230,7 @@ export function createApp(options: AppOptions): express.Express {
   // Campaigns
   app.use('/api/campaigns', campaignRoutes);
   app.use('/api/campaigns', campaignMacroRoutes);
+  app.use('/api/campaigns', rulesRoutes);
   app.use('/api/campaigns', campaignDocumentRoutes);
 
   // Characters
