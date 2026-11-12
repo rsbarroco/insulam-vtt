@@ -178,13 +178,19 @@ export function actionFromSheetAttack(attack: SheetAttack): CombatAction {
   return { name: attack.name, cost: 'action', source: 'sheet', attack: profile };
 }
 
-/** Every "N (dice) type damage" or "N type damage" in a sentence. */
+/**
+ * Every "N (dice) type damage" or "N type damage" in a sentence. Damage that
+ * comes only on a condition ("plus 2 (1d4) Slashing damage if the attack roll
+ * had Advantage") is left for the table: the engine cannot tell whether it
+ * holds.
+ */
 function damageIn(text: string): DamageComponent[] {
   const found: DamageComponent[] = [];
   const pattern = /(\d{1,4})\s*(?:\(([^)]+)\)\s*)?([a-z]+)\s+damage/gi;
   for (const match of text.matchAll(pattern)) {
     const type = parseDamageType(match[3]);
     if (!type) continue;
+    if (/^\s+(if|when|while|unless)\b/i.test(text.slice(match.index + match[0].length))) continue;
     const roll = parseDamageRoll(match[2] ?? match[1]);
     if (roll) found.push({ roll, type });
   }
@@ -198,7 +204,11 @@ function attackIn(text: string): AttackProfile | null {
   const reach = /reach\s+(\d{1,3})\s*ft/i.exec(text);
   const range = /range\s+(\d{1,4})(?:\s*\/\s*(\d{1,4}))?\s*ft/i.exec(text);
   const hit = /\bhit:\s*(.*)$/is.exec(text);
-  const profile: AttackProfile = { kind, bonus: Number(header[2]), damage: damageIn(hit ? hit[1] : '') };
+  // What a hit deals is its first sentence. What follows ("If the target is a
+  // creature, it takes 5 (1d10) Poison damage at the start of each of its
+  // turns") is a rider, and not damage of the hit.
+  const onHit = hit ? (/^(.*?[.!])(?:\s|$)/s.exec(hit[1])?.[1] ?? hit[1]) : '';
+  const profile: AttackProfile = { kind, bonus: Number(header[2]), damage: damageIn(onHit) };
   if (kind === 'melee') profile.reachFeet = reach ? Number(reach[1]) : 5;
   else if (range) profile.rangeFeet = { normal: Number(range[1]), long: range[2] ? Number(range[2]) : null };
   return profile;
