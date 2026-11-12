@@ -11,7 +11,17 @@
 // ============================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Grid3x3, Maximize, RotateCcw, RotateCw } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Eraser,
+  Grid3x3,
+  Maximize,
+  Mountain,
+  RotateCcw,
+  RotateCw,
+  Undo2,
+} from 'lucide-react';
 import { useCampaign } from '@/contexts/CampaignContext';
 import { useWebSocket } from '@/contexts/WebSocketContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -39,6 +49,8 @@ import {
 import { releaseHeldToken } from './map/tokenHold';
 import { isTypingInto } from './map/typingTarget';
 import { heightAt, isHeightGrid, MAX_TILE_HEIGHT } from './map/iso/heightGrid';
+import { useHeightBrush } from './map/iso/useHeightBrush';
+import type { BrushMode } from './map/iso/heightBrush';
 import {
   isoBoardSize,
   isoMetrics,
@@ -58,6 +70,12 @@ const MOVE_THROTTLE_MS = 16;
 const CLICK_SLOP_PX = 4;
 const TURN_RING = '#facc15';
 const PEEK_RING = '#60a5fa';
+
+const BRUSHES: ReadonlyArray<{ mode: BrushMode; icon: typeof ArrowUp; label: string }> = [
+  { mode: 'raise', icon: ArrowUp, label: 'Raise squares' },
+  { mode: 'lower', icon: ArrowDown, label: 'Lower squares' },
+  { mode: 'level', icon: Mountain, label: 'Set squares to a height' },
+];
 
 /** Where a footprint goes so that the pointed cell is at its middle, kept on the board. */
 export function footprintOriginAt(
@@ -131,10 +149,28 @@ export default function TacticalMapCanvas() {
   const heights = isHeightGrid(currentMap?.tileHeights) ? currentMap.tileHeights : null;
   // Heights for another size of board would put tiles in the wrong place;
   // a resize sends new ones, and until they arrive the board is flat.
-  const boardHeights =
+  const storedHeights =
     heights && currentMap && heights.cols === currentMap.width && heights.rows === currentMap.height
       ? heights
       : null;
+
+  // The DM's height brush. Its draft is what is drawn while a stroke is
+  // being painted or saved.
+  const brush = useHeightBrush({
+    campaignId: campaign?.id,
+    mapId: currentMap?.id,
+    cols: currentMap?.width ?? 0,
+    rows: currentMap?.height ?? 0,
+    stored: storedHeights,
+    onError: (message) => showToast(message, 'error'),
+    onSaved: (savedMapId, tileHeights) =>
+      setCurrentMap((latest) =>
+        latest && latest.id === savedMapId ? { ...latest, tileHeights } : latest
+      ),
+  });
+  const boardHeights = brush.heights;
+  const brushMode = isDM ? brush.mode : null;
+  const paintingRef = useRef(false);
 
   const view = useMemo<IsoView | null>(
     () =>
@@ -414,13 +450,33 @@ export default function TacticalMapCanvas() {
     if (canEmit()) socket!.emitTokenMoveStart({ tokenId: token.id, mapId: currentMap.id });
   };
 
+  const paintAt = (event: { clientX: number; clientY: number }) => {
+    const iso = toIso(event);
+    if (!iso || !view) return;
+    const cell = pickCell(iso.x, iso.y, view, boardHeights);
+    if (cell) brush.paint(cell);
+  };
+
   const onPointerDown = (event: React.PointerEvent) => {
+    // The right button always pans, so the map can be moved with a brush up.
+    if (event.button === 2) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pressRef.current = { x: event.clientX, y: event.clientY, pan: camera.pan, moved: true };
+      return;
+    }
     if (event.button !== 0) return;
+    if (brushMode && !held) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      paintingRef.current = true;
+      paintAt(event);
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     pressRef.current = { x: event.clientX, y: event.clientY, pan: camera.pan, moved: false };
   };
 
   const onPointerMove = (event: React.PointerEvent) => {
+    if (paintingRef.current) paintAt(event);
     const press = pressRef.current;
     if (press) {
       const dx = event.clientX - press.x;
@@ -455,6 +511,11 @@ export default function TacticalMapCanvas() {
   };
 
   const onPointerUp = (event: React.PointerEvent) => {
+    if (paintingRef.current) {
+      paintingRef.current = false;
+      brush.endStroke();
+      return;
+    }
     const press = pressRef.current;
     pressRef.current = null;
     if (press && !press.moved) click(event);
@@ -489,9 +550,26 @@ export default function TacticalMapCanvas() {
   }, []);
 
   // ── Keyboard ───────────────────────────────────────────────────────────
+  const brushActiveRef = useRef(false);
+  brushActiveRef.current = brushMode !== null;
+  const undoRef = useRef(brush.undo);
+  undoRef.current = brush.undo;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (isTypingInto(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (isTypingInto(event.target)) return;
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'z'
+      ) {
+        if (brushActiveRef.current) {
+          event.preventDefault();
+          undoRef.current();
+        }
+        return;
+      }
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key === 'q' || event.key === 'Q') setRotation((current) => turnCamera(current, -1));
       else if (event.key === 'e' || event.key === 'E')
         setRotation((current) => turnCamera(current, 1));
@@ -534,6 +612,7 @@ export default function TacticalMapCanvas() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={() => setHoverCell(null)}
+        onContextMenu={(event) => event.preventDefault()}
       />
 
       <div className="absolute top-4 left-4 glass-panel p-2 flex items-center gap-1 bg-parchment/90 backdrop-blur-xs">
@@ -576,6 +655,64 @@ export default function TacticalMapCanvas() {
         />
       </div>
 
+      {isDM && (
+        <div
+          className="absolute top-16 left-4 glass-panel p-2 flex items-center gap-1 bg-parchment/90 backdrop-blur-xs"
+          role="group"
+          aria-label="Tile heights"
+        >
+          {BRUSHES.map(({ mode, icon, label }) => (
+            <Button
+              key={mode}
+              variant={brush.mode === mode ? 'secondary' : 'ghost'}
+              size="sm"
+              icon={icon}
+              iconOnly
+              aria-label={label}
+              aria-pressed={brush.mode === mode}
+              title={label}
+              onClick={() => brush.setMode(brush.mode === mode ? null : mode)}
+            />
+          ))}
+          <label className="flex items-center gap-1 text-sm text-ink">
+            <span className="sr-only">Height the level brush sets</span>
+            <input
+              type="number"
+              min={0}
+              max={MAX_TILE_HEIGHT}
+              value={brush.level}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value))
+                  brush.setLevel(Math.max(0, Math.min(MAX_TILE_HEIGHT, Math.round(value))));
+              }}
+              className="input-cozy w-16 text-sm py-1"
+              title="Height the level brush sets"
+            />
+          </label>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={Undo2}
+            iconOnly
+            aria-label="Undo height edit"
+            title="Undo height edit (Ctrl+Z)"
+            disabled={!brush.canUndo}
+            onClick={brush.undo}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={Eraser}
+            iconOnly
+            aria-label="Flatten the whole map"
+            title="Flatten the whole map"
+            disabled={tallest === 0}
+            onClick={brush.flattenAll}
+          />
+        </div>
+      )}
+
       {hoverCell && (
         <div className="absolute bottom-4 left-4 glass-panel px-3 py-1.5 bg-parchment/90 backdrop-blur-xs text-sm text-ink">
           {hoverToken && <span className="font-medium">{tokenDisplayName(hoverToken)} · </span>}
@@ -589,6 +726,13 @@ export default function TacticalMapCanvas() {
       {held && (
         <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
           Click a square to put {tokenDisplayName(held)} down, or press Esc to cancel
+        </div>
+      )}
+
+      {brushMode && !held && (
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
+          Click or drag over squares to change their height. Drag with the right button to move the
+          map.
         </div>
       )}
     </div>

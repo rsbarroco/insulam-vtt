@@ -927,7 +927,18 @@ The **Tactical view** button at the top of the map draws the current map on a di
 - Tokens are picked up and put down with a click, as in the top-down view, and the move reaches everyone in either view.
 - The grid button hides or shows the grid lines.
 
-**What it does not do yet.** The tactical view draws no fog of war and no dynamic lighting, so players are offered it only on a map where both are off; on any other map they stay in the top-down view, and are returned to it if you switch either on. You may use it on any map. Walls, lights, fog, the ruler, hit point bars and the token menu are in the top-down view only. A square's height is set through the API for now (`PUT /api/campaigns/{campaignId}/maps/{id}/heights`); a brush for painting heights on the map comes next. The plan is in [TACTICAL_MODE.md](TACTICAL_MODE.md).
+**What it does not do yet.** The tactical view draws no fog of war and no dynamic lighting, so players are offered it only on a map where both are off; on any other map they stay in the top-down view, and are returned to it if you switch either on. You may use it on any map. Walls, lights, fog, the ruler, hit point bars and the token menu are in the top-down view only. The plan is in [TACTICAL_MODE.md](TACTICAL_MODE.md).
+
+### Shaping the ground
+
+In the tactical view you have a second row of buttons for the height of each square, from 0 (the ground) to 32.
+
+- **Raise squares** and **Lower squares** change a square by one step. Click a square, or drag across several; each square a drag crosses changes once, however long the pointer rests on it. Drag over the same squares again to go a step further.
+- **Set squares to a height** gives every square you touch the height in the number box beside it, which is the quick way to lay a plateau or a floor.
+- **Undo height edit** (or **Ctrl+Z** while a brush is on) takes back the last stroke, up to 50 strokes. **Flatten the whole map** puts every square back to 0, and can be undone too.
+- While a brush is on, the left button paints, so drag with the **right button** to move the map. Click the brush again to put it away and go back to moving tokens.
+
+Each stroke is saved when you release the button and reaches everyone at once. Heights stay with the map: they follow its squares when you resize it, and travel with a campaign export.
 
 ## Fog of War
 

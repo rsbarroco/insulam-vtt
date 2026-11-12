@@ -1090,6 +1090,16 @@ class ApiClient {
     return response.data;
   }
 
+  /** Replace a map's tile heights for the tactical view (DM only). */
+  async setMapHeights(
+    campaignId: string,
+    mapId: string,
+    heights: number[]
+  ): Promise<{ tileHeights: CampaignMap['tileHeights'] }> {
+    const response = await this.client.put(`/api/campaigns/${campaignId}/maps/${mapId}/heights`, { heights });
+    return response.data;
+  }
+
   async setCurrentMap(campaignId: string, mapId: string): Promise<{ message: string }> {
     const response = await this.client.put(`/api/campaigns/${campaignId}/maps/${mapId}/set-current`);
     return response.data;
