@@ -25,7 +25,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
-  PanelRightOpen, Settings, BookOpen } from 'lucide-react';
+  PanelRightOpen, Settings, BookOpen, Scale } from 'lucide-react';
 import {
   Group,
   Panel,
@@ -50,6 +50,7 @@ import AtmospherePlayer from '@/components/campaign/AtmospherePlayer';
 import TableRefusals from '@/components/campaign/TableRefusals';
 import NpcQuickEditor from '@/components/campaign/NpcQuickEditor';
 import CreatureLibrary from '@/components/campaign/CreatureLibrary';
+import RulesReference from '@/components/campaign/RulesReference';
 import TokenTemplateLibrary from '@/components/campaign/TokenTemplateLibrary';
 import TokenRoster from '@/components/campaign/TokenRoster';
 import CampaignSettingsModal from '@/components/campaign/CampaignSettingsModal';
@@ -134,6 +135,7 @@ function CampaignPageContent() {
   const [isAtmospherePanelOpen, setIsAtmospherePanelOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDocumentsOpen, setIsDocumentsOpen] = useState(false);
+  const [isRulesOpen, setIsRulesOpen] = useState(false);
   const [isCreatureLibraryOpen, setIsCreatureLibraryOpen] = useState(false);
   const [isTokenTemplateLibraryOpen, setIsTokenTemplateLibraryOpen] = useState(false);
   const [quickEditToken, setQuickEditToken] = useState<Token | null>(null);
@@ -389,6 +391,19 @@ function CampaignPageContent() {
               onClick={() => setIsDocumentsOpen(true)}
             />
           </Tooltip>
+          {/* The rules the VTT resolves by, for every member to look one up in.
+              Only where it resolves by them: D&D 5e, or no system set. */}
+          {campaign && (campaign.gameSystem === null || campaign.gameSystem === 'DND_5E') && (
+            <Tooltip content="Rules of play" side="bottom">
+              <Button
+                variant="ghost"
+                iconOnly
+                icon={Scale}
+                aria-label="Rules of play"
+                onClick={() => setIsRulesOpen(true)}
+              />
+            </Tooltip>
+          )}
 
           {/* Sidebar collapse toggles (all roles) */}
           <div className="h-6 w-px bg-moss-green/20" />
@@ -570,6 +585,10 @@ function CampaignPageContent() {
           campaignId={campaign.id}
           isDM={userRole === 'DM'}
         />
+      )}
+
+      {campaign?.id && (
+        <RulesReference campaignId={campaign.id} isOpen={isRulesOpen} onClose={() => setIsRulesOpen(false)} />
       )}
 
       {/* Atmosphere Player — mounts for ALL users, manages ambient audio sync */}

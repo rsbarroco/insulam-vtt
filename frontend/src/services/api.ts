@@ -729,6 +729,15 @@ class ApiClient {
   }
 
   /**
+   * The rules of play as the SRD 5.2.1 words them: every heading of "Playing
+   * the Game" and of the "Rules Glossary" with what stands under it.
+   */
+  async getDndRulesReference(campaignId: string): Promise<import('@/types').DndRulesReference> {
+    const response = await this.client.get(`/api/campaigns/${campaignId}/rules/dnd/reference`);
+    return response.data;
+  }
+
+  /**
    * The D&D 5e sheet a set of choices makes under the campaign's rules. Stores
    * nothing: save the sheet as a character. A refusal carries every reason in
    * the response's `errors`.

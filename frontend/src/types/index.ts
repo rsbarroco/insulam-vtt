@@ -1829,6 +1829,30 @@ export interface DndRulesCatalogue {
   classes: DndClassSummary[];
 }
 
+export type DndRuleBlock =
+  | { type: 'paragraph'; text: string }
+  | { type: 'table'; title?: string; head: string[][]; rows: string[][] }
+  | { type: 'sidebar'; title: string; paragraphs: string[] };
+
+/** One heading of the rules of play, with what stands under it. */
+export interface DndRuleSection {
+  id: string;
+  chapter: string;
+  /** As the document heads it: "Dodge [Action]", "Prone [Condition]". */
+  title: string;
+  /** 1 for a chapter, down to 4 for a glossary entry. */
+  level: number;
+  /** The headings it sits under, ending in its own. */
+  path: string[];
+  blocks: DndRuleBlock[];
+}
+
+export interface DndRulesReference {
+  source: string;
+  license: string;
+  sections: DndRuleSection[];
+}
+
 export interface DndCharacterChoices {
   name: string;
   species: string;

@@ -3861,6 +3861,66 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           description: The campaign is not set to D&D 5e
+  /api/campaigns/{campaignId}/rules/dnd/reference:
+    get:
+      tags:
+        - Rules
+      summary: The rules of play, to look a rule up in
+      description: >
+        The "Playing the Game" chapter and the "Rules Glossary" of the System
+        Reference Document 5.2.1 (CC-BY-4.0), in the document's own words:
+        every heading with the paragraphs, tables and sidebars under it, in
+        the document's order. The whole text comes in one response; the client
+        searches it. 404 for a campaign set to another system than D&D 5e.
+      operationId: getDndRulesReference
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: Every section of the rules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    type: string
+                  license:
+                    type: string
+                  sections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        chapter:
+                          type: string
+                        title:
+                          type: string
+                        level:
+                          type: integer
+                          description: 1 for a chapter, down to 4 for a glossary entry.
+                        path:
+                          type: array
+                          items:
+                            type: string
+                        blocks:
+                          type: array
+                          description: >
+                            Each a `paragraph` (`text`), a `table` (`title`,
+                            `head`, `rows`) or a `sidebar` (`title`,
+                            `paragraphs`).
+                          items:
+                            type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: The campaign is set to another system
   /api/campaigns/{campaignId}/rules/dnd/build:
     post:
       tags:

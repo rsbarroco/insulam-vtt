@@ -179,6 +179,10 @@ You can read everything on that list and nothing that is not on it. Sharing is t
 
 You can keep documents of your own too, from **Documents** on your dashboard: upload a PDF, or write text or Markdown notes and edit them later. Those are yours alone unless a DM shares one with a campaign.
 
+### Looking a Rule Up
+
+Press the **scales icon** in the header for the **Rules of play**: how the game is played and the rules glossary of the D&D System Reference Document 5.2.1, word for word. Type in the search box to find a rule (**opportunity attack**, **prone**, **cover**, **falling**); headings that match come first, then every rule that mentions the words, with the sentence they are in. Without a search you go through the headings, and opening one shows everything set under it, so **Combat** reads as the whole section. The icon is there in a campaign set to D&D 5e or to no system.
+
 ### Connection Status
 
 When you first load the campaign page, CozyVTT connects to the live session. Look for the **connection indicator** in the header — it turns green when you're successfully connected. If you see a loading spinner, just wait a moment.

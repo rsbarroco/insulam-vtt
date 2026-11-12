@@ -5,6 +5,9 @@
 // with the campaign's own switches, and the sheet a set of choices makes.
 // Mounted under /api/campaigns. Building stores nothing: the sheet that
 // comes back is saved through POST /api/characters like any other.
+//
+// The rules of play themselves, as the document words them, are read here
+// too: the text the table looks a rule up in.
 // ============================================
 
 import { Router, Response } from 'express';
@@ -18,6 +21,7 @@ import { CLASSES, improvements, type Tracks } from '../rules/dnd/advancement';
 import { allClasses } from '../rules/dnd/classes';
 import { allBackgrounds, allFeats, allSpecies } from '../rules/dnd/origins';
 import { buildCharacter, classSkillChoices, featPointsRule } from '../rules/dnd/buildCharacter';
+import { allRules, RULES_SOURCE } from '../rules/dnd/rulesText';
 
 const router = Router();
 
@@ -65,6 +69,25 @@ router.get('/:campaignId/rules/dnd', campaignMember, async (req: AuthenticatedRe
     });
   } catch (error) {
     logger.error('Error reading the D&D rules', { err: error });
+    return res.status(500).json({ error: 'Internal Server Error', message: 'Failed to read the rules' });
+  }
+});
+
+/**
+ * GET /api/campaigns/:campaignId/rules/dnd/reference
+ * The rules of play, in the reference document's own words: every heading of
+ * "Playing the Game" and of the "Rules Glossary" with what stands under it.
+ * For a campaign set to D&D 5e or to no system, the ones the VTT resolves
+ * combat for.
+ * Requires: Campaign membership (any role)
+ */
+router.get('/:campaignId/rules/dnd/reference', campaignMember, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const campaign = await prisma.campaign.findUnique({ where: { id: req.params.campaignId }, select: { gameSystem: true } });
+    if (!campaign || (campaign.gameSystem !== null && campaign.gameSystem !== 'DND_5E')) return res.status(404).json(NOT_DND);
+    return res.status(200).json({ source: RULES_SOURCE, license: 'CC-BY-4.0', sections: allRules() });
+  } catch (error) {
+    logger.error('Error reading the rules of play', { err: error });
     return res.status(500).json({ error: 'Internal Server Error', message: 'Failed to read the rules' });
   }
 });
