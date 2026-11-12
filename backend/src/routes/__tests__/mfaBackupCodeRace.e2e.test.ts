@@ -31,6 +31,12 @@ const app = createTestApp();
 const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
 const created: string[] = [];
 
+// Each test hashes ten backup codes, signs in two or three times and checks
+// a code against the stored hashes on every attempt. Alone that takes about
+// two seconds; beside the rest of the suite it has gone past Jest's default
+// five.
+jest.setTimeout(20000);
+
 /** A user with MFA on and ten known backup codes, set straight in the table. */
 async function withCodes(label: string) {
   const user = await createTestUser({ email: `mfa-race-${label}-${stamp}@test.cozyvtt.local` });
