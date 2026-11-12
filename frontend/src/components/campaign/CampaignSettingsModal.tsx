@@ -27,6 +27,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import campaignService from '@/services/campaign.service';
 import InvitePlayerModal from './InvitePlayerModal';
+import CharacterRulesSettings from './CharacterRulesSettings';
 import ConfirmDialog from '@/components/common/ConfirmDialog';
 import type { CampaignMembership, CampaignInvitationSummary } from '@/types';
 import Button from '@/components/ui/Button';
@@ -44,7 +45,7 @@ interface CampaignSettingsModalProps {
 // Tab type
 // ============================================
 
-type SettingsTab = 'general' | 'chat' | 'members' | 'danger';
+type SettingsTab = 'general' | 'chat' | 'characters' | 'members' | 'danger';
 
 export default function CampaignSettingsModal({
   isOpen,
@@ -297,6 +298,10 @@ export default function CampaignSettingsModal({
                   ? [
                       { id: 'general', label: 'General' },
                       { id: 'chat', label: 'Chat' },
+                      // The rules engine is D&D's; a campaign set to another system has no use for these.
+                      ...(campaign.gameSystem === null || campaign.gameSystem === 'DND_5E'
+                        ? [{ id: 'characters', label: 'Characters' }]
+                        : []),
                     ]
                   : []),
                 { id: 'members', label: 'Members' },
@@ -531,6 +536,22 @@ export default function CampaignSettingsModal({
                 </Button>
               </div>
             </div>
+          )}
+
+          {/* ════ CHARACTERS TAB ════ */}
+          {activeTab === 'characters' && (
+            <CharacterRulesSettings
+              stored={campaign.characterRules}
+              onSave={async (characterRules) => {
+                try {
+                  await campaignService.updateCampaign(campaign.id, { characterRules });
+                  await refreshCampaign();
+                  showToast('Character rules saved', 'success');
+                } catch (err) {
+                  showToast(apiErrorMessage(err) ?? 'Failed to save character rules', 'error');
+                }
+              }}
+            />
           )}
 
           {/* ════ MEMBERS TAB ════ */}
