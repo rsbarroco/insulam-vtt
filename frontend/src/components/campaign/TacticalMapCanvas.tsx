@@ -51,13 +51,14 @@ import { releaseHeldToken } from './map/tokenHold';
 import { isTypingInto } from './map/typingTarget';
 import { heightAt, isHeightGrid, MAX_TILE_HEIGHT } from './map/iso/heightGrid';
 import { useHeightBrush } from './map/iso/useHeightBrush';
-import { computeReach, pathTo } from './map/iso/reach';
+import { cellKey, computeReach, fallDamageDice, pathTo } from './map/iso/reach';
 import {
-  readTacticalStats,
   reachObstacles,
-  tacticalStatsPatch,
+  speedPatch,
+  tokenSpeed,
+  readSpeedOverride,
+  walkingSpeedFromLine,
   TACTICAL_LIMITS,
-  type TacticalStats,
 } from './map/iso/tacticalStats';
 import api from '@/services/api';
 import { apiErrorMessage } from '@/utils/errors';
@@ -354,23 +355,30 @@ export default function TacticalMapCanvas() {
   }, [hoverCell, visibleTokens]);
 
   // ── Reach ──────────────────────────────────────────────────────────────
-  // Shown for the held token, or the one pointed at, when the DM has given
-  // it movement numbers. What is in the way is what this viewer can see.
+  // Shown for the held token, or the one pointed at, when it has a speed:
+  // from its stat block, or set on it by the DM. What is in the way is what
+  // this viewer can see.
   const reachToken = held ?? (brushMode ? null : hoverToken);
-  const reachStats = reachToken ? readTacticalStats(reachToken) : null;
+  const reachSpeed = reachToken ? (tokenSpeed(reachToken)?.feet ?? null) : null;
   const reach = useMemo(() => {
-    if (!reachToken || !reachStats || !currentMap) return null;
+    if (!reachToken || reachSpeed === null || !currentMap) return null;
     const obstacles = reachObstacles(reachToken, visibleTokens, characterHpCache);
     return computeReach(
       {
         cell: { x: Math.floor(reachToken.position.x), y: Math.floor(reachToken.position.y) },
         size: reachToken.size,
-        move: reachStats.move,
-        jump: reachStats.jump,
+        speed: reachSpeed,
       },
-      { cols: currentMap.width, rows: currentMap.height, heights: boardHeights, ...obstacles }
+      {
+        cols: currentMap.width,
+        rows: currentMap.height,
+        heights: boardHeights,
+        feetPerSquare: currentMap.feetPerSquare,
+        diagonalRule: currentMap.diagonalRule,
+        ...obstacles,
+      }
     );
-  }, [reachToken, reachStats, currentMap, visibleTokens, characterHpCache, boardHeights]);
+  }, [reachToken, reachSpeed, currentMap, visibleTokens, characterHpCache, boardHeights]);
 
   const dropCell = useMemo(
     () =>
@@ -393,6 +401,18 @@ export default function TacticalMapCanvas() {
         : null,
     [reach, reachToken, dropPath]
   );
+
+  // What putting the token down here costs, for the hint.
+  const dropStop = reach && dropCell ? (reach.stops.get(cellKey(dropCell)) ?? null) : null;
+  const moveSummary =
+    reachSpeed === null
+      ? ''
+      : !dropStop
+        ? 'out of reach'
+        : `${dropStop.feet} of ${reachSpeed} ft` +
+          (dropStop.fallFeet > 0
+            ? ` · falls ${dropStop.fallFeet} ft (${fallDamageDice(dropStop.fallFeet)}d6)`
+            : '');
 
   const drop = useMemo(() => {
     if (!held || !dropCell) return null;
@@ -543,21 +563,21 @@ export default function TacticalMapCanvas() {
     setEditing({ tokenId: token.id, x: event.clientX - rect.left, y: event.clientY - rect.top });
   };
 
-  const saveStats = async (tokenId: string, stats: TacticalStats | null) => {
+  const saveSpeed = async (tokenId: string, speed: number | null) => {
     if (!campaign?.id || !currentMap?.id) return;
     const token = useGameStore.getState().tokens[tokenId];
     if (!token) return;
     const before = token.metadata;
-    const metadata = { ...(before ?? {}), ...tacticalStatsPatch(stats) };
+    const metadata = { ...(before ?? {}), ...speedPatch(speed) };
     useGameStore.getState().patchToken(tokenId, { metadata });
     setEditing(null);
     try {
       await api.updateToken(campaign.id, currentMap.id, tokenId, {
-        metadata: tacticalStatsPatch(stats),
+        metadata: speedPatch(speed),
       });
     } catch (error) {
       useGameStore.getState().patchToken(tokenId, { metadata: before });
-      showToast(apiErrorMessage(error) ?? 'The movement numbers could not be saved', 'error');
+      showToast(apiErrorMessage(error) ?? 'The speed could not be saved', 'error');
     }
   };
 
@@ -839,9 +859,7 @@ export default function TacticalMapCanvas() {
       {held && (
         <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
           Click a square to put {tokenDisplayName(held)} down, or press Esc to cancel
-          {reachStats &&
-            drop &&
-            (dropPath ? ` · ${dropPath.length} of ${reachStats.move} squares` : ' · out of reach')}
+          {reachSpeed !== null && drop && ` · ${moveSummary}`}
         </div>
       )}
 
@@ -849,9 +867,10 @@ export default function TacticalMapCanvas() {
         <TacticalStatsEditor
           key={editing.tokenId}
           name={tokenDisplayName(editingToken)}
-          stats={readTacticalStats(editingToken)}
+          override={readSpeedOverride(editingToken)}
+          printed={walkingSpeedFromLine(editingToken.statBlock?.speed)}
           style={{ left: Math.max(8, editing.x), top: Math.max(8, editing.y) }}
-          onSave={(stats) => void saveStats(editing.tokenId, stats)}
+          onSave={(speed) => void saveSpeed(editing.tokenId, speed)}
           onClose={() => setEditing(null)}
         />
       )}
@@ -868,34 +887,40 @@ export default function TacticalMapCanvas() {
 
 interface TacticalStatsEditorProps {
   name: string;
-  stats: TacticalStats | null;
+  /** The speed the DM set on this token, if any. */
+  override: number | null;
+  /** The walking speed its stat block gives, if it has one. */
+  printed: number | null;
   style: React.CSSProperties;
-  onSave: (stats: TacticalStats | null) => void;
+  onSave: (speed: number | null) => void;
   onClose: () => void;
 }
 
-/** The DM's small form for a token's Move and Jump. */
-function TacticalStatsEditor({ name, stats, style, onSave, onClose }: TacticalStatsEditorProps) {
-  const [move, setMove] = useState(String(stats?.move ?? 4));
-  const [jump, setJump] = useState(String(stats?.jump ?? 2));
-  const parsed = (text: string, max: number): number | null => {
-    const value = Number(text);
-    return text.trim() !== '' && Number.isInteger(value) && value >= 0 && value <= max
-      ? value
-      : null;
-  };
-  const moveValue = parsed(move, TACTICAL_LIMITS.maxMove);
-  const jumpValue = parsed(jump, TACTICAL_LIMITS.maxJump);
-  const valid = moveValue !== null && jumpValue !== null;
+/** The DM's small form for a token's walking speed. */
+function TacticalStatsEditor({
+  name,
+  override,
+  printed,
+  style,
+  onSave,
+  onClose,
+}: TacticalStatsEditorProps) {
+  const [text, setText] = useState(String(override ?? printed ?? 30));
+  const value = Number(text);
+  const valid =
+    text.trim() !== '' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= TACTICAL_LIMITS.maxSpeed;
 
   return (
     <form
-      className="absolute z-30 glass-panel p-3 space-y-2 w-56 bg-parchment/95 backdrop-blur-xs shadow-lg"
+      className="absolute z-30 glass-panel p-3 space-y-2 w-60 bg-parchment/95 backdrop-blur-xs shadow-lg"
       style={style}
-      aria-label={`Movement of ${name}`}
+      aria-label={`Speed of ${name}`}
       onSubmit={(event) => {
         event.preventDefault();
-        if (valid) onSave({ move: moveValue, jump: jumpValue });
+        if (valid) onSave(value);
       }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') onClose();
@@ -903,32 +928,27 @@ function TacticalStatsEditor({ name, stats, style, onSave, onClose }: TacticalSt
     >
       <p className="text-sm font-medium text-ink truncate">{name}</p>
       <label className="flex items-center justify-between gap-2 text-sm text-ink">
-        Move
+        Speed (feet)
         <input
           type="number"
           min={0}
-          max={TACTICAL_LIMITS.maxMove}
-          value={move}
-          onChange={(event) => setMove(event.target.value)}
+          max={TACTICAL_LIMITS.maxSpeed}
+          step={5}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
           className="input-cozy w-20 text-sm py-1"
           autoFocus
         />
       </label>
-      <label className="flex items-center justify-between gap-2 text-sm text-ink">
-        Jump
-        <input
-          type="number"
-          min={0}
-          max={TACTICAL_LIMITS.maxJump}
-          value={jump}
-          onChange={(event) => setJump(event.target.value)}
-          className="input-cozy w-20 text-sm py-1"
-        />
-      </label>
+      <p className="text-xs text-ink-muted">
+        {printed !== null
+          ? `Its stat block says ${printed} ft.`
+          : 'This token has no stat block speed; set one to see how far it can move.'}
+      </p>
       <div className="flex items-center justify-end gap-1 pt-1">
-        {stats && (
+        {override !== null && (
           <Button type="button" variant="ghost" size="sm" onClick={() => onSave(null)}>
-            Clear
+            {printed !== null ? 'Use stat block' : 'Clear'}
           </Button>
         )}
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>

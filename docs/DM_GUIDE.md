@@ -940,16 +940,23 @@ In the tactical view you have a second row of buttons for the height of each squ
 
 Each stroke is saved when you release the button and reaches everyone at once. Heights stay with the map: they follow its squares when you resize it, and travel with a campaign export.
 
-### How far a token can walk
+### How far a token can move
 
-Give a token a **Move** and a **Jump** and the tactical view shows where it can go. **Right-click** the token (without dragging) and fill in the two numbers:
+The tactical view shows where a token can go this turn, by the D&D rules of movement.
 
-- **Move** is how many squares it walks in one move, one step at a time along the grid, never diagonally.
-- **Jump** is how many height steps it can climb or drop between two neighbouring squares.
+**Where the speed comes from.** A token made from a creature uses the walking speed in its stat block. For any other token, or to change it, **right-click** the token (without dragging) and enter a **Speed** in feet. That is how a player character's token gets its speed for now. **Use stat block** or **Clear** in the same form takes your number away again. A token with no speed shows no reach and moves as freely as it always did.
 
-Point at the token, or pick it up, and the squares it can stop on are tinted blue. While you carry it, the way to the square under the pointer is drawn darker and the hint counts the squares, such as "4 of 5 squares". A token walks through others of its own side and round the rest (hostile tokens are one side, everyone else the other), and stops on no occupied square; a downed token holds no square.
+**What you see.** Point at the token, or pick it up, and the squares it can stop on are tinted blue. While you carry it, the way to the square under the pointer is drawn darker and the hint counts the feet, such as "20 of 30 ft".
 
-The reach is a guide, not a lock: a token can still be put down outside it, where the square is tinted amber and the hint says "out of reach". Players see the reach of any token that has the numbers, worked out from the tokens they can see. **Clear** in the same form removes the numbers, and the token goes back to moving freely. You choose the numbers; no game system fills them in yet.
+**How the feet are counted.**
+
+- A square is the map's scale, 5 feet unless you set another. A token moves in eight directions, and a diagonal costs what the map's diagonal setting says: one square every time, or alternately one and two.
+- One height step is half a square (2.5 feet). A rise or drop of one step between neighbouring squares is a slope or a stair and costs nothing extra.
+- A larger rise is a climb, and each foot climbed costs a foot more: a ledge 10 feet up costs 5 feet for the square and 10 for the climb.
+- A drop of less than 10 feet is climbed down at the same price. A drop of 10 feet or more is jumped: it costs nothing extra, and the hint warns of the fall and its damage, such as "falls 10 ft (1d6)". The view does not roll or apply that damage.
+- A token moves through others of its own side and round the rest (hostile tokens are one side, everyone else the other), and stops on no occupied square. A downed token holds no square.
+
+The reach is a guide, not a lock: a token can still be put down outside it, on a square tinted amber, where the hint says "out of reach". Players see the reach of any token that has a speed, worked out from the tokens they can see. Difficult terrain, climbing and flying speeds, and Dash are not counted yet.
 
 ## Fog of War
 

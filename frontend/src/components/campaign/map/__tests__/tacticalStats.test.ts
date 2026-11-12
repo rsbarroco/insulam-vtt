@@ -1,13 +1,15 @@
 /**
- * A token's movement numbers, and who stands in its way.
+ * A token's walking speed, and who stands in its way.
  */
 
 import { describe, it, expect } from 'vitest';
 import {
-  readTacticalStats,
+  readSpeedOverride,
   reachObstacles,
-  tacticalStatsPatch,
+  speedPatch,
   TACTICAL_LIMITS,
+  tokenSpeed,
+  walkingSpeedFromLine,
 } from '../iso/tacticalStats';
 import { TokenDisposition, TokenLayer, type Token } from '@/types';
 
@@ -24,23 +26,67 @@ const token = (over: Partial<Token> = {}): Token =>
     ...over,
   }) as Token;
 
-describe('readTacticalStats', () => {
+const withStatBlock = (speed: string) => ({ statBlock: { speed } }) as Partial<Token>;
+
+describe('walkingSpeedFromLine', () => {
+  it.each<[string, number]>([
+    ['30 ft.', 30],
+    ['30 ft., fly 60 ft.', 30],
+    ['40 ft., climb 30 ft.', 40],
+    ['25 feet', 25],
+    ['0 ft., fly 50 ft. (hover)', 0],
+    ['walk 30 ft.', 30],
+    ['30', 30],
+  ])('reads %s as %i feet', (line, feet) => {
+    expect(walkingSpeedFromLine(line)).toBe(feet);
+  });
+
+  it.each<[string, string | null | undefined]>([
+    ['an empty line', ''],
+    ['no line', undefined],
+    ['a line that starts with another way of moving', 'fly 60 ft.'],
+    ['words', 'varies'],
+  ])('finds no walking speed in %s', (_label, line) => {
+    expect(walkingSpeedFromLine(line)).toBeNull();
+  });
+});
+
+describe('readSpeedOverride', () => {
   it('reads what the patch stores', () => {
-    const metadata = tacticalStatsPatch({ move: 5, jump: 2 });
-    expect(readTacticalStats({ metadata })).toEqual({ move: 5, jump: 2 });
+    expect(readSpeedOverride({ metadata: speedPatch(35) })).toBe(35);
   });
 
   it.each<[string, unknown]>([
     ['no metadata', undefined],
-    ['no numbers', {}],
-    ['cleared numbers', { tactical: null }],
-    ['a missing jump', { tactical: { move: 4 } }],
-    ['a move that is not whole', { tactical: { move: 2.5, jump: 1 } }],
-    ['a negative jump', { tactical: { move: 4, jump: -1 } }],
-    ['a move over the limit', { tactical: { move: TACTICAL_LIMITS.maxMove + 1, jump: 1 } }],
-    ['text', { tactical: { move: '4', jump: '1' } }],
+    ['nothing set', {}],
+    ['a cleared speed', speedPatch(null)],
+    ['a speed that is not whole', { tactical: { speed: 27.5 } }],
+    ['a negative speed', { tactical: { speed: -5 } }],
+    ['a speed over the limit', { tactical: { speed: TACTICAL_LIMITS.maxSpeed + 5 } }],
+    ['text', { tactical: { speed: '30' } }],
   ])('answers null for %s', (_label, metadata) => {
-    expect(readTacticalStats({ metadata: metadata as Token['metadata'] })).toBeNull();
+    expect(readSpeedOverride({ metadata: metadata as Token['metadata'] })).toBeNull();
+  });
+});
+
+describe('tokenSpeed', () => {
+  it('uses the stat block when the DM has set nothing', () => {
+    expect(tokenSpeed(token(withStatBlock('30 ft., swim 30 ft.')))).toEqual({
+      feet: 30,
+      source: 'statBlock',
+    });
+  });
+
+  it('lets the DM override the stat block', () => {
+    expect(tokenSpeed(token({ ...withStatBlock('30 ft.'), metadata: speedPatch(15) }))).toEqual({
+      feet: 15,
+      source: 'token',
+    });
+  });
+
+  it('is null for a token with neither', () => {
+    expect(tokenSpeed(token())).toBeNull();
+    expect(tokenSpeed(token({ statBlock: null }))).toBeNull();
   });
 });
 
