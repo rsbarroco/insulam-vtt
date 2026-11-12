@@ -11,11 +11,12 @@
 // enforced. Movement is counted for moves made in the tactical view.
 // ============================================
 
-import { Footprints, SkipForward } from 'lucide-react';
+import { Footprints, HeartPulse, SkipForward } from 'lucide-react';
 import { useCampaign } from '@/contexts/CampaignContext';
 import { useWebSocket } from '@/contexts/WebSocketContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { useCombatState, useTokenList } from '@/stores/gameStore';
+import { useCharacterHp, useCombatState, useTokenList } from '@/stores/gameStore';
+import { useToast } from '@/contexts/ToastContext';
 import type { Token } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
@@ -35,6 +36,8 @@ export default function TurnBar() {
   const { user } = useAuth();
   const combat = useCombatState();
   const tokens = useTokenList();
+  const characterHp = useCharacterHp();
+  const { showToast } = useToast();
   const isDM = userRole === 'DM';
 
   if (!combat.active || !combat.turn || !combat.currentTokenId) return null;
@@ -54,6 +57,15 @@ export default function TurnBar() {
       inOrder.has(token.id) &&
       (token.id === actingId ? canAct : !isDM && controlsToken(token, user?.id, userRole))
   );
+
+  // A character at 0 Hit Points spends its turn on a death saving throw.
+  const actingHp = acting?.characterId ? characterHp[acting.characterId] : undefined;
+  const dying = canAct && actingHp !== undefined && actingHp.current <= 0;
+  const rollDeathSave = async () => {
+    const answer = await socket.rollDeathSave(actingId);
+    if (answer.ok) showToast(answer.summary, answer.result === 'dead' ? 'error' : 'info');
+    else showToast(answer.error, 'error');
+  };
 
   const speed = acting ? (tokenSpeed(acting)?.feet ?? null) : null;
   const movement =
@@ -126,6 +138,17 @@ export default function TurnBar() {
           {token.id === actingId ? 'Reaction used' : `${tokenDisplayName(token)}: reaction used`}
         </label>
       ))}
+
+      {dying && (
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={HeartPulse}
+          onClick={() => void rollDeathSave()}
+        >
+          Death save
+        </Button>
+      )}
 
       {canAct && (
         <Button

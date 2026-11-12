@@ -49,3 +49,26 @@ export function damageAtZero(saves: DeathSaves, critical = false): { saves: Deat
   const next = capped({ ...saves, failures: saves.failures + (critical ? 2 : 1) });
   return { saves: next, result: settle(next) };
 }
+
+/** A sheet's death saves as stored, read safely. */
+export function readDeathSaves(stored: unknown): DeathSaves {
+  const saves = (stored ?? {}) as Partial<DeathSaves>;
+  const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(3, Math.floor(value))) : 0);
+  return { successes: count(saves.successes), failures: count(saves.failures) };
+}
+
+/**
+ * What damage does to a character's death saves, given its Hit Points
+ * before and after. Damage at 0 is a failure, two from a Critical Hit;
+ * dropping to 0 starts the saves afresh. Null when they are unchanged.
+ */
+export function deathSavesAfterDamage(saves: DeathSaves, before: number, after: number, critical: boolean): DeathSaves | null {
+  if (before <= 0) return damageAtZero(saves, critical).saves;
+  if (after <= 0 && (saves.successes !== 0 || saves.failures !== 0)) return { successes: 0, failures: 0 };
+  return null;
+}
+
+/** Whether a character is making death saves: at 0 Hit Points, neither Stable nor dead. */
+export function isDying(currentHp: number, saves: DeathSaves): boolean {
+  return currentHp <= 0 && saves.successes < 3 && saves.failures < 3;
+}

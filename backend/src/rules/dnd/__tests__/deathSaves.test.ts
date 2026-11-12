@@ -1,4 +1,4 @@
-import { damageAtZero, deathSavingThrow } from '../deathSaves';
+import { deathSavesAfterDamage, isDying, readDeathSaves, damageAtZero, deathSavingThrow } from '../deathSaves';
 import type { RollDie } from '../d20';
 
 const die = (value: number): RollDie => () => value;
@@ -38,5 +38,31 @@ describe('damageAtZero', () => {
   it('kills at the third failure', () => {
     expect(damageAtZero({ successes: 2, failures: 2 }).result).toBe('dead');
     expect(damageAtZero({ successes: 0, failures: 1 }, true).result).toBe('dead');
+  });
+});
+
+describe('death saves on a sheet', () => {
+  it('reads what is stored, whatever its state', () => {
+    expect(readDeathSaves({ successes: 2, failures: 1 })).toEqual({ successes: 2, failures: 1 });
+    expect(readDeathSaves(undefined)).toEqual({ successes: 0, failures: 0 });
+    expect(readDeathSaves({ successes: 9, failures: -1 })).toEqual({ successes: 3, failures: 0 });
+  });
+
+  it('counts damage at 0 Hit Points as a failure, two from a Critical Hit', () => {
+    expect(deathSavesAfterDamage({ successes: 1, failures: 0 }, 0, 0, false)).toEqual({ successes: 1, failures: 1 });
+    expect(deathSavesAfterDamage({ successes: 1, failures: 1 }, 0, 0, true)).toEqual({ successes: 1, failures: 3 });
+  });
+
+  it('starts the saves afresh when a character drops to 0, and leaves them alone otherwise', () => {
+    expect(deathSavesAfterDamage({ successes: 2, failures: 2 }, 5, 0, false)).toEqual({ successes: 0, failures: 0 });
+    expect(deathSavesAfterDamage({ successes: 0, failures: 0 }, 5, 0, false)).toBeNull();
+    expect(deathSavesAfterDamage({ successes: 0, failures: 1 }, 9, 4, false)).toBeNull();
+  });
+
+  it('knows who is dying', () => {
+    expect(isDying(0, { successes: 2, failures: 2 })).toBe(true);
+    expect(isDying(0, { successes: 3, failures: 0 })).toBe(false);
+    expect(isDying(0, { successes: 0, failures: 3 })).toBe(false);
+    expect(isDying(4, { successes: 0, failures: 0 })).toBe(false);
   });
 });

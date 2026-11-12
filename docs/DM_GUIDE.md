@@ -1003,6 +1003,8 @@ The attacker stays where it stood. The target needs an Armor Class, from its she
 
 Heights are not counted for areas, and object tokens are never caught. To aim a sphere at an empty spot, or to leave someone out, resolve it against each creature in turn or adjust hit points by hand. A spell of level 1 or higher shows a button for each level the caster still has a spell slot at: choose one to cast with that slot, which is then marked as used on the character sheet, and a higher slot adds the dice the spell says it does. A spell with no slot left cannot be cast from the menu. Nothing here stops you changing hit points by hand afterwards.
 
+**Dying.** A hit made through the VTT on a character already at 0 hit points marks a failed death save on its sheet, two for a critical hit, and a hit that drops a character to 0 clears its death saves to start afresh. On that character's turn the turn bar shows **Death save** to you and to its player: the VTT rolls the d20, marks the success or failure (a 1 is two failures), and on a 20 puts the character back up with 1 hit point. Three successes make it Stable and three failures kill it, and the button then rolls no more. Healing a character does not clear its death saves yet: reset them on the sheet. Creatures without a character sheet make no death saves.
+
 ## Fog of War
 
 Fog of war covers your map and lets you reveal it a piece at a time, so players discover a dungeon room by room instead of seeing the whole floor plan at once. You control it by hand — nothing is revealed until you say so.
