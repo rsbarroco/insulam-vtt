@@ -46,16 +46,26 @@ export interface SaveProfile {
 export interface CombatAction {
   name: string;
   cost: ActionCost;
-  source: 'sheet' | 'statBlock';
+  source: 'sheet' | 'statBlock' | 'spell';
   /** An attack roll against Armor Class. A thrown weapon can be both melee and ranged; this is the first it names. */
   attack?: AttackProfile;
   /** A saving throw the targets make. */
   save?: SaveProfile;
+  /** How far away its target or point of origin can be, in feet. 0 is the caster's own space. */
+  rangeFeet?: number;
+  /** The area it fills, when it fills one. */
+  area?: AreaOfEffect;
   /** The action as written, for the table to read and for what could not be read here. */
   text?: string;
 }
 
-const ABILITY_NAMES: Readonly<Record<string, Ability>> = {
+/** An area of effect, by the shapes the rules name. `sizeFeet` is the radius of a sphere, cylinder or emanation, and the length of a cone, cube or line. */
+export interface AreaOfEffect {
+  shape: 'sphere' | 'cone' | 'cube' | 'line' | 'cylinder' | 'emanation';
+  sizeFeet: number;
+}
+
+export const ABILITY_NAMES: Readonly<Record<string, Ability>> = {
   strength: 'str',
   dexterity: 'dex',
   constitution: 'con',

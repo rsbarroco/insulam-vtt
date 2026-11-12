@@ -25,6 +25,7 @@ import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
 import { CombatActionsSchema, CombatAttackSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type CombatAction, type SheetAttack } from '../../rules/dnd/actions';
+import { spellActionsFromSheet, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import type { Standing } from '../../utils/boardSight';
 
@@ -79,9 +80,14 @@ async function sheetOf(token: Token, campaignId: string): Promise<Record<string,
   return (character.data ?? null) as Record<string, unknown> | null;
 }
 
-/** A token's actions: its character's attacks, or its stat block's. */
+/** A token's actions: its character's attacks and spells, or its stat block's. */
 function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatAction[] {
-  if (sheet) return actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] });
+  if (sheet) {
+    return [
+      ...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }),
+      ...spellActionsFromSheet(sheet as SheetSpellcasting),
+    ];
+  }
   return token.statBlock ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0]) : [];
 }
 
@@ -134,7 +140,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   }
 
   /**
-   * COMBAT.ACTIONS — List the actions of a token on the current map: its character's attacks or its stat block's actions, with what the server can roll for each. Answered through the acknowledgement. The DM, or the player who controls the token.
+   * COMBAT.ACTIONS — List the actions of a token on the current map: its character's attacks and spells or its stat block's actions, with what the server can roll for each. Answered through the acknowledgement. The DM, or the player who controls the token.
    */
   socket.on('combat.actions', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
