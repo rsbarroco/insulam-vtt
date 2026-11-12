@@ -1,10 +1,11 @@
 # Tactical mode
 
-A plan for a tactics game run by a game master, in the style of classic
-tactical RPGs. First the board: a diamond grid with tile elevation, a rotating
-camera, movement and attack ranges that respect height, unit facing, and a
-speed-based turn timeline. Then the game on it: characters built by the rules,
-abilities, enemies, prepared adventures, and combat the VTT resolves.
+A plan for a tactics game run by a game master, with the look of classic
+tactical RPGs and the rules of Dungeons & Dragons, fifth edition, as revised
+in 2024 ("5.5e"). First the board: a diamond grid with tile elevation, a
+rotating camera, and movement that respects height. Then the game on it:
+characters built by the rules, actions and spells, monsters, prepared
+adventures, and combat the VTT resolves.
 
 This page is the roadmap. Each phase below is one pull request, and a phase
 starts only after the one before it has merged. Sections are updated as phases
@@ -25,9 +26,9 @@ own data.
 | Camera | Four fixed views, a quarter turn apart, so nothing stays hidden behind a wall. | A per-viewer rotation of 0, 90, 180 or 270 degrees. |
 | Move and Jump | A unit walks up to *Move* cells, orthogonally, and can climb or drop at most *Jump* height steps between neighbouring cells. Allies can be passed through, enemies cannot, and nobody ends on an occupied cell. | A flood fill over the height grid, drawn as highlighted cells. |
 | Attack range | A minimum and maximum distance in cells, plus a vertical tolerance. Height can extend ranged reach. | A range template that also reads the height grid. |
-| Facing | Units face one of four directions. Attacks from the side or the back are stronger, so every turn ends by choosing a facing. | The token's existing `rotation`, snapped to quarter turns, with front, side and back arcs shown. |
-| Turn timeline | Each unit gains charge every tick according to its speed and acts at a threshold, so fast units act more often. The upcoming order is shown as a list. | A second ordering mode for the initiative tracker, with a preview of the next turns. |
-| Turn flow | Move, act, then wait and face, in either order for the first two. | A small action bar for the token whose turn it is. |
+| Facing | Units face one of four directions. Attacks from the side or the back are stronger, so every turn ends by choosing a facing. | Not used: the chosen rules have no facing. A token's `rotation` stays cosmetic. |
+| Turn timeline | Each unit gains charge every tick according to its speed and acts at a threshold, so fast units act more often. The upcoming order is shown as a list. | Not used: turns follow the rules' initiative order, which the tracker already keeps. |
+| Turn flow | Move, act, then wait and face, in either order for the first two. | An action bar for the token whose turn it is, with what the rules give a turn: movement, an action, a bonus action and a reaction. |
 
 ## What the VTT has today
 
@@ -56,16 +57,16 @@ own data.
    at once. Tile sides are shaded faces.
 4. **Height is DM data on the map.** One integer from 0 to 32 per cell, in a
    new `Map.tileHeights` column, edited with a DM brush tool.
-5. **The VTT resolves the game.** The goal is a tactics game run by a game
-   master: the GM prepares the adventure's maps, enemies, non-player
-   characters, abilities and challenges, players build characters by the
-   rules, and in combat the VTT works out who can act, what an ability
+5. **The VTT resolves the game, by the D&D rules.** The goal is a tactics
+   game run by a game master: the GM prepares the adventure's maps, monsters,
+   non-player characters and challenges, players build characters by the
+   rules, and in combat the VTT works out who can act, what an action
    reaches, the rolls, the damage and the conditions, and applies them. The
-   GM can always overrule a result. Phases 1 to 8 build the board this
-   needs; phases 9 to 14 build the game on it. The Insulam system is to
-   live in the VTT. [INSULAM_INTEGRATION.md](INSULAM_INTEGRATION.md) still
-   describes the earlier arrangement, in which the VTT never holds Insulam
-   rules, and is rewritten when phase 10 starts.
+   GM can always overrule a result. The rules are D&D's 2024 revision, on
+   top of the D&D 5e system the VTT already has (sheets, attacks, spells,
+   conditions, the creature library). Insulam's own rules are not
+   implemented; [INSULAM_INTEGRATION.md](INSULAM_INTEGRATION.md) is
+   unaffected.
 6. **Movement limits are advisory until the VTT runs the turn.** Reach is
    highlighted for everyone, and a token can still be put down outside it.
    Refusing a move belongs with combat resolution (phase 14), where the
@@ -91,37 +92,51 @@ own data.
 | 3 | Isometric view | A view switch and camera rotation on the map. Terrain as raised tiles with the map picture on top, grid, and tokens as upright markers. Picking, so tokens can be moved in this view. | `MapView.tsx`, `TacticalMapCanvas.tsx`, `map/iso/` |
 | 4 | Height brush | A DM tool to raise, lower, flatten and fill cells, with undo. | `map/tools/` |
 | 5 | Movement reach | Move and Jump values on a token, the reach flood fill, highlighted cells and a path preview while a token is carried. | `map/iso/reach.ts`, `map/iso/tacticalStats.ts` |
-| 6 | Turn timeline | A speed-based ordering mode for the initiative tracker with a preview of upcoming turns. | `utils/rules/turnTimeline.ts`, `InitiativeTracker.tsx`, `initiativeState.ts` |
-| 7 | Facing and attack geometry | Four-way facing with front, side and back arcs, a range template with minimum, maximum and vertical tolerance, and a height-difference readout. | `map/iso/`, `map/layers/drawOverlays.ts` |
-| 8 | Turn flow and finish | The move, act and wait action bar, fog and dynamic lighting in the isometric view, and the DM and player guides. | `components/campaign/`, `docs/` |
+| 6 | Movement by the rules | Speed read from the character sheet or stat block and turned into squares, eight-way movement with the map's diagonal rule, slopes, climbs and drops by height. The reach and its cost in feet. | `map/iso/reach.ts`, `map/iso/tacticalStats.ts` |
+| 7 | The turn | What a creature has spent this turn, kept by the server beside the initiative order: movement, action, bonus action and reaction. An action bar in the tactical view, with Dash, Disengage and the other standard actions that change movement. | `initiativeState.ts`, `InitiativeTracker.tsx`, `TacticalMapCanvas.tsx` |
+| 8 | Reach, range and cover | Whether a target is within a weapon's reach or range, long range, line of sight over raised ground, cover from terrain, and the rules' areas of effect drawn on the tactical board. | `map/iso/`, `map/aoeGeometry.ts` |
 
 ### The game on the board
 
 | # | Phase | What ships |
 | --- | --- | --- |
-| 9 | Rules engine core | A system-neutral engine, shared by browser and server: dice and tests, resources, conditions with durations, and effects that an ability applies to its targets. The server is the one that rolls and applies. |
-| 10 | The Insulam system | Insulam as a game system of the VTT: the character sheet, character creation by the rules, and the values combat reads from a sheet. |
-| 11 | Abilities | Abilities as data: cost, range, area, targets and effects. A catalogue for the system, and an editor for the GM's own. |
-| 12 | Enemies and non-player characters | Tactical stat blocks with abilities and behaviour notes, a bestiary, and placing them on a map ready to fight. |
+| 9 | Rules engine | On the server: d20 tests with advantage and disadvantage, attack rolls against Armor Class, saving throws against a DC, damage by type with resistance, vulnerability and immunity, critical hits, temporary hit points, the conditions with their durations, concentration, and death saving throws. |
+| 10 | Actions as data | What a creature can do, in a form the engine can run: weapon attacks from the sheet, spells, and monster actions, each with its cost in the turn, range, area, targets and effects. An editor for the GM's own. |
+| 11 | Characters by the rules | Guided character creation and levelling that fills in the existing D&D 5e sheet: species, background, class and level choices. |
+| 12 | Monsters | Stat blocks from the 2024 rules' reference document, ready to act in combat. The creature library imports the 2014 one today. |
 | 13 | Adventures | An adventure as an ordered set of prepared maps and encounters, with objectives and challenges, that the GM runs scene by scene. |
-| 14 | Combat resolution | On a unit's turn: choose an ability, see valid targets and the area, confirm, and the server rolls, applies damage and conditions and writes the result to the log. The GM can adjust or undo. |
+| 14 | Combat resolution | On a creature's turn: choose an action, see valid targets and the area, confirm, and the server rolls, applies damage and conditions and writes the result to the log. The GM can adjust or undo. Fog and dynamic lighting in the tactical view. |
 
-### Open decisions
+### The rules and what may be shipped
 
-Phases 5 to 7 can proceed with numbers the GM sets by hand. Phases 9 to 14
-cannot start until the owner of the game settles these:
+Wizards of the Coast publishes the core of the 2024 rules as the System
+Reference Document 5.2, under the Creative Commons Attribution 4.0 licence.
+That document is the only source of rules content for this project: the
+rules of play, and the species, backgrounds, classes, spells, equipment and
+monsters it contains, credited as [SRD_ATTRIBUTION.md](../SRD_ATTRIBUTION.md)
+does for the 2014 document today. Anything printed only in the rulebooks
+themselves (most subclasses and backgrounds, many spells and monsters) is not
+in it and is not shipped. A GM can still enter such things by hand for their
+own table, as with any homebrew.
 
-1. **Which rules text is the Insulam system.** Two versions exist and differ
-   in how a character is built and how space is measured.
-2. **How the rules' distances become cells.** Cell size, what one unit of
-   movement covers, and how height counts towards range and movement.
-3. **Where Insulam content lives.** This repository is public and AGPL. The
-   engine can be public while the game's own content (rules text, ability
-   catalogue, bestiary) is loaded from a private package, or the content can
-   be published here.
+### Where the rules meet the board
 
-Every phase carries its own tests, updates the documentation it touches in the
-same pull request, and must pass the full CI run before it merges.
+The rules measure in feet and say little about height on a grid, so the VTT
+fixes these conventions. Each is a default the GM can see and, where it
+matters, change per map.
+
+- **Squares.** A square is the map's own scale, 5 feet unless the map says
+  otherwise. Speed in feet becomes squares at that scale.
+- **Diagonals.** A token moves in eight directions, and a diagonal costs
+  what the map's diagonal setting says: always one square, or alternately
+  one and two.
+- **Height.** One height step is half a square (2.5 feet at the usual
+  scale). A rise or drop of one step between neighbouring squares is a slope
+  or a stair and costs nothing extra. A larger one is a climb: each extra
+  foot costs a foot more, as the rules say of climbing.
+- **Falls.** A drop of 10 feet or more can be jumped instead of climbed; the
+  view warns of the fall and its damage.
+- **Turn order.** Initiative, as the tracker keeps it. No facing.
 
 ## Status
 
@@ -132,6 +147,6 @@ same pull request, and must pass the full CI run before it merges.
 | 2 Height data | Done: `Map.tileHeights`, `GET` and `PUT /maps/:id/heights`, the `heights:replaced` event, carried through resize, export and import |
 | 3 Isometric view | Done: `MapView.tsx` switches between `MapCanvas` and `TacticalMapCanvas.tsx`, drawn by `map/iso/drawIsoScene.ts`. No fog, lighting, hit point bars or token menu in this view yet |
 | 4 Height brush | Done: raise, lower and level brushes with undo in `TacticalMapCanvas.tsx`, from `map/iso/heightBrush.ts` and `map/iso/useHeightBrush.ts` |
-| 5 Movement reach | Done: Move and Jump in a token's `metadata.tactical`, set by the DM with a right click; `map/iso/reach.ts` works out the reach and the path |
-| 6 to 8 | Not started |
-| 9 to 14 | Not started; blocked on the open decisions above |
+| 5 Movement reach | Done, then reworked by phase 6: the reach flood fill, highlighted cells and path preview |
+| 6 Movement by the rules | Done: speed from the stat block or set on the token, eight-way movement with the map's diagonal rule, slopes, climbs and falls, in `map/iso/reach.ts`. Replaces phase 5's Move and Jump. Player character speed is set by hand until the server reads sheets |
+| 7 to 14 | Not started |

@@ -1,9 +1,14 @@
 // ============================================
-// A token's movement numbers for the tactical view
+// A token's speed for the tactical view
 //
-// Move and Jump are set by the DM on each token and kept in the token's
-// `metadata.tactical`, which only the DM can write. A token without them has
-// no reach to show and moves as freely as it always did.
+// A creature's walking speed, in feet. A token made from a creature carries
+// a stat block whose speed line gives it. The DM can set a speed on any
+// token, which wins over the stat block and is how a player character gets
+// one until the server reads character sheets (phase 9). It is kept in the
+// token's `metadata.tactical`, which only the DM can write.
+//
+// A token with no speed has no reach to show and moves as freely as it
+// always did.
 // ============================================
 
 import type { Token } from '@/types';
@@ -12,33 +17,47 @@ import type { CharacterHpInfo } from '@/utils/characterHp';
 import { isTokenDowned } from '../tokenHitTest';
 import type { Cell } from './projection';
 
-export interface TacticalStats {
-  /** Cells the token can walk in one move. */
-  move: number;
-  /** Height steps it can climb or drop between neighbouring cells. */
-  jump: number;
-}
+export const TACTICAL_LIMITS = { maxSpeed: 600 } as const;
 
-export const TACTICAL_LIMITS = { maxMove: 30, maxJump: 32 } as const;
-
-const whole = (value: unknown, max: number): number | null =>
-  typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max ? value : null;
-
-/** The token's movement numbers, or null when it has none that can be read. */
-export function readTacticalStats(token: Pick<Token, 'metadata'>): TacticalStats | null {
+/** The speed the DM set on the token, or null when there is none that can be read. */
+export function readSpeedOverride(token: Pick<Token, 'metadata'>): number | null {
   const stored = (token.metadata as Record<string, unknown> | undefined)?.tactical;
   if (typeof stored !== 'object' || stored === null) return null;
-  const { move, jump } = stored as Record<string, unknown>;
-  const parsedMove = whole(move, TACTICAL_LIMITS.maxMove);
-  const parsedJump = whole(jump, TACTICAL_LIMITS.maxJump);
-  return parsedMove === null || parsedJump === null ? null : { move: parsedMove, jump: parsedJump };
+  const { speed } = stored as Record<string, unknown>;
+  return typeof speed === 'number' &&
+    Number.isInteger(speed) &&
+    speed >= 0 &&
+    speed <= TACTICAL_LIMITS.maxSpeed
+    ? speed
+    : null;
 }
 
-/** The metadata patch that stores movement numbers, or clears them. */
-export function tacticalStatsPatch(stats: TacticalStats | null): {
-  tactical: TacticalStats | null;
-} {
-  return { tactical: stats };
+/**
+ * The walking speed in a stat block's speed line, such as "30 ft., fly 60
+ * ft.": the first number, unless the line opens by naming another way of
+ * moving ("fly 60 ft."), which means the creature does not walk.
+ */
+export function walkingSpeedFromLine(line: string | null | undefined): number | null {
+  if (!line) return null;
+  const match = /^\s*(?:walk\s+)?(\d{1,3})\s*(?:ft|feet)?\b/i.exec(line);
+  if (!match) return null;
+  const speed = Number(match[1]);
+  return speed <= TACTICAL_LIMITS.maxSpeed ? speed : null;
+}
+
+/** The token's walking speed in feet and where it comes from, or null when it has none. */
+export function tokenSpeed(
+  token: Pick<Token, 'metadata' | 'statBlock'>
+): { feet: number; source: 'token' | 'statBlock' } | null {
+  const override = readSpeedOverride(token);
+  if (override !== null) return { feet: override, source: 'token' };
+  const printed = walkingSpeedFromLine(token.statBlock?.speed);
+  return printed !== null ? { feet: printed, source: 'statBlock' } : null;
+}
+
+/** The metadata patch that stores a speed on the token, or clears it. */
+export function speedPatch(speed: number | null): { tactical: { speed: number } | null } {
+  return { tactical: speed === null ? null : { speed } };
 }
 
 /** Hostile tokens are one side; everyone else, the party and its friends, the other. */
