@@ -385,6 +385,17 @@ When it's your turn, your name is highlighted. Describe your actions in chat and
 
 **Sheets and rolls from the tracker.** Right-click a character's name in the tracker and choose **View Character Sheet** to read their sheet, or, on your own character, **Roll...** for the same rolls as right-clicking your token on the map. Double-clicking a character's name opens their sheet straight away. From the keyboard, press **Tab** until the name has the focus and press **Enter** for the menu. Creatures have nothing to open here, and neither does a character whose token is on a map the DM hasn't switched to.
 
+### Your turn
+
+During combat a bar under the map shows the turn of whoever is acting: the movement they have left, and whether their action, bonus action and reaction are spent. When it is **your** token's turn the bar is yours to use:
+
+- Your **movement** goes down by itself as you move your token in the tactical view.
+- Pick your **action** from the list. **Dash** adds your speed to your movement for the turn.
+- Tick **Bonus action used** and **Reaction used** as you spend them.
+- Press **End turn** when you are done.
+
+While someone else is acting you still have a tick for your own token's reaction, which comes back at the start of your next turn. The bar keeps count for the table; it does not stop you doing anything, so the rules are still yours and the DM's to keep.
+
 ### Rolling Your Own Initiative
 
 Once the DM has added your token to the tracker, you roll for yourself — you don't have to wait for the DM to do it for you. There are two ways, and they do the same thing:

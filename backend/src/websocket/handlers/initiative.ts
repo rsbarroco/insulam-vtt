@@ -25,6 +25,9 @@ import {
   clearState as clearCombatState,
   sortCombatants,
   withoutCombatants,
+  advanceTurn,
+  freshTurn,
+  someoneActing,
   projectCombatState,
   getVersion,
   startSend,
@@ -37,6 +40,7 @@ import {
 } from '../initiativeState';
 import { bestEffort, campaignSockets, getSocketInstance, stillInCampaign } from '../utils';
 import { stateRequestAllowed, withinCeiling } from '../shared';
+import { TurnEndSchema, TurnUpdateSchema } from '../../validators/turn';
 
 /** What a send needs of a socket; a connected one and a fetched one both have it. */
 type Recipient = Pick<AuthenticatedFields, 'userId' | 'role'> & {
@@ -639,6 +643,8 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       state.active = true;
       state.round = 1;
       state.currentTokenId = state.combatants[0].tokenId;
+      state.turn = freshTurn();
+      state.reactionsSpent = [];
       setCombatState(socket.campaignId, state);
       await broadcastInitiativeState(socket.campaignId);
       logger.info('initiative.start', { campaignId: socket.campaignId, first: state.combatants[0].name });
@@ -660,17 +666,7 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       const state = getCombatState(socket.campaignId);
       if (!state.active || state.combatants.length === 0) { socket.emit('error', { message: 'Combat is not active' }); return; }
 
-      const currentIndex = state.combatants.findIndex((c) => c.tokenId === state.currentTokenId);
-      const nextIndex = currentIndex + 1;
-
-      if (nextIndex >= state.combatants.length) {
-        // Wrap around — new round
-        state.round += 1;
-        state.currentTokenId = state.combatants[0].tokenId;
-      } else {
-        state.currentTokenId = state.combatants[nextIndex].tokenId;
-      }
-
+      advanceTurn(state);
       setCombatState(socket.campaignId, state);
       await broadcastInitiativeState(socket.campaignId);
       logger.debug('initiative.next', { round: state.round, current: state.currentTokenId, campaignId: socket.campaignId });
@@ -695,6 +691,95 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
     } catch (error) {
       logger.error('initiative.end failed', { err: error });
       socket.emit('error', { message: 'Failed to end combat' });
+    }
+  });
+
+  /**
+   * Whether this socket may act for a combatant: the DM for any, a player
+   * for a token they control on the map the campaign is showing, by the same
+   * rule that decides who may move it.
+   */
+  async function mayActFor(tokenId: string): Promise<boolean> {
+    if (socket.role === 'DM') return true;
+    if (!socket.campaignId) return false;
+    const entry = getCombatState(socket.campaignId).combatants.find((c) => c.tokenId === tokenId);
+    if (!entry) return false;
+    const map = await prisma.map.findUnique({
+      where: { id: entry.mapId },
+      select: { campaignId: true, tokens: true, campaign: { select: { currentMapId: true } } },
+    });
+    if (!map || map.campaignId !== socket.campaignId || !canReadMap(socket.role, entry.mapId, map.campaign.currentMapId)) return false;
+    const token = readTokens(map.tokens).find((t) => t.id === tokenId);
+    return Boolean(token) && canControlToken(socket.role, token!.controlledBy, socket.userId);
+  }
+
+  /**
+   * TURN.UPDATE — Record what the acting combatant has spent of its turn (movement in feet, Dash, its action, its bonus action), or whether a combatant's reaction is spent. The DM, or the player who controls that token.
+   */
+  socket.on('turn.update', async (data: unknown) => {
+    try {
+      if (!socket.campaignId) { socket.emit('error', { message: 'Not authenticated to a campaign' }); return; }
+      if (!withinCeiling(socket, 'turn.update')) return;
+      const parsed = TurnUpdateSchema.safeParse(data);
+      if (!parsed.success) { socket.emit('error', { message: parsed.error.issues[0]?.message ?? 'Invalid turn update' }); return; }
+      const { reaction, ...spent } = parsed.data;
+
+      const before = getCombatState(socket.campaignId);
+      if (!someoneActing(before)) { socket.emit('error', { message: 'Combat is not active' }); return; }
+      const turnChanges = Object.keys(spent).length > 0;
+      if (turnChanges && !(await mayActFor(before.currentTokenId!))) {
+        socket.emit('error', { message: 'You can only change the turn of your own token' });
+        return;
+      }
+      if (reaction && !(await mayActFor(reaction.tokenId))) {
+        socket.emit('error', { message: 'You can only change the reaction of your own token' });
+        return;
+      }
+
+      // Read again after the awaits above: the turn may have passed on.
+      const state = getCombatState(socket.campaignId);
+      if (!someoneActing(state) || state.currentTokenId !== before.currentTokenId) return;
+      if (turnChanges) state.turn = { ...(state.turn ?? freshTurn()), ...spent };
+      if (reaction && state.combatants.some((c) => c.tokenId === reaction.tokenId)) {
+        const others = state.reactionsSpent.filter((tokenId) => tokenId !== reaction.tokenId);
+        state.reactionsSpent = reaction.spent ? [...others, reaction.tokenId] : others;
+      }
+      setCombatState(socket.campaignId, state);
+      await broadcastInitiativeState(socket.campaignId);
+    } catch (error) {
+      logger.error('turn.update failed', { err: error });
+      socket.emit('error', { message: 'Failed to update the turn' });
+    }
+  });
+
+  /**
+   * TURN.END — End the named combatant's turn and pass to the next in the order. The DM, or the player who controls that token. Ignored when it is no longer that combatant's turn.
+   */
+  socket.on('turn.end', async (data: unknown) => {
+    try {
+      if (!socket.campaignId) { socket.emit('error', { message: 'Not authenticated to a campaign' }); return; }
+      if (!withinCeiling(socket, 'turn.end')) return;
+      const parsed = TurnEndSchema.safeParse(data);
+      if (!parsed.success) { socket.emit('error', { message: parsed.error.issues[0]?.message ?? 'Invalid turn end' }); return; }
+      const { tokenId } = parsed.data;
+      const before = getCombatState(socket.campaignId);
+      if (!someoneActing(before)) { socket.emit('error', { message: 'Combat is not active' }); return; }
+      if (!(await mayActFor(tokenId))) {
+        socket.emit('error', { message: 'You can only end the turn of your own token' });
+        return;
+      }
+
+      // The turn is named, so an end sent twice, or after the DM has moved
+      // on, passes one turn and not two.
+      const state = getCombatState(socket.campaignId);
+      if (!someoneActing(state) || state.currentTokenId !== tokenId) return;
+      advanceTurn(state);
+      setCombatState(socket.campaignId, state);
+      await broadcastInitiativeState(socket.campaignId);
+      logger.debug('turn.end', { round: state.round, current: state.currentTokenId, campaignId: socket.campaignId });
+    } catch (error) {
+      logger.error('turn.end failed', { err: error });
+      socket.emit('error', { message: 'Failed to end the turn' });
     }
   });
 

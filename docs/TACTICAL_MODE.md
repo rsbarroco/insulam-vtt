@@ -102,7 +102,7 @@ own data.
 | --- | --- | --- |
 | 9 | Rules engine | On the server: d20 tests with advantage and disadvantage, attack rolls against Armor Class, saving throws against a DC, damage by type with resistance, vulnerability and immunity, critical hits, temporary hit points, the conditions with their durations, concentration, and death saving throws. |
 | 10 | Actions as data | What a creature can do, in a form the engine can run: weapon attacks from the sheet, spells, and monster actions, each with its cost in the turn, range, area, targets and effects. An editor for the GM's own. |
-| 11 | Characters by the rules | Guided character creation and levelling that fills in the existing D&D 5e sheet: species, background, class and level choices. |
+| 11 | Characters by the rules | Guided character creation and levelling that fills in the existing D&D 5e sheet: species, background, class and level choices. Gestalt by default, with house rules a campaign switches on (see below). |
 | 12 | Monsters | Stat blocks from the 2024 rules' reference document, ready to act in combat. The creature library imports the 2014 one today. |
 | 13 | Adventures | An adventure as an ordered set of prepared maps and encounters, with objectives and challenges, that the GM runs scene by scene. |
 | 14 | Combat resolution | On a creature's turn: choose an action, see valid targets and the area, confirm, and the server rolls, applies damage and conditions and writes the result to the log. The GM can adjust or undo. Fog and dynamic lighting in the tactical view. |
@@ -118,6 +118,29 @@ does for the 2014 document today. Anything printed only in the rulebooks
 themselves (most subclasses and backgrounds, many spells and monsters) is not
 in it and is not shipped. A GM can still enter such things by hand for their
 own table, as with any homebrew.
+
+### Character creation: gestalt and house rules
+
+Characters are built gestalt by default: at each level a character advances
+in two classes at once and has the features of both. The fifth edition has no
+official gestalt rule, so the VTT fixes one, and a campaign can turn gestalt
+off for ordinary single-class characters.
+
+- **Hit points** use the larger of the two classes' Hit Dice, once.
+- **Proficiencies** are those of both classes; saving throws are the two each
+  class gives at level 1.
+- **Nothing doubles** that both classes give at the same level: one Ability
+  Score Improvement or feat per level, and Extra Attack does not stack.
+- **Spell slots** follow the multiclass table for the sum of both classes'
+  caster levels, never above the character's level.
+- **Multiclassing** within either track stays as the rules have it.
+
+On top of that a campaign chooses its house rules, each a switch in the
+campaign's settings that character creation obeys. Which ones exist is the
+owner's call and is still open; the candidates are free feats on a schedule,
+ability score increases not tied to background, swapping a class feature for
+another, multiclassing without ability prerequisites, an early or second
+subclass, and a larger point buy.
 
 ### Where the rules meet the board
 
@@ -149,4 +172,5 @@ matters, change per map.
 | 4 Height brush | Done: raise, lower and level brushes with undo in `TacticalMapCanvas.tsx`, from `map/iso/heightBrush.ts` and `map/iso/useHeightBrush.ts` |
 | 5 Movement reach | Done, then reworked by phase 6: the reach flood fill, highlighted cells and path preview |
 | 6 Movement by the rules | Done: speed from the stat block or set on the token, eight-way movement with the map's diagonal rule, slopes, climbs and falls, in `map/iso/reach.ts`. Replaces phase 5's Move and Jump. Player character speed is set by hand until the server reads sheets |
-| 7 to 14 | Not started |
+| 7 The turn | Done: `turn` and `reactionsSpent` in the combat state, the `turn.update` and `turn.end` events, and `TurnBar.tsx` under the map. Movement is counted for moves in the tactical view. Counts are kept, not enforced |
+| 8 to 14 | Not started |

@@ -400,6 +400,12 @@ describe('the tallest tile of the tactical view', () => {
   });
 });
 
+describe('the limits on a turn in combat', () => {
+  it('are the same file in the browser and on the server', () => {
+    expect(read('frontend/src/constants/turnLimits.ts')).toBe(read('backend/src/validators/turnLimits.ts'));
+  });
+});
+
 describe('the token centre', () => {
   it('is the same file in the browser and on the server', () => {
     expect(read('frontend/src/utils/tokenCentre.ts')).toBe(read('backend/src/utils/tokenCentre.ts'));

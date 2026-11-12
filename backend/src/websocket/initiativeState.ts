@@ -22,6 +22,22 @@ export interface CombatantEntry {
   disposition: 'friendly' | 'neutral' | 'hostile' | null;
 }
 
+/**
+ * What the acting combatant has spent of its turn, by the D&D rules: its
+ * movement, its action and its bonus action. The server keeps the count and
+ * does not enforce it; the table sees what is left.
+ */
+export interface TurnState {
+  /** Feet of movement spent this turn. */
+  movementSpent: number;
+  /** Times it has taken the Dash action this turn; each adds its speed to its movement. */
+  dashes: number;
+  /** The action taken this turn, by name, or null while it still has one. */
+  action: string | null;
+  /** Whether the bonus action is spent. */
+  bonusAction: boolean;
+}
+
 export interface CombatState {
   active: boolean;
   round: number;
@@ -29,6 +45,37 @@ export interface CombatState {
   currentTokenId: string | null;
   /** Ordered list of combatants (descending by initiative) */
   combatants: CombatantEntry[];
+  /** The acting combatant's turn so far; null when nobody is acting. */
+  turn: TurnState | null;
+  /** tokenIds whose reaction is spent. A combatant's comes back at the start of its turn. */
+  reactionsSpent: string[];
+}
+
+/** Whether a fight is under way with a combatant acting. */
+export function someoneActing(state: CombatState): boolean {
+  return state.active && state.currentTokenId !== null;
+}
+
+/** A turn with nothing spent. */
+export function freshTurn(): TurnState {
+  return { movementSpent: 0, dashes: 0, action: null, bonusAction: false };
+}
+
+/**
+ * Pass the turn to the next combatant in the order, into a new round after
+ * the last. The one whose turn begins has a fresh turn and its reaction
+ * back. Changes `state`; the caller stores it.
+ */
+export function advanceTurn(state: CombatState): void {
+  const nextIndex = state.combatants.findIndex((c) => c.tokenId === state.currentTokenId) + 1;
+  if (nextIndex >= state.combatants.length) {
+    state.round += 1;
+    state.currentTokenId = state.combatants[0].tokenId;
+  } else {
+    state.currentTokenId = state.combatants[nextIndex].tokenId;
+  }
+  state.turn = freshTurn();
+  state.reactionsSpent = state.reactionsSpent.filter((tokenId) => tokenId !== state.currentTokenId);
 }
 
 const campaignStates = new Map<string, CombatState>();
@@ -80,6 +127,8 @@ function defaultState(): CombatState {
     round: 0,
     currentTokenId: null,
     combatants: [],
+    turn: null,
+    reactionsSpent: [],
   };
 }
 
@@ -87,7 +136,19 @@ export function getState(campaignId: string): CombatState {
   return campaignStates.get(campaignId) ?? defaultState();
 }
 
-export function setState(campaignId: string, state: CombatState): void {
+/** A combat state as it may be handed in: the turn fields may be left out. */
+export type CombatStateInput = Omit<CombatState, 'turn' | 'reactionsSpent'> &
+  Partial<Pick<CombatState, 'turn' | 'reactionsSpent'>>;
+
+export function setState(campaignId: string, input: CombatStateInput): void {
+  const listed = new Set(input.combatants.map((c) => c.tokenId));
+  // What is stored always holds together: somebody acting has a turn, nobody
+  // acting has none, and only combatants in the order have a spent reaction.
+  const state: CombatState = {
+    ...input,
+    turn: input.active && input.currentTokenId ? (input.turn ?? freshTurn()) : null,
+    reactionsSpent: (input.reactionsSpent ?? []).filter((tokenId) => listed.has(tokenId)),
+  };
   campaignStates.set(campaignId, state);
   bump(campaignId);
   // A combatant that has left the order may be rolled for again when it
@@ -177,7 +238,19 @@ export function withoutCombatants(state: CombatState, gone: (entry: CombatantEnt
       if (state.active) round += 1;
     }
   }
-  return { ...state, combatants: kept, currentTokenId, round };
+  // The turn passed on with the combatant that left: the one now acting
+  // starts its own, with its reaction back.
+  const passedOn = currentTokenId !== state.currentTokenId;
+  return {
+    ...state,
+    combatants: kept,
+    currentTokenId,
+    round,
+    turn: passedOn ? freshTurn() : state.turn,
+    reactionsSpent: state.reactionsSpent.filter(
+      (tokenId) => kept.some((c) => c.tokenId === tokenId) && !(passedOn && tokenId === currentTokenId)
+    ),
+  };
 }
 
 /**
@@ -238,5 +311,15 @@ export function projectCombatState(
     });
   }
   const currentTokenId = combatants.some((c) => c.tokenId === state.currentTokenId) ? state.currentTokenId : null;
-  return { active: state.active, round: state.round, currentTokenId, combatants };
+  // A turn belongs to the acting combatant, so a recipient who is not shown
+  // that combatant is not shown its turn either; likewise a spent reaction.
+  const listed = new Set(combatants.map((c) => c.tokenId));
+  return {
+    active: state.active,
+    round: state.round,
+    currentTokenId,
+    combatants,
+    turn: currentTokenId ? state.turn : null,
+    reactionsSpent: state.reactionsSpent.filter((tokenId) => listed.has(tokenId)),
+  };
 }
