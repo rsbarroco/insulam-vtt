@@ -192,4 +192,5 @@ matters, change per map.
 | 7 The turn | Done: `turn` and `reactionsSpent` in the combat state, the `turn.update` and `turn.end` events, and `TurnBar.tsx` under the map. Movement is counted for moves in the tactical view. Counts are kept, not enforced |
 | 8 Distance, sight and cover | Done: `map/iso/sight.ts`, shown as a line and a hint while a token is carried over another. Walls from the top-down view are not counted |
 | 9 Rules engine | Done as a library: `backend/src/rules/dnd/` (D20 Tests, attacks and cover, saves, damage and healing, conditions, death saves). Nothing calls it yet; phase 14 puts it behind combat resolution |
-| 10 to 14 | Not started |
+| 10 Actions as data | Part done: `backend/src/rules/dnd/actions.ts` reads a sheet's attacks and a stat block's actions (attack rolls, saving throws, damage, defences) in the 2014 and 2024 wording. Still to do: spells, which a sheet lists by name only and need a catalogue from the reference document, and an editor for the GM's own actions |
+| 11 to 14 | Not started |
