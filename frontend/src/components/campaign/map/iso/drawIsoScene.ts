@@ -61,6 +61,12 @@ export interface IsoScene {
     /** The token has a reach and this cell is outside it. The move is still allowed. */
     readonly outOfReach?: boolean;
   } | null;
+  /** A line of sight from one token to another, drawn over the board. */
+  readonly sightLine?: {
+    readonly from: IsoToken;
+    readonly to: IsoToken;
+    readonly colour: string;
+  } | null;
   /** Cells a token can walk to this move, and the way to the pointed one. */
   readonly reach?: {
     /** Bottom-left cells the token can stop on, as `x,y`. */
@@ -82,6 +88,9 @@ export const ISO_COLOURS = {
   dropOutOfReach: 'rgba(235, 170, 60, 0.5)',
   reach: 'rgba(80, 150, 255, 0.3)',
   path: 'rgba(80, 150, 255, 0.6)',
+  sightClear: 'rgba(96, 200, 120, 0.95)',
+  sightCover: 'rgba(235, 170, 60, 0.95)',
+  sightBlocked: 'rgba(220, 80, 70, 0.95)',
   shadow: 'rgba(0, 0, 0, 0.35)',
   tokenEdge: 'rgba(0, 0, 0, 0.75)',
 } as const;
@@ -384,6 +393,21 @@ export function drawIsoScene(
     if (tokens) {
       for (const token of tokens) drawToken(ctx, token, scene);
     }
+  }
+
+  // Over everything, so the line reads even where a tile hides one end.
+  if (scene.sightLine) {
+    const { from, to, colour } = scene.sightLine;
+    const a = tokenDiscCentre(from.cell, from.size, heights, view);
+    const b = tokenDiscCentre(to.cell, to.size, heights, view);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.setLineDash([6 / camera.zoom, 4 / camera.zoom]);
+    ctx.lineWidth = 2.5 / camera.zoom;
+    ctx.strokeStyle = colour;
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
   ctx.restore();
 }

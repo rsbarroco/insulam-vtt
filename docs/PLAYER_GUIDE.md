@@ -304,6 +304,8 @@ When your DM is using a map without fog of war or dynamic lighting, a **Tactical
 - The bottom-left corner shows the square under your pointer and its height.
 - If a token has a speed, pointing at it or picking it up tints the squares it can reach this turn in blue, and the hint counts the feet to the square you are pointing at and warns of a fall. You can still put your token down outside them, on a square tinted amber; your DM decides whether that stands.
 
+- Carry your token over another one, without putting it down, to measure: a line joins the two and the hint gives the distance from where your token stands and the cover the other has, such as "30 ft to Ogre, half cover (+2 AC)". **Esc** puts your token back.
+
 The ruler and spell areas are in the top-down view only for now. If the DM switches fog or lighting on while you are in the tactical view, the map goes back to the top-down view by itself.
 
 ## Your Own Notes

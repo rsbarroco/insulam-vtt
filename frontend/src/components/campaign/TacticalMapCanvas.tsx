@@ -39,7 +39,7 @@ import { TokenLayer } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import Button from '@/components/ui/Button';
-import { movementLeft } from '@/utils/turn';
+import { formatFeet, movementLeft } from '@/utils/turn';
 import { useTokenImages } from './map/useTokenImages';
 import { cachedTokenImage, placeholderColor, DOWNED_TOKEN_ALPHA } from './map/layers/drawTokens';
 import {
@@ -53,6 +53,7 @@ import { releaseHeldToken } from './map/tokenHold';
 import { isTypingInto } from './map/typingTarget';
 import { heightAt, isHeightGrid, MAX_TILE_HEIGHT } from './map/iso/heightGrid';
 import { useHeightBrush } from './map/iso/useHeightBrush';
+import { coverBetween, coverLabel, distanceFeet } from './map/iso/sight';
 import { cellKey, computeReach, fallDamageDice, pathTo } from './map/iso/reach';
 import {
   reachObstacles,
@@ -74,7 +75,13 @@ import {
   type IsoView,
   type QuarterTurn,
 } from './map/iso/projection';
-import { drawIsoScene, pickTokenDisc, type IsoCamera, type IsoToken } from './map/iso/drawIsoScene';
+import {
+  drawIsoScene,
+  ISO_COLOURS,
+  pickTokenDisc,
+  type IsoCamera,
+  type IsoToken,
+} from './map/iso/drawIsoScene';
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 3;
@@ -410,6 +417,50 @@ export default function TacticalMapCanvas() {
     [reach, reachToken, dropPath]
   );
 
+  // ── Sight ──────────────────────────────────────────────────────────────
+  // While a token is carried over another, how far that one is from where
+  // the carried token stands, and the cover it has from there.
+  const sightTarget = held && hoverToken && hoverToken.id !== held.id ? hoverToken : null;
+  const sight = useMemo(() => {
+    if (!held || !sightTarget || !currentMap) return null;
+    const standing = (token: Token) => ({
+      cell: { x: Math.floor(token.position.x), y: Math.floor(token.position.y) },
+      size: token.size,
+    });
+    const attacker = standing(held);
+    const target = standing(sightTarget);
+    const others = visibleTokens
+      .filter(
+        (token) =>
+          token.id !== held.id &&
+          token.id !== sightTarget.id &&
+          token.layer === held.layer &&
+          !isTokenDowned(token, characterHpCache)
+      )
+      .map(standing);
+    return {
+      feet: distanceFeet(attacker, target, {
+        heights: boardHeights,
+        feetPerSquare: currentMap.feetPerSquare,
+        diagonalRule: currentMap.diagonalRule,
+      }),
+      cover: coverBetween(attacker, target, { heights: boardHeights, others }),
+    };
+  }, [held, sightTarget, currentMap, visibleTokens, characterHpCache, boardHeights]);
+  const sightLine = useMemo(() => {
+    if (!sight || !held || !sightTarget) return null;
+    const from = sceneTokens.find((token) => token.id === held.id);
+    const to = sceneTokens.find((token) => token.id === sightTarget.id);
+    if (!from || !to) return null;
+    const colour =
+      sight.cover === 'none'
+        ? ISO_COLOURS.sightClear
+        : sight.cover === 'total'
+          ? ISO_COLOURS.sightBlocked
+          : ISO_COLOURS.sightCover;
+    return { from, to, colour };
+  }, [sight, held, sightTarget, sceneTokens]);
+
   // What putting the token down here costs, for the hint.
   const dropStop = reach && dropCell ? (reach.stops.get(cellKey(dropCell)) ?? null) : null;
   const moveSummary =
@@ -455,6 +506,7 @@ export default function TacticalMapCanvas() {
           hoverCell: held ? null : hoverCell,
           drop,
           reach: sceneReach,
+          sightLine,
         },
         { zoom: camera.zoom * ratio, pan: { x: camera.pan.x * ratio, y: camera.pan.y * ratio } },
         { width, height }
@@ -471,6 +523,7 @@ export default function TacticalMapCanvas() {
     held,
     drop,
     sceneReach,
+    sightLine,
     camera,
     canvasSize,
   ]);
@@ -650,7 +703,16 @@ export default function TacticalMapCanvas() {
     }
     const iso = toIso(event);
     if (!iso || !view || !currentMap) return;
-    const cell = pickCell(iso.x, iso.y, view, boardHeights);
+    // A disc stands above its square and covers the ones behind it, so the
+    // pointer on a disc points at that token's square.
+    const disc = pickTokenDisc(
+      iso.x,
+      iso.y,
+      sceneTokens.filter((token) => token.id !== held?.id),
+      boardHeights,
+      view
+    );
+    const cell = disc ? disc.cell : pickCell(iso.x, iso.y, view, boardHeights);
     setHoverCell((previous) =>
       previous?.x === cell?.x && previous?.y === cell?.y ? previous : cell
     );
@@ -873,7 +935,9 @@ export default function TacticalMapCanvas() {
       {held && (
         <div className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
           Click a square to put {tokenDisplayName(held)} down, or press Esc to cancel
-          {reachSpeed !== null && drop && ` · ${moveSummary}`}
+          {sight && sightTarget
+            ? ` · ${formatFeet(sight.feet)} ft to ${tokenDisplayName(sightTarget)}, ${coverLabel(sight.cover)}`
+            : reachSpeed !== null && drop && ` · ${moveSummary}`}
         </div>
       )}
 
