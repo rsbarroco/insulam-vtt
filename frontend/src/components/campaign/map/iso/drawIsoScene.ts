@@ -67,6 +67,8 @@ export interface IsoScene {
     readonly to: IsoToken;
     readonly colour: string;
   } | null;
+  /** Squares an area of effect being aimed covers, as `x,y`. */
+  readonly area?: ReadonlySet<string> | null;
   /** Cells a token can walk to this move, and the way to the pointed one. */
   readonly reach?: {
     /** Bottom-left cells the token can stop on, as `x,y`. */
@@ -88,6 +90,7 @@ export const ISO_COLOURS = {
   dropOutOfReach: 'rgba(235, 170, 60, 0.5)',
   reach: 'rgba(80, 150, 255, 0.3)',
   path: 'rgba(80, 150, 255, 0.6)',
+  area: 'rgba(235, 95, 50, 0.42)',
   sightClear: 'rgba(96, 200, 120, 0.95)',
   sightCover: 'rgba(235, 170, 60, 0.95)',
   sightBlocked: 'rgba(220, 80, 70, 0.95)',
@@ -371,7 +374,9 @@ export function drawIsoScene(
       ctx.stroke();
     }
     const key = `${cell.x},${cell.y}`;
-    if (pathCells.has(key))
+    if (scene.area?.has(key))
+      tintFootprint(ctx, cell, { width: 1, height: 1 }, ISO_COLOURS.area, scene);
+    else if (pathCells.has(key))
       tintFootprint(ctx, cell, { width: 1, height: 1 }, ISO_COLOURS.path, scene);
     else if (reachCells.has(key))
       tintFootprint(ctx, cell, { width: 1, height: 1 }, ISO_COLOURS.reach, scene);

@@ -35,11 +35,12 @@ import {
   useTokenList,
 } from '@/stores/gameStore';
 import type { Token } from '@/types';
-import { TokenLayer } from '@/types';
+import { TokenLayer, TokenType } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import Button from '@/components/ui/Button';
 import AttackMenu from './AttackMenu';
+import { areaCells, standsIn, type AreaOfEffect } from '@/utils/boardArea';
 import { formatFeet, movementLeft } from '@/utils/turn';
 import { useTokenImages } from './map/useTokenImages';
 import { cachedTokenImage, placeholderColor, DOWNED_TOKEN_ALPHA } from './map/layers/drawTokens';
@@ -414,6 +415,41 @@ export default function TacticalMapCanvas() {
     () => (reach && dropCell ? pathTo(reach, dropCell) : null),
     [reach, dropCell]
   );
+  // The area of the effect being aimed from the menu, the squares it covers
+  // and the creatures standing in them.
+  const [aimedArea, setAimedArea] = useState<AreaOfEffect | null>(null);
+  const standingOf = (token: Token) => ({
+    cell: { x: Math.floor(token.position.x), y: Math.floor(token.position.y) },
+    size: token.size,
+  });
+  const aimTarget = attacking
+    ? (tokens.find((token) => token.id === attacking.targetId) ?? null)
+    : null;
+  const cellsOfArea = (area: AreaOfEffect): Set<string> =>
+    held && aimTarget && currentMap
+      ? areaCells(area, standingOf(held), standingOf(aimTarget), {
+          cols: currentMap.width,
+          rows: currentMap.height,
+          feetPerSquare: currentMap.feetPerSquare,
+        })
+      : new Set();
+  const aimedCells = useMemo(
+    () => (aimedArea ? cellsOfArea(aimedArea) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cellsOfArea reads only what is listed here
+    [aimedArea, held, aimTarget, currentMap]
+  );
+  const caughtBy = (area: AreaOfEffect) => {
+    const cells = cellsOfArea(area);
+    return visibleTokens
+      .filter(
+        (token) =>
+          token.layer === held?.layer &&
+          token.type !== TokenType.OBJECT &&
+          standsIn(standingOf(token), cells)
+      )
+      .map((token) => ({ id: token.id, name: tokenDisplayName(token) }));
+  };
+
   const sceneReach = useMemo(
     () =>
       reach && reachToken
@@ -512,6 +548,7 @@ export default function TacticalMapCanvas() {
           drop,
           reach: sceneReach,
           sightLine,
+          area: aimedCells,
         },
         { zoom: camera.zoom * ratio, pan: { x: camera.pan.x * ratio, y: camera.pan.y * ratio } },
         { width, height }
@@ -529,6 +566,7 @@ export default function TacticalMapCanvas() {
     drop,
     sceneReach,
     sightLine,
+    aimedCells,
     camera,
     canvasSize,
   ]);
@@ -1002,9 +1040,15 @@ export default function TacticalMapCanvas() {
             if (answer.ok) showToast(answer.summary, answer.landed ? 'success' : 'info');
             else showToast(answer.error, 'error');
             // The attacker stays where it stood: it was held to choose a target.
+            setAimedArea(null);
             cancelHold();
           }}
-          onClose={() => setAttacking(null)}
+          caughtBy={caughtBy}
+          onAim={setAimedArea}
+          onClose={() => {
+            setAimedArea(null);
+            setAttacking(null);
+          }}
         />
       )}
 

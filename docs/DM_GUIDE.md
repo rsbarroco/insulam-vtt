@@ -991,7 +991,16 @@ While you carry a token over the board, **right-click another creature** to have
 
 The attacker stays where it stood. The target needs an Armor Class, from its sheet or its stat block. You can attack with any token; a player only with their own. The VTT makes one attack roll at a time, so Multiattack is each attack in turn.
 
-**Saving throws.** The same menu lists the actions and spells that call for a saving throw, such as a breath weapon or Fireball, with the DC, the damage and the area. Choose one and the VTT rolls the damage, rolls the target's save with its conditions (and its cover, on a Dexterity save), and takes the full damage, half or none from its hit points. A creature's save bonus comes from its sheet, or from its stat block's saving throws or ability scores. For now the menu aims such an effect at the one creature you right-clicked: for an area that catches several, use it on each, or adjust hit points by hand. A spell of level 1 or higher shows a button for each level the caster still has a spell slot at: choose one to cast with that slot, which is then marked as used on the character sheet, and a higher slot adds the dice the spell says it does. A spell with no slot left cannot be cast from the menu. Nothing here stops you changing hit points by hand afterwards.
+**Saving throws.** The same menu lists the actions and spells that call for a saving throw, such as a breath weapon or Fireball, with the DC, the damage and the area. Choose one and the VTT rolls the damage, rolls the target's save with its conditions (and its cover, on a Dexterity save), and takes the full damage, half or none from its hit points. A creature's save bonus comes from its sheet, or from its stat block's saving throws or ability scores.
+
+**Areas.** An effect with an area is aimed at the creature you right-clicked. Point at it in the menu and the squares it covers are tinted on the board, and the menu names the creatures it catches; choosing it rolls a save for every one of them from the one damage roll. A square is in an area when its centre is:
+
+- A **Sphere** or **Cylinder** is centred on the creature aimed at, so Fireball catches whoever stands within its radius of that creature, friends and the caster included.
+- A **Cone** or **Line** starts at the caster and points at the creature aimed at. A cone is as wide as it is long; a line is one square wide.
+- A **Cube** is placed around the creature aimed at.
+- An **Emanation** spreads from the caster's own edges.
+
+Heights are not counted for areas, and object tokens are never caught. To aim a sphere at an empty spot, or to leave someone out, resolve it against each creature in turn or adjust hit points by hand. A spell of level 1 or higher shows a button for each level the caster still has a spell slot at: choose one to cast with that slot, which is then marked as used on the character sheet, and a higher slot adds the dice the spell says it does. A spell with no slot left cannot be cast from the menu. Nothing here stops you changing hit points by hand afterwards.
 
 ## Fog of War
 

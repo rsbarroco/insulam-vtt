@@ -170,6 +170,12 @@ matters, change per map.
 - **Distance.** Between two creatures: the squares between their nearest
   edges, counted by the map's diagonal setting, or the difference in the
   height of the ground they stand on if that is the greater.
+- **Areas.** A square is in an area when its centre is. A Sphere or Cylinder
+  is centred on the creature aimed at. A Cone or Line starts at the middle of
+  the caster and points at the creature aimed at; a Cone is as wide as it is
+  long, a Line one square wide, and neither covers the caster's own squares.
+  A Cube is placed around the creature aimed at. An Emanation reaches its
+  size from the caster's edges. Heights are not counted.
 - **Sight and cover.** A creature stands two height steps tall for each
   square of its size. Lines run from the top of the attacker to four heights
   on the target. Ground that rises above a line blocks it. None blocked is no
@@ -194,4 +200,4 @@ matters, change per map.
 | 9 Rules engine | Done as a library: `backend/src/rules/dnd/` (D20 Tests, attacks and cover, saves, damage and healing, conditions, death saves). Phase 14 puts it behind combat, starting with the attack roll resolution |
 | 10 Actions as data | Part done: `backend/src/rules/dnd/actions.ts` reads a sheet's attacks and a stat block's actions (attack rolls, saving throws, damage, defences) in the 2014 and 2024 wording. `spells.ts` holds the 339 spells of the SRD 5.2.1 (`data/srd-5.2.1-spells.json`, built by `scripts/srd-spells.py`) and reads each one's attack, saving throw, damage, area and scaling; a sheet's cantrips and prepared spells are listed among its combat actions, and the ones with an attack roll can be cast through `combat.attack`. Still to do: a spell browser in the sheet, and an editor for the GM's own actions |
 | 11 to 13 | Not started |
-| 14 Combat resolution | Part done: attack rolls and saving throws. `backend/src/rules/dnd/resolveAttack.ts` and `resolveSave.ts` decide them, and `websocket/handlers/combat.ts` (`combat.actions`, `combat.attack`, `combat.save`) applies the damage and logs the roll; `AttackMenu.tsx` asks for them in the tactical view. Distance and cover are in `utils/boardSight.ts`, the same file on both sides. Casting a levelled spell spends a spell slot of the level chosen. Still to do: choosing the targets of an area on the board, conditions applied by an action, undo, death saves, and fog and lighting in the tactical view |
+| 14 Combat resolution | Part done: attack rolls and saving throws. `backend/src/rules/dnd/resolveAttack.ts` and `resolveSave.ts` decide them, and `websocket/handlers/combat.ts` (`combat.actions`, `combat.attack`, `combat.save`) applies the damage and logs the roll; `AttackMenu.tsx` asks for them in the tactical view. Distance and cover are in `utils/boardSight.ts`, the same file on both sides. Casting a levelled spell spends a spell slot of the level chosen. An effect with an area is aimed at a creature: `utils/boardArea.ts` finds the squares it covers and the menu sends everyone standing in them. Still to do: aiming an area at an empty square, conditions applied by an action, undo, death saves, and fog and lighting in the tactical view |

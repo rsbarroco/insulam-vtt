@@ -18,12 +18,18 @@ interface AttackMenuProps {
   /** Distance and cover as the board shows them, for the heading. */
   situation: string | null;
   style: React.CSSProperties;
+  /** The creatures standing in an area aimed from the attacker at the target. */
+  caughtBy: (area: Area) => Array<{ id: string; name: string }>;
+  /** Show an area on the board while its action is pointed at, or clear it with null. */
+  onAim: (area: Area | null) => void;
   /** The outcome in one line, and whether it went the acting creature's way. */
   onResolved: (
     answer: { ok: true; summary: string; landed: boolean } | { ok: false; error: string }
   ) => void;
   onClose: () => void;
 }
+
+type Area = NonNullable<NonNullable<CombatActionSummary['save']>['area']>;
 
 const signed = (bonus: number) => (bonus >= 0 ? `+${bonus}` : String(bonus));
 
@@ -64,13 +70,19 @@ const ROW =
 function ActionRow({
   action,
   busy,
+  catches,
   onMake,
 }: {
   action: CombatActionSummary;
   busy: boolean;
+  /** For an effect with an area, the names of the creatures in it. */
+  catches: string[] | null;
   onMake: (slotLevel?: number) => void;
 }) {
-  const detail = action.attack ? attackText(action.attack) : saveText(action.save!);
+  const what = action.attack ? attackText(action.attack) : saveText(action.save!);
+  const detail = catches
+    ? `${what} · ${catches.length > 0 ? `catches ${catches.join(', ')}` : 'catches nobody'}`
+    : what;
   const levelled = action.spell !== null && action.spell.level > 0;
   if (!levelled) {
     return (
@@ -115,6 +127,8 @@ export default function AttackMenu({
   target,
   situation,
   style,
+  caughtBy,
+  onAim,
   onResolved,
   onClose,
 }: AttackMenuProps) {
@@ -140,6 +154,13 @@ export default function AttackMenu({
   );
   const anyAttackRoll = attacks.some((action) => action.attack !== null);
 
+  /** Who a save effect is rolled for: everyone its area catches, or the creature aimed at. */
+  const targetsOf = (action: CombatActionSummary): string[] => {
+    const area = action.save?.area;
+    const caught = area ? caughtBy(area).map((creature) => creature.id) : [];
+    return caught.length > 0 ? caught : [target.id];
+  };
+
   /** Make the attack or call for the save. `slotLevel` is the spell slot a levelled spell is cast with. */
   const make = async (action: CombatActionSummary, slotLevel?: number) => {
     const slot = slotLevel === undefined ? {} : { slotLevel };
@@ -158,7 +179,7 @@ export default function AttackMenu({
     }
     const answer = await socket.resolveSave({
       sourceId: attacker.id,
-      targetIds: [target.id],
+      targetIds: targetsOf(action),
       action: action.index,
       ...slot,
     });
@@ -204,7 +225,21 @@ export default function AttackMenu({
           <ul className="space-y-1">
             {attacks.map((action) => (
               <li key={action.index}>
-                <ActionRow action={action} busy={busy} onMake={(slot) => void make(action, slot)} />
+                <div
+                  onPointerEnter={() => onAim(action.save?.area ?? null)}
+                  onPointerLeave={() => onAim(null)}
+                  onFocus={() => onAim(action.save?.area ?? null)}
+                  onBlur={() => onAim(null)}
+                >
+                  <ActionRow
+                    action={action}
+                    busy={busy}
+                    catches={
+                      action.save?.area ? caughtBy(action.save.area).map((c) => c.name) : null
+                    }
+                    onMake={(slot) => void make(action, slot)}
+                  />
+                </div>
               </li>
             ))}
           </ul>
