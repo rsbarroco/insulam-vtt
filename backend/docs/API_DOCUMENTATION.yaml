@@ -8091,6 +8091,91 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
 
+  /api/campaigns/{campaignId}/maps/{id}/heights:
+    parameters:
+      - $ref: '#/components/parameters/CampaignId'
+      - $ref: '#/components/parameters/MapId'
+    get:
+      tags:
+        - Walls & Lighting
+      summary: Get tile heights
+      description: |
+        Returns the map's tile heights for the tactical (isometric) view, or
+        `null` for a flat board. Available to the DM for any map, and to other
+        members for the campaign's current map only (404 otherwise). The same
+        value is the `tileHeights` field of the map itself.
+      operationId: getTileHeights
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: The map's tile heights.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tileHeights:
+                    $ref: '#/components/schemas/TileHeights'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    put:
+      tags:
+        - Walls & Lighting
+      summary: Replace tile heights
+      description: |
+        Replaces the height of every square of the map at once. DM only.
+        `heights` holds one whole number from 0 to 32 for each square, row by
+        row starting from the bottom-left square (`heights[y * width + x]`,
+        with `y` counted upwards as token positions are). A list of any other
+        length, or holding anything else, answers 400 and changes nothing.
+        All zeros stores a flat board, which reads back as `null`.
+
+        Connected clients are told with `heights:replaced`, carrying the map's
+        id and the new `tileHeights`: every member for the map the campaign is
+        showing, and the DM's connections for any other. Resizing a map
+        (`PUT /api/campaigns/{campaignId}/maps/{id}`) keeps the heights of the
+        squares that remain, starts new squares at 0, and sends the same event.
+      operationId: replaceTileHeights
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                heights:
+                  type: array
+                  items:
+                    type: integer
+                    minimum: 0
+                    maximum: 32
+              required: [heights]
+      responses:
+        '200':
+          description: The stored tile heights.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tileHeights:
+                    $ref: '#/components/schemas/TileHeights'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
   /api/campaigns/{campaignId}/maps/{id}/lights/{lightId}:
     parameters:
       - $ref: '#/components/parameters/CampaignId'
@@ -13457,6 +13542,25 @@ components:
           enum: [wall, door-closed, door-open, door-locked, window]
       required: [x1, y1, x2, y2, type]
 
+    TileHeights:
+      type: object
+      nullable: true
+      description: One height per square for the tactical view. Null is a flat board.
+      properties:
+        cols:
+          type: integer
+          description: Map width in squares.
+        rows:
+          type: integer
+          description: Map height in squares.
+        heights:
+          type: array
+          description: Row by row from the bottom-left square (`heights[y * cols + x]`).
+          items:
+            type: integer
+            minimum: 0
+            maximum: 32
+      required: [cols, rows, heights]
     LightSource:
       type: object
       description: A point light placed by the DM with separate bright and dim radii.

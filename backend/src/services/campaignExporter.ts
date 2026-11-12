@@ -192,6 +192,7 @@ export async function prepareCampaignExport(
       globalIllumination: map.globalIllumination,
       explorationEnabled: map.explorationEnabled,
       lights: map.lights || [],
+      tileHeights: map.tileHeights || null,
     });
   }
 

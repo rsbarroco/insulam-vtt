@@ -30,6 +30,8 @@ import { MAP_LIMITS, GEOMETRY_MARGIN_SQUARES, wallWithinMap, lightWithinMap } fr
 import { WallSegmentSchema, LightSourceSchema, MAX_WALL_SEGMENTS, MAX_LIGHT_SOURCES } from '../validators/walls';
 import { clampTokenPosition } from '../utils/mapTokens';
 import { cutText } from '../utils/cutText';
+import { readTileHeights } from '../utils/tileHeights';
+import { toJson } from '../utils/prisma-json';
 
 // ── The report ──────────────────────────────────────────────────────────────
 
@@ -205,6 +207,15 @@ export function prepareMap(raw: unknown, ctx: MapContext): PreparedMap | null {
     else if (fog.data.fogCols === map.width && fog.data.fogRows === map.height && fog.data.cellPx === map.gridSize) fogData = fog.data;
   }
 
+  // Tile heights are one number per square, so only heights for this map's
+  // own squares are kept; a flat board needs none.
+  let tileHeights: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
+  if (map.tileHeights !== undefined && map.tileHeights !== null) {
+    const heights = readTileHeights(map.tileHeights);
+    if (!heights) say('left out its tile heights, which could not be read; the map starts flat.');
+    else if (heights.cols === map.width && heights.rows === map.height) tileHeights = toJson(heights);
+  }
+
   let annotations: Prisma.InputJsonValue = [];
   if (map.annotations !== undefined && map.annotations !== null) {
     const parsedAnnotations = ImportAnnotationsSchema.safeParse(map.annotations);
@@ -248,6 +259,7 @@ export function prepareMap(raw: unknown, ctx: MapContext): PreparedMap | null {
       ...(map.globalIllumination !== undefined ? { globalIllumination: map.globalIllumination } : {}),
       ...(map.explorationEnabled !== undefined ? { explorationEnabled: map.explorationEnabled } : {}),
       lights: lights as unknown as Prisma.InputJsonValue,
+      tileHeights,
     },
   };
 }

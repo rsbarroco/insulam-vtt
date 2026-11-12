@@ -845,6 +845,8 @@ export interface CampaignMap {
   annotations: Annotation[];
   wallSegments?: import('./walls').WallSegment[];
   fogData?: import('./walls').FogState | null;
+  /** Tile heights for the tactical view. Null or absent is a flat board. */
+  tileHeights?: import('@/components/campaign/map/iso/heightGrid').HeightGrid | null;
   lightingEnabled?: boolean;
   /** Manual fog of war on this map. Absent on older payloads means on. */
   fogEnabled?: boolean;
