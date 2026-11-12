@@ -76,7 +76,7 @@ const heroSheet = () => ({
   armorClass: 16,
   savingThrows: { strength: { bonus: 2 }, dexterity: { bonus: 4 }, constitution: { bonus: 2 }, intelligence: { bonus: 0 }, wisdom: { bonus: 1 }, charisma: { bonus: 0 } },
   attacks: [{ name: 'Longsword', attackBonus: 5, damageRoll: '1d8+3', damageType: 'slashing' }],
-  spellcasting: { spellAttackBonus: 6, spellSaveDC: 14, cantrips: ['Fire Bolt'], spells: [{ name: 'Fireball', level: 3, prepared: true, ritual: false, concentration: false }] },
+  spellcasting: { spellAttackBonus: 6, spellSaveDC: 14, cantrips: ['Fire Bolt'], spells: [{ name: 'Fireball', level: 3, prepared: true, ritual: false, concentration: false }], slots: { '3': { total: 2, expended: 0 }, '4': { total: 1, expended: 0 } } },
 });
 
 let rolls: number[] = [];
@@ -132,6 +132,8 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+const heroSlots = async () =>
+  ((await prisma.character.findUniqueOrThrow({ where: { id: heroCharacterId } })).data as { spellcasting: { slots: Record<string, unknown> } }).spellcasting.slots;
 const ogreHp = async () => readTokens((await prisma.map.findUniqueOrThrow({ where: { id: mapId } })).tokens).find((t) => t.id === OGRE)?.hp;
 const heroHp = async () =>
   ((await prisma.character.findUniqueOrThrow({ where: { id: heroCharacterId } })).data as { hp: { current: number } }).hp.current;
@@ -143,7 +145,7 @@ describe('combat.actions', () => {
     expect(answer.actions).toEqual([
       expect.objectContaining({ index: 0, name: 'Longsword', attack: expect.objectContaining({ kind: 'melee', bonus: 5, damage: '1d8+3 slashing' }) }),
       expect.objectContaining({ index: 1, name: 'Fire Bolt', attack: expect.objectContaining({ kind: 'ranged', bonus: 6, damage: '1d10 fire' }) }),
-      expect.objectContaining({ index: 2, name: 'Fireball', attack: null, save: expect.objectContaining({ ability: 'dex', dc: 14, damage: '8d6 fire', halfOnSuccess: true }) }),
+      expect.objectContaining({ index: 2, name: 'Fireball', attack: null, spell: { level: 3, slotLevels: [3, 4] }, save: expect.objectContaining({ ability: 'dex', dc: 14, damage: '8d6 fire', halfOnSuccess: true }) }),
     ]);
   });
 
@@ -270,6 +272,27 @@ describe('combat.save', () => {
     expect(tokens.find((t) => t.id === OGRE)?.hp?.current).toBe(35);
     expect(tokens.find((t) => t.id === FAR)?.hp?.current).toBe(47);
     expect(await logged).toMatchObject({ result: 24, expression: '8d6', purpose: answer.summary });
+    expect(await heroSlots()).toMatchObject({ '3': { total: 2, expended: 1 }, '4': { total: 1, expended: 0 } });
+  });
+
+  it('casts with a higher slot for more dice, spends that slot and tells the table', async () => {
+    rolls = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+    const sheetSent = waitForEvent<{ characterId: string }>(dm, 'character.updated');
+
+    const answer = await ask(player, 'combat.save', { sourceId: HERO, targetIds: [OGRE], action: 2, slotLevel: 4 });
+
+    // Nine dice at level 4; the ogre's save of 1 - 1 fails.
+    expect(answer.targets).toEqual([{ tokenId: OGRE, saved: false, total: 0, dealt: 9 }]);
+    expect((await sheetSent).characterId).toBe(heroCharacterId);
+    expect(await heroSlots()).toMatchObject({ '3': { expended: 0 }, '4': { expended: 1 } });
+  });
+
+  it('refuses a cast with no slot left, and one that fails spends nothing', async () => {
+    expect((await ask(player, 'combat.save', { sourceId: HERO, targetIds: [OGRE], action: 2, slotLevel: 5 })).error).toBe('No level 5 spell slot left to cast Fireball');
+    expect((await ask(player, 'combat.save', { sourceId: HERO, targetIds: [OGRE], action: 2, slotLevel: 2 })).error).toBe('Fireball needs a spell slot of level 3 or higher');
+    expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: 1, slotLevel: 3 })).error).toBe('Fire Bolt is a cantrip, and takes no spell slot');
+    expect(await heroSlots()).toMatchObject({ '3': { expended: 0 }, '4': { expended: 0 } });
+    expect((await ogreHp())?.current).toBe(59);
   });
 
   it("takes a stat block's save effect from a character's sheet", async () => {

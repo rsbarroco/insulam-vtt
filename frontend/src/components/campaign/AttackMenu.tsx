@@ -54,6 +54,61 @@ function saveText(save: NonNullable<CombatActionSummary['save']>): string {
   return parts.join(' · ');
 }
 
+const ROW =
+  'w-full text-left rounded-md px-2 py-1.5 hover:bg-ink/10 focus-visible:bg-ink/10 disabled:opacity-50';
+
+/**
+ * One action of the menu. A levelled spell is cast by choosing the slot: one
+ * button for each level the caster has a slot left at.
+ */
+function ActionRow({
+  action,
+  busy,
+  onMake,
+}: {
+  action: CombatActionSummary;
+  busy: boolean;
+  onMake: (slotLevel?: number) => void;
+}) {
+  const detail = action.attack ? attackText(action.attack) : saveText(action.save!);
+  const levelled = action.spell !== null && action.spell.level > 0;
+  if (!levelled) {
+    return (
+      <button type="button" disabled={busy} onClick={() => onMake()} className={ROW}>
+        <span className="block text-sm font-medium text-ink">{action.name}</span>
+        <span className="block text-xs text-ink-muted">{detail}</span>
+      </button>
+    );
+  }
+  const slots = action.spell!.slotLevels;
+  return (
+    <div className="px-2 py-1.5">
+      <span className="block text-sm font-medium text-ink">{action.name}</span>
+      <span className="block text-xs text-ink-muted">{detail}</span>
+      {slots.length === 0 ? (
+        <span className="block text-xs text-danger-ink">No spell slot left</span>
+      ) : (
+        <span className="mt-1 flex flex-wrap items-center gap-1 text-xs text-ink-muted">
+          Cast with a slot of level
+          {slots.map((level) => (
+            <Button
+              key={level}
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              aria-label={`Cast ${action.name} with a level ${level} slot`}
+              onClick={() => onMake(level)}
+            >
+              {level}
+            </Button>
+          ))}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function AttackMenu({
   socket,
   attacker,
@@ -85,7 +140,9 @@ export default function AttackMenu({
   );
   const anyAttackRoll = attacks.some((action) => action.attack !== null);
 
-  const make = async (action: CombatActionSummary) => {
+  /** Make the attack or call for the save. `slotLevel` is the spell slot a levelled spell is cast with. */
+  const make = async (action: CombatActionSummary, slotLevel?: number) => {
+    const slot = slotLevel === undefined ? {} : { slotLevel };
     setBusy(true);
     if (action.attack) {
       const answer = await socket.resolveAttack({
@@ -93,6 +150,7 @@ export default function AttackMenu({
         targetId: target.id,
         action: action.index,
         ...(mode !== 'normal' ? { mode } : {}),
+        ...slot,
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -102,6 +160,7 @@ export default function AttackMenu({
       sourceId: attacker.id,
       targetIds: [target.id],
       action: action.index,
+      ...slot,
     });
     setBusy(false);
     onResolved(
@@ -145,17 +204,7 @@ export default function AttackMenu({
           <ul className="space-y-1">
             {attacks.map((action) => (
               <li key={action.index}>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void make(action)}
-                  className="w-full text-left rounded-md px-2 py-1.5 hover:bg-ink/10 focus-visible:bg-ink/10 disabled:opacity-50"
-                >
-                  <span className="block text-sm font-medium text-ink">{action.name}</span>
-                  <span className="block text-xs text-ink-muted">
-                    {action.attack ? attackText(action.attack) : saveText(action.save!)}
-                  </span>
-                </button>
+                <ActionRow action={action} busy={busy} onMake={(slot) => void make(action, slot)} />
               </li>
             ))}
           </ul>

@@ -113,9 +113,14 @@ export default function TokenTemplateLibrary({ isOpen, onClose }: TokenTemplateL
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetches on opening and on a type change; typing searches through the debounce below
   }, [isOpen, campaign?.id, typeFilter]);
 
-  // Debounced search
+  // Debounced search. Opening already fetches, so the first run has nothing
+  // to search for: fetching again 300 ms later would clear the notice of a
+  // copy made in that time.
+  const searchedFor = useRef(searchQuery);
   useEffect(() => {
     if (!isOpen) return;
+    if (searchedFor.current === searchQuery) return;
+    searchedFor.current = searchQuery;
     clearTimeout(searchTimeoutRef.current);
     searchTimeoutRef.current = setTimeout(() => fetchTemplates(), 300);
     return () => clearTimeout(searchTimeoutRef.current);

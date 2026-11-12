@@ -1643,6 +1643,8 @@ export interface CombatActionSummary {
     rangeFeet?: { normal: number; long: number | null };
     damage: string;
   } | null;
+  /** For a spell: its level (0 for a cantrip) and the slot levels the caster can cast it with now. */
+  spell: { level: number; slotLevels: number[] } | null;
   /** The saving throw the server can roll for its targets, or null. */
   save: {
     ability: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
@@ -1657,13 +1659,13 @@ export type CombatActionsAck = { ok: true; actions: CombatActionSummary[] } | { 
 
 export type AttackMode = 'normal' | 'advantage' | 'disadvantage';
 /** `combat.attack`: one attack from one token against another. */
-export interface CombatAttackEvent { attackerId: string; targetId: string; action: number; mode?: AttackMode; }
+export interface CombatAttackEvent { attackerId: string; targetId: string; action: number; mode?: AttackMode; slotLevel?: number; }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
   | { ok: false; error: string };
 
 /** `combat.save`: an action that calls for a saving throw, against one or more tokens. */
-export interface CombatSaveEvent { sourceId: string; targetIds: string[]; action: number; }
+export interface CombatSaveEvent { sourceId: string; targetIds: string[]; action: number; slotLevel?: number; }
 export type CombatSaveAck =
   | { ok: true; summary: string; dc: number; ability: string; targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }> }
   | { ok: false; error: string };

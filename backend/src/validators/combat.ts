@@ -18,6 +18,8 @@ export const CombatAttackSchema = z
     action: z.number().int().min(0).max(199),
     /** Advantage or Disadvantage the table grants beyond what the server can see. */
     mode: z.enum(['normal', 'advantage', 'disadvantage']).optional(),
+    /** The level of the spell slot a spell is cast with; the spell's own when left out. */
+    slotLevel: z.number().int().min(1).max(9).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
@@ -29,6 +31,8 @@ export const CombatSaveSchema = z
     targetIds: z.array(tokenId).min(1).max(30),
     /** Which of the creature's actions, by its place in the list `combat.actions` gave. */
     action: z.number().int().min(0).max(199),
+    /** The level of the spell slot a spell is cast with; the spell's own when left out. */
+    slotLevel: z.number().int().min(1).max(9).optional(),
   })
   .strict()
   .refine((save) => new Set(save.targetIds).size === save.targetIds.length, { message: 'A target is named twice' });
