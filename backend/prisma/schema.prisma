@@ -503,6 +503,7 @@ model Map {
   globalIllumination Boolean @default(true) // Everything in line of sight is lit; off = lights and darkvision decide
   explorationEnabled Boolean @default(true) // Players' explored areas are remembered (greyed in) on this map
   lights          Json    @default("[]") // Array of LightSource objects
+  tileHeights     Json? // Tactical view: { cols, rows, heights } with one whole number per cell; null is a flat board
 
   // Metadata
   createdAt DateTime @default(now())

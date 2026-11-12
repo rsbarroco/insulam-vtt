@@ -102,11 +102,12 @@ describe('a campaign exported and imported again', () => {
     ];
     const lights: StoredLight[] = [{ id: randomUUID(), x: 1280, y: 640, brightRadius: 2, dimRadius: 4, color: '#ffcc66', enabled: true }];
     const fogData = { fogCols: 40, fogRows: 25, cellPx: 256, revealed: Array.from({ length: 1000 }, (_, i) => i % 3 === 0) };
+    const tileHeights = { cols: 40, rows: 25, heights: Array.from({ length: 1000 }, (_, i) => i % 33) };
     await prisma.map.create({
       data: {
         campaignId: source.id, name: 'h'.repeat(200), imageUrl: `/api/assets/maps/${picture.id}`, baseLayerUrl: `/api/assets/maps/${picture.id}`,
         width: 40, height: 25, gridSize: 256, feetPerSquare: 100, diagonalRule: 'alternating', tokens, annotations: [],
-        wallSegments: walls as unknown as object[], lights: lights as unknown as object[], fogData,
+        wallSegments: walls as unknown as object[], lights: lights as unknown as object[], fogData, tileHeights,
         lightingEnabled: true, fogEnabled: true, globalIllumination: false, explorationEnabled: false,
       },
     });
@@ -121,7 +122,7 @@ describe('a campaign exported and imported again', () => {
     const [map] = await importedMaps(result.campaignId);
     expect(map).toMatchObject({
       name: 'h'.repeat(200), width: 40, height: 25, gridSize: 256, feetPerSquare: 100, diagonalRule: 'alternating',
-      lightingEnabled: true, fogEnabled: true, globalIllumination: false, explorationEnabled: false, fogData,
+      lightingEnabled: true, fogEnabled: true, globalIllumination: false, explorationEnabled: false, fogData, tileHeights,
     });
     expect(map.imageUrl).toMatch(/^\/api\/assets\/maps\//);
     const stored = map.tokens as unknown as StoredToken[];

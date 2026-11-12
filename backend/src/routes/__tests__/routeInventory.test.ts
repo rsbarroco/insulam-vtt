@@ -127,6 +127,8 @@ const TESTED: Record<string, string> = {
   'POST /api/campaigns/:campaignId/maps/:id/lights': 'routes/__tests__/preparedMapBroadcasts.e2e.test.ts',
   'PATCH /api/campaigns/:campaignId/maps/:id/lights/:lightId': 'routes/__tests__/mapEditLocking.e2e.test.ts',
   'DELETE /api/campaigns/:campaignId/maps/:id/lights/:lightId': 'routes/__tests__/mapEditLocking.e2e.test.ts',
+  'GET /api/campaigns/:campaignId/maps/:id/heights': 'routes/__tests__/mapTileHeights.e2e.test.ts',
+  'PUT /api/campaigns/:campaignId/maps/:id/heights': 'routes/__tests__/mapTileHeights.e2e.test.ts',
   'GET /api/campaigns/:campaignId/maps/:id/fog': 'routes/__tests__/mapSizeLimits.e2e.test.ts',
   'POST /api/campaigns/:campaignId/maps/:id/fog/operation': 'routes/__tests__/fogRest.e2e.test.ts',
   'PUT /api/campaigns/:campaignId/maps/:id/lighting': 'routes/__tests__/mapSettings.e2e.test.ts',

@@ -1305,6 +1305,26 @@
     },
     {
       "method": "GET",
+      "path": "/api/campaigns/:campaignId/maps/:id/heights",
+      "handlers": [
+        "requireAuth",
+        "loadCampaignMembership",
+        "requireCampaignMember",
+        "<anonymous>"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/campaigns/:campaignId/maps/:id/heights",
+      "handlers": [
+        "requireAuth",
+        "loadCampaignMembership",
+        "requireDM",
+        "<anonymous>"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/campaigns/:campaignId/maps/:id/fog",
       "handlers": [
         "requireAuth",

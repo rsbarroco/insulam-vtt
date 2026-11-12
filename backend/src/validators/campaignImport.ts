@@ -198,6 +198,7 @@ export const ImportMapSchema = z.object({
   globalIllumination: z.boolean().optional().catch(undefined),
   explorationEnabled: z.boolean().optional().catch(undefined),
   lights: z.unknown().optional(),
+  tileHeights: z.unknown().optional(),
 }).strip();
 
 /**

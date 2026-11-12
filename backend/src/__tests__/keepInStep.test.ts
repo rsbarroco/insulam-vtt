@@ -386,6 +386,20 @@ describe('the map limits', () => {
   });
 });
 
+describe('the tallest tile of the tactical view', () => {
+  // The browser draws and edits heights; the server refuses one it would not
+  // store. Both name the ceiling, so it must be one number.
+  const tallest = (rel: string) => {
+    const m = /export const MAX_TILE_HEIGHT = (\d+);/.exec(read(rel));
+    if (!m) throw new Error(`${rel} no longer declares MAX_TILE_HEIGHT; update this test with the file`);
+    return m[1];
+  };
+
+  it('is the same in the browser and on the server', () => {
+    expect(tallest('frontend/src/components/campaign/map/iso/heightGrid.ts')).toBe(tallest('backend/src/utils/tileHeights.ts'));
+  });
+});
+
 describe('the token centre', () => {
   it('is the same file in the browser and on the server', () => {
     expect(read('frontend/src/utils/tokenCentre.ts')).toBe(read('backend/src/utils/tokenCentre.ts'));

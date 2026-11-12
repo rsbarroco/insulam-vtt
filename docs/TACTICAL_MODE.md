@@ -94,4 +94,5 @@ same pull request, and must pass the full CI run before it merges.
 | --- | --- |
 | 0 Plan | Done |
 | 1 Geometry core | Done: `map/iso/heightGrid.ts`, `map/iso/projection.ts` |
-| 2 to 8 | Not started |
+| 2 Height data | Done: `Map.tileHeights`, `GET` and `PUT /maps/:id/heights`, the `heights:replaced` event, carried through resize, export and import |
+| 3 to 8 | Not started |

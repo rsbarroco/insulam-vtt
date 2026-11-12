@@ -39,11 +39,12 @@ import { uploadLimiter } from './assets';
 import { openPicture, NotAPictureError } from '../utils/sharpInput';
 import { pictureLimitProblem } from '../utils/pictureLimits';
 import logger from '../utils/logger';
+import { heightsSchemaFor, isFlat, readTileHeights, resizeTileHeights, type TileHeights } from '../utils/tileHeights';
 import { errorMessage } from '../utils/errors';
 import { getState as getCombatState, setState as setCombatState, removeCombatants } from '../websocket/initiativeState';
 import { sendInitiativeState, resendInitiative } from '../websocket/handlers/initiative';
 import { readTokens, toJson } from '../utils/prisma-json';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { loadFogState, applyWsFogOperation, broadcastFogState, type Token, broadcastMapData, resendSightAfterChange, fogFits, FogTooLargeError } from '../websocket/shared';
 import { MapSideSchema, GridSizeSchema, FeetPerSquareSchema, MAP_LIMITS, MAP_NAME_TOO_LONG_MESSAGE, MAP_IMAGE_NOT_A_MAP_PICTURE_MESSAGE, SPIRIT_LAYER_NOT_A_MAP_PICTURE_MESSAGE, dimensionProblem, wallOutsideMap, lightOutsideMap, WALL_OUTSIDE_MAP_MESSAGE, LIGHT_OUTSIDE_MAP_MESSAGE, GEOMETRY_MARGIN_SQUARES, tooManyTokensMessage } from '../validators/maps';
 
@@ -1135,7 +1136,19 @@ router.put('/:id', campaignDM, async (req: AuthenticatedRequest, res: Response) 
       typeof updateData[field] === 'number' ? (updateData[field] as number) : existingMap[field];
     const kx = (size('width') * size('gridSize')) / (existingMap.width * existingMap.gridSize);
     const ky = (size('height') * size('gridSize')) / (existingMap.height * existingMap.gridSize);
+    let resizedHeights: TileHeights | null = null;
     const { updatedMap, moved } = await withMapsLocked([id], async (tx) => {
+      // Tile heights are one number per square, so they follow the squares:
+      // a map that grows gains flat squares, one that shrinks loses the ones
+      // cut off. A grid size change alone leaves them as they are.
+      if (size('width') !== existingMap.width || size('height') !== existingMap.height) {
+        const withHeights = await tx.map.findUniqueOrThrow({ where: { id }, select: { tileHeights: true } });
+        const heights = readTileHeights(withHeights.tileHeights);
+        if (heights) {
+          resizedHeights = resizeTileHeights(heights, size('width'), size('height'));
+          updateData.tileHeights = toJson(resizedHeights);
+        }
+      }
       if (kx === 1 && ky === 1) return { updatedMap: await tx.map.update({ where: { id }, data: updateData }), moved: null };
       const current = await tx.map.findUniqueOrThrow({ where: { id }, select: { wallSegments: true, lights: true } });
       const walls = scaledWalls(current.wallSegments, kx, ky);
@@ -1155,6 +1168,10 @@ router.put('/:id', campaignDM, async (req: AuthenticatedRequest, res: Response) 
     if (moved) {
       await tellMapReadersAs(campaignId, id, 'walls:replaced', (role) => wallsReplacedSentTo(role, id, moved.wallsBefore, moved.walls));
       await tellMapReadersAs(campaignId, id, 'lights:replaced', (role) => lightsReplacedSentTo(role, id, moved.lightsBefore, moved.lights));
+    }
+
+    if (resizedHeights) {
+      await tellMapReaders(campaignId, id, 'heights:replaced', { mapId: id, tileHeights: resizedHeights });
     }
 
     // Any per-map flag change reaches every connected client at once, as one
@@ -2065,6 +2082,7 @@ type LockedEdit<T> = { status: number; error: string; message: string } | { done
 
 const MAP_GONE = { status: 404, error: 'Not Found', message: 'Map not found' } as const;
 const GEOMETRY = { width: true, height: true, gridSize: true } as const;
+const TILE_HEIGHTS_TOO_LARGE_MESSAGE = 'This map has too many squares to store tile heights';
 
 function sendRefusal(res: Response, refusal: { status: number; error: string; message: string }) {
   return res.status(refusal.status).json({ error: refusal.error, message: refusal.message });
@@ -2449,6 +2467,64 @@ router.delete('/:id/lights/:lightId', campaignDM, async (req: AuthenticatedReque
   } catch (error) {
     logger.error('Error deleting light source:', error);
     return res.status(500).json({ error: 'Internal Server Error', message: 'Failed to delete light source' });
+  }
+});
+
+// ============================================================
+// TILE HEIGHT ENDPOINTS (tactical view)
+// ============================================================
+
+/**
+ * GET /api/campaigns/:campaignId/maps/:id/heights
+ * Return the map's tile heights, or null for a flat board (all campaign members).
+ */
+router.get('/:id/heights', campaignMember, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { campaignId, id } = req.params;
+    const map = await findMapInCampaign(campaignId, id, res, req.campaignMembership!.role);
+    if (!map) return;
+    return res.status(200).json({ tileHeights: readTileHeights(map.tileHeights) });
+  } catch (error) {
+    logger.error('Error fetching tile heights:', error);
+    return res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch tile heights' });
+  }
+});
+
+/**
+ * PUT /api/campaigns/:campaignId/maps/:id/heights
+ * Replace the map's tile heights (DM only).
+ * Body: { heights: number[] }, one whole number from 0 to 32 for each square,
+ * row by row from the bottom-left square. All zeros stores a flat board.
+ */
+router.put('/:id/heights', campaignDM, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { campaignId, id } = req.params;
+    const map = await findMapInCampaign(campaignId, id, res, req.campaignMembership!.role);
+    if (!map) return;
+
+    const outcome = await withMapsLocked([id], async (tx): Promise<LockedEdit<TileHeights | null>> => {
+      const fresh = await tx.map.findUnique({ where: { id }, select: GEOMETRY });
+      if (!fresh) return MAP_GONE;
+      // One stored number per square, as fog is, and under the same ceiling.
+      if (!fogFits(fresh)) {
+        return { status: 400, error: 'Validation Error', message: TILE_HEIGHTS_TOO_LARGE_MESSAGE };
+      }
+      // Checked under the lock, against the size the map has now.
+      const parsed = heightsSchemaFor(fresh).safeParse(req.body?.heights);
+      if (!parsed.success) {
+        return { status: 400, error: 'Validation Error', message: parsed.error.issues[0]?.message ?? 'Invalid heights' };
+      }
+      const next = isFlat(parsed.data) ? null : { cols: fresh.width, rows: fresh.height, heights: parsed.data };
+      await tx.map.update({ where: { id }, data: { tileHeights: next ? toJson(next) : Prisma.DbNull } });
+      return { done: next };
+    });
+    if (!('done' in outcome)) return sendRefusal(res, outcome);
+
+    await tellMapReaders(campaignId, id, 'heights:replaced', { mapId: id, tileHeights: outcome.done });
+    return res.status(200).json({ tileHeights: outcome.done });
+  } catch (error) {
+    logger.error('Error replacing tile heights:', error);
+    return res.status(500).json({ error: 'Internal Server Error', message: 'Failed to update tile heights' });
   }
 });
 
