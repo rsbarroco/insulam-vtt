@@ -97,4 +97,5 @@ same pull request, and must pass the full CI run before it merges.
 | 1 Geometry core | Done: `map/iso/heightGrid.ts`, `map/iso/projection.ts` |
 | 2 Height data | Done: `Map.tileHeights`, `GET` and `PUT /maps/:id/heights`, the `heights:replaced` event, carried through resize, export and import |
 | 3 Isometric view | Done: `MapView.tsx` switches between `MapCanvas` and `TacticalMapCanvas.tsx`, drawn by `map/iso/drawIsoScene.ts`. No fog, lighting, hit point bars or token menu in this view yet |
-| 4 to 8 | Not started |
+| 4 Height brush | Done: raise, lower and level brushes with undo in `TacticalMapCanvas.tsx`, from `map/iso/heightBrush.ts` and `map/iso/useHeightBrush.ts` |
+| 5 to 8 | Not started |
