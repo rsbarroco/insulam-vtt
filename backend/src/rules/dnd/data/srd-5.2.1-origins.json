@@ -1,0 +1,674 @@
+{
+ "source": "System Reference Document 5.2.1",
+ "license": "CC-BY-4.0",
+ "backgrounds": [
+  {
+   "id": "acolyte",
+   "name": "Acolyte",
+   "abilityScores": [
+    "Intelligence",
+    "Wisdom",
+    "Charisma"
+   ],
+   "feat": "Magic Initiate (Cleric)",
+   "skillProficiencies": [
+    "Insight",
+    "Religion"
+   ],
+   "toolProficiency": "Calligrapher’s Supplies",
+   "equipment": "Choose A or B: (A) Calligrapher’s Supplies, Book (prayers), Holy Symbol, Parchment (10 sheets), Robe, 8 GP; or (B) 50 GP"
+  },
+  {
+   "id": "criminal",
+   "name": "Criminal",
+   "abilityScores": [
+    "Dexterity",
+    "Constitution",
+    "Intelligence"
+   ],
+   "feat": "Alert",
+   "skillProficiencies": [
+    "Sleight of Hand",
+    "Stealth"
+   ],
+   "toolProficiency": "Thieves’ Tools",
+   "equipment": "Choose A or B: (A) 2 Daggers, Thieves’ Tools, Crowbar, 2 Pouches, Traveler’s Clothes, 16 GP; or (B) 50 GP"
+  },
+  {
+   "id": "sage",
+   "name": "Sage",
+   "abilityScores": [
+    "Constitution",
+    "Intelligence",
+    "Wisdom"
+   ],
+   "feat": "Magic Initiate (Wizard)",
+   "skillProficiencies": [
+    "Arcana",
+    "History"
+   ],
+   "toolProficiency": "Calligrapher’s Supplies",
+   "equipment": "Choose A or B: (A) Quarterstaff, Calligrapher’s Supplies, Book (history), Parchment (8 sheets), Robe, 8 GP; or (B) 50 GP"
+  },
+  {
+   "id": "soldier",
+   "name": "Soldier",
+   "abilityScores": [
+    "Strength",
+    "Dexterity",
+    "Constitution"
+   ],
+   "feat": "Savage Attacker",
+   "skillProficiencies": [
+    "Athletics",
+    "Intimidation"
+   ],
+   "toolProficiency": "Choose one kind of Gaming Set (see “Equipment”)",
+   "equipment": "Choose A or B: (A) Spear, Shortbow, 20 Arrows, Gaming Set (same as above), Healer’s Kit, Quiver, Traveler’s Clothes, 14 GP; or (B) 50 GP"
+  }
+ ],
+ "species": [
+  {
+   "id": "dragonborn",
+   "name": "Dragonborn",
+   "creatureType": "Humanoid",
+   "size": "Medium (about 5–7 feet tall)",
+   "speedFeet": 30,
+   "traits": [
+    {
+     "name": "Draconic Ancestry",
+     "text": "Your lineage stems from a dragon progenitor. Choose the kind of dragon from the Draconic Ancestors table. Your choice affects your Breath Weapon and Damage Resistance traits as well as your appearance."
+    },
+    {
+     "name": "Breath Weapon",
+     "text": "When you take the Attack action on your turn, you can replace one of your attacks with an exhalation of magical energy in either a 15-foot Cone or a 30-foot Line that is 5 feet wide (choose the shape each time). Each creature in that area must make a Dexterity saving throw (DC 8 plus your Constitution modifier and Proficiency Bonus). On a failed save, a creature takes 1d10 damage of the type determined by your Draconic Ancestry trait. On a successful save, a creature takes half as much damage. This damage increases by 1d10 when you reach character levels 5 (2d10), 11 (3d10), and 17 (4d10). You can use this Breath Weapon a number of times equal to your Proficiency Bonus, and you regain all expended uses when you finish a Long Rest."
+    },
+    {
+     "name": "Damage Resistance",
+     "text": "You have Resistance to the damage type determined by your Draconic Ancestry trait."
+    },
+    {
+     "name": "Darkvision",
+     "text": "You have Darkvision with a range of 60 feet."
+    },
+    {
+     "name": "Draconic Flight",
+     "text": "When you reach character level 5, you can channel draconic magic to give yourself temporary flight. As a Bonus Action, you sprout spectral wings on your back that last for 10 minutes or until you retract the wings (no action required) or have the Incapacitated condition. During that time, you have a Fly Speed equal to your Speed. Your wings appear to be made of the same energy as your Breath Weapon. Once you use this trait, you can’t use it again until you finish a Long Rest."
+    }
+   ],
+   "tables": {
+    "Draconic Ancestors": [
+     {
+      "dragon": "Black",
+      "damageType": "Acid"
+     },
+     {
+      "dragon": "Blue",
+      "damageType": "Lightning"
+     },
+     {
+      "dragon": "Brass",
+      "damageType": "Fire"
+     },
+     {
+      "dragon": "Bronze",
+      "damageType": "Lightning"
+     },
+     {
+      "dragon": "Copper",
+      "damageType": "Acid"
+     },
+     {
+      "dragon": "Gold",
+      "damageType": "Fire"
+     },
+     {
+      "dragon": "Green",
+      "damageType": "Poison"
+     },
+     {
+      "dragon": "Red",
+      "damageType": "Fire"
+     },
+     {
+      "dragon": "Silver",
+      "damageType": "Cold"
+     },
+     {
+      "dragon": "White",
+      "damageType": "Cold"
+     }
+    ]
+   }
+  },
+  {
+   "id": "dwarf",
+   "name": "Dwarf",
+   "creatureType": "Humanoid",
+   "size": "Medium (about 4–5 feet tall)",
+   "speedFeet": 30,
+   "traits": [
+    {
+     "name": "Darkvision",
+     "text": "You have Darkvision with a range of 120 feet."
+    },
+    {
+     "name": "Dwarven Resilience",
+     "text": "You have Resistance to Poison damage. You also have Advantage on saving throws you make to avoid or end the Poisoned condition."
+    },
+    {
+     "name": "Dwarven Toughness",
+     "text": "Your Hit Point maximum increases by 1, and it increases by 1 again whenever you gain a level."
+    },
+    {
+     "name": "Stonecunning",
+     "text": "As a Bonus Action, you gain Tremorsense with a range of 60 feet for 10 minutes. You must be on a stone surface or touching a stone surface to use this Tremorsense. The stone can be natural or worked. You can use this Bonus Action a number of times equal to your Proficiency Bonus, and you regain all expended uses when you finish a Long Rest."
+    }
+   ]
+  },
+  {
+   "id": "elf",
+   "name": "Elf",
+   "creatureType": "Humanoid",
+   "size": "Medium (about 5–6 feet tall)",
+   "speedFeet": 30,
+   "traits": [
+    {
+     "name": "Darkvision",
+     "text": "You have Darkvision with a range of 60 feet."
+    },
+    {
+     "name": "Elven Lineage",
+     "text": "You are part of a lineage that grants you supernatural abilities. Choose a lineage from the Elven Lineages table. You gain the level 1 benefit of that lineage. When you reach character levels 3 and 5, you learn a higher-level spell, as shown on the table. You always have that spell prepared. You can cast it once without a spell slot, and you regain the ability to cast it in that way when you finish a Long Rest. You can also cast the spell using any spell slots you have of the appropriate level. Intelligence, Wisdom, or Charisma is your spellcasting ability for the spells you cast with this trait (choose the ability when you select the lineage)."
+    },
+    {
+     "name": "Fey Ancestry",
+     "text": "You have Advantage on saving throws you make to avoid or end the Charmed condition."
+    },
+    {
+     "name": "Keen Senses",
+     "text": "You have proficiency in the Insight, Perception, or Survival skill."
+    },
+    {
+     "name": "Trance",
+     "text": "You don’t need to sleep, and magic can’t put you to sleep. You can finish a Long Rest in 4 hours if you spend those hours in a trancelike meditation, during which you retain consciousness."
+    }
+   ],
+   "tables": {
+    "Elven Lineages": [
+     {
+      "name": "Drow",
+      "level1": "The range of your Darkvision increases to 120 feet. You also know the Dancing Lights cantrip.",
+      "level3": "Faerie Fire",
+      "level5": "Darkness"
+     },
+     {
+      "name": "High Elf",
+      "level1": "You know the Prestidigitation cantrip. Whenever you finish a Long Rest, you can replace that cantrip with a different cantrip from the Wizard spell list.",
+      "level3": "Detect Magic",
+      "level5": "Misty Step"
+     },
+     {
+      "name": "Wood Elf",
+      "level1": "Your Speed increases to 35 feet. You also know the Druidcraft cantrip.",
+      "level3": "Longstrider",
+      "level5": "Pass without Trace"
+     }
+    ]
+   }
+  },
+  {
+   "id": "gnome",
+   "name": "Gnome",
+   "creatureType": "Humanoid",
+   "size": "Small (about 3–4 feet tall)",
+   "speedFeet": 30,
+   "traits": [
+    {
+     "name": "Darkvision",
+     "text": "You have Darkvision with a range of 60 feet."
+    },
+    {
+     "name": "Gnomish Cunning",
+     "text": "You have Advantage on Intelligence, Wisdom, and Charisma saving throws."
+    },
+    {
+     "name": "Gnomish Lineage",
+     "text": "You are part of a lineage that grants you supernatural abilities. Choose one of the following options; whichever one you choose, Intelligence, Wisdom, or Charisma is your spellcasting ability for the spells you cast with this trait (choose the ability when you select the lineage):",
+     "options": [
+      {
+       "name": "Forest Gnome",
+       "text": "You know the Minor Illusion cantrip. You also always have the Speak with Animals spell prepared. You can cast it without a spell slot a number of times equal to your Proficiency Bonus, and you regain all expended uses when you finish a Long Rest. You can also use any spell slots you have to cast the spell."
+      },
+      {
+       "name": "Rock Gnome",
+       "text": "You know the Mending and Prestidigitation cantrips. In addition, you can spend 10 minutes casting Prestidigitation to create a Tiny clockwork device (AC 5, 1 HP), such as a toy, fire starter, or music box. When you create the device, you determine its function by choosing one effect from Prestidigitation; the device produces that effect whenever you or another creature takes a Bonus Action to activate it with a touch. If the chosen effect has options within it, you choose one of those options for the device when you create it. For example, if you choose the spell’s ignite-extinguish effect, you determine whether the device ignites or extinguishes fire; the device doesn’t do both. You can have three such devices in existence at a time, and each falls apart 8 hours after its creation or when you dismantle it with a touch as a Utilize action."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "goliath",
+   "name": "Goliath",
+   "creatureType": "Humanoid",
+   "size": "Medium (about 7–8 feet tall)",
+   "speedFeet": 35,
+   "traits": [
+    {
+     "name": "Giant Ancestry",
+     "text": "You are descended from Giants. Choose one of the following benefits—a supernatural boon from your ancestry; you can use the chosen benefit a number of times equal to your Proficiency Bonus, and you regain all expended uses when you finish a Long Rest:",
+     "options": [
+      {
+       "name": "Cloud’s Jaunt (Cloud Giant)",
+       "text": "As a Bonus Action, you magically teleport up to 30 feet to an unoccupied space you can see."
+      },
+      {
+       "name": "Fire’s Burn (Fire Giant)",
+       "text": "When you hit a target with an attack roll and deal damage to it, you can also deal 1d10 Fire damage to that target."
+      },
+      {
+       "name": "Frost’s Chill (Frost Giant)",
+       "text": "When you hit a target with an attack roll and deal damage to it, you can also deal 1d6 Cold damage to that target and reduce its Speed by 10 feet until the start of your next turn."
+      },
+      {
+       "name": "Hill’s Tumble (Hill Giant)",
+       "text": "When you hit a Large or smaller creature with an attack roll and deal damage to it, you can give that target the Prone condition."
+      },
+      {
+       "name": "Stone’s Endurance (Stone Giant)",
+       "text": "When you take damage, you can take a Reaction to roll 1d12. Add your Constitution modifier to the number rolled and reduce the damage by that total."
+      },
+      {
+       "name": "Storm’s Thunder (Storm Giant)",
+       "text": "When you take damage from a creature within 60 feet of you, you can take a Reaction to deal 1d8 Thunder damage to that creature."
+      }
+     ]
+    },
+    {
+     "name": "Large Form",
+     "text": "Starting at character level 5, you can change your size to Large as a Bonus Action if you’re in a big enough space. This transformation lasts for 10 minutes or until you end it (no action required). For that duration, you have Advantage on Strength checks, and your Speed increases by 10 feet. Once you use this trait, you can’t use it again until you finish a Long Rest."
+    },
+    {
+     "name": "Powerful Build",
+     "text": "You have Advantage on any ability check you make to end the Grappled condition. You also count as one size larger when determining your carrying capacity."
+    }
+   ]
+  },
+  {
+   "id": "halfling",
+   "name": "Halfling",
+   "creatureType": "Humanoid",
+   "size": "Small (about 2–3 feet tall)",
+   "speedFeet": 30,
+   "traits": [
+    {
+     "name": "Brave",
+     "text": "You have Advantage on saving throws you make to avoid or end the Frightened condition."
+    },
+    {
+     "name": "Halfling Nimbleness",
+     "text": "You can move through the space of any creature that is a size larger than you, but you can’t stop in the same space."
+    },
+    {
+     "name": "Luck",
+     "text": "When you roll a 1 on the d20 of a D20 Test, you can reroll the die, and you must use the new roll."
+    },
+    {
+     "name": "Naturally Stealthy",
+     "text": "You can take the Hide action even when you are obscured only by a creature that is at least one size larger than you."
+    }
+   ]
+  },
+  {
+   "id": "human",
+   "name": "Human",
+   "creatureType": "Humanoid",
+   "size": "Medium (about 4–7 feet tall) or Small (about 2–4 feet tall), chosen when you select this species",
+   "speedFeet": 30,
+   "traits": [
+    {
+     "name": "Resourceful",
+     "text": "You gain Heroic Inspiration whenever you finish a Long Rest."
+    },
+    {
+     "name": "Skillful",
+     "text": "You gain proficiency in one skill of your choice."
+    },
+    {
+     "name": "Versatile",
+     "text": "You gain an Origin feat of your choice (see “Feats”). Skilled is recommended."
+    }
+   ]
+  },
+  {
+   "id": "orc",
+   "name": "Orc",
+   "creatureType": "Humanoid",
+   "size": "Medium (about 6–7 feet tall)",
+   "speedFeet": 30,
+   "traits": [
+    {
+     "name": "Adrenaline Rush",
+     "text": "You can take the Dash action as a Bonus Action. When you do so, you gain a number of Temporary Hit Points equal to your Proficiency Bonus. You can use this trait a number of times equal to your Proficiency Bonus, and you regain all expended uses when you finish a Short or Long Rest."
+    },
+    {
+     "name": "Darkvision",
+     "text": "You have Darkvision with a range of 120 feet."
+    },
+    {
+     "name": "Relentless Endurance",
+     "text": "When you are reduced to 0 Hit Points but not killed outright, you can drop to 1 Hit Point instead. Once you use this trait, you can’t do so again until you finish a Long Rest."
+    }
+   ]
+  },
+  {
+   "id": "tiefling",
+   "name": "Tiefling",
+   "creatureType": "Humanoid",
+   "size": "Medium (about 4–7 feet tall) or Small (about 3–4 feet tall), chosen when you select this species",
+   "speedFeet": 30,
+   "traits": [
+    {
+     "name": "Darkvision",
+     "text": "You have Darkvision with a range of 60 feet."
+    },
+    {
+     "name": "Fiendish Legacy",
+     "text": "You are the recipient of a legacy that grants you supernatural abilities. Choose a legacy from the Fiendish Legacies table. You gain the level 1 benefit of the chosen legacy. When you reach character levels 3 and 5, you learn a higher-level spell, as shown on the table. You always have that spell prepared. You can cast it once without a spell slot, and you regain the ability to cast it in that way when you finish a Long Rest. You can also cast the spell using any spell slots you have of the appropriate level. Intelligence, Wisdom, or Charisma is your spellcasting ability for the spells you cast with this trait (choose the ability when you select the legacy)."
+    },
+    {
+     "name": "Otherworldly Presence",
+     "text": "You know the Thaumaturgy cantrip. When you cast it with this trait, the spell uses the same spellcasting ability you use for your Fiendish Legacy trait."
+    }
+   ],
+   "tables": {
+    "Fiendish Legacies": [
+     {
+      "name": "Abyssal",
+      "level1": "You have Resistance to Poison damage. You also know the Poison Spray cantrip.",
+      "level3": "Ray of Sickness",
+      "level5": "Hold Person"
+     },
+     {
+      "name": "Chthonic",
+      "level1": "You have Resistance to Necrotic damage. You also know the Chill Touch cantrip.",
+      "level3": "False Life",
+      "level5": "Ray of Enfeeblement"
+     },
+     {
+      "name": "Infernal",
+      "level1": "You have Resistance to Fire damage. You also know the Fire Bolt cantrip.",
+      "level3": "Hellish Rebuke",
+      "level5": "Darkness"
+     }
+    ]
+   }
+  }
+ ],
+ "feats": [
+  {
+   "id": "alert",
+   "name": "Alert",
+   "category": "Origin",
+   "prerequisite": null,
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Initiative Proficiency",
+     "text": "When you roll Initiative, you can add your Proficiency Bonus to the roll."
+    },
+    {
+     "name": "Initiative Swap",
+     "text": "Immediately after you roll Initiative, you can swap your Initiative with the Initiative of one willing ally in the same combat. You can’t make this swap if you or the ally has the Incapacitated condition."
+    }
+   ],
+   "repeatable": null
+  },
+  {
+   "id": "magic-initiate",
+   "name": "Magic Initiate",
+   "category": "Origin",
+   "prerequisite": null,
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Two Cantrips",
+     "text": "You learn two cantrips of your choice from the Cleric, Druid, or Wizard spell list. Intelligence, Wisdom, or Charisma is your spellcasting ability for this feat’s spells (choose when you select this feat)."
+    },
+    {
+     "name": "Level 1 Spell",
+     "text": "Choose a level 1 spell from the same list you selected for this feat’s cantrips. You always have that spell prepared. You can cast it once without a spell slot, and you regain the ability to cast it in that way when you finish a Long Rest. You can also cast the spell using any spell slots you have."
+    },
+    {
+     "name": "Spell Change",
+     "text": "Whenever you gain a new level, you can replace one of the spells you chose for this feat with a different spell of the same level from the chosen spell list."
+    }
+   ],
+   "repeatable": "You can take this feat more than once, but you must choose a different spell list each time."
+  },
+  {
+   "id": "savage-attacker",
+   "name": "Savage Attacker",
+   "category": "Origin",
+   "prerequisite": null,
+   "description": "You’ve trained to deal particularly damaging strikes. Once per turn when you hit a target with a weapon, you can roll the weapon’s damage dice twice and use either roll against the target.",
+   "benefits": [],
+   "repeatable": null
+  },
+  {
+   "id": "skilled",
+   "name": "Skilled",
+   "category": "Origin",
+   "prerequisite": null,
+   "description": "You gain proficiency in any combination of three skills or tools of your choice.",
+   "benefits": [],
+   "repeatable": "You can take this feat more than once."
+  },
+  {
+   "id": "ability-score-improvement",
+   "name": "Ability Score Improvement",
+   "category": "General",
+   "prerequisite": "Level 4+",
+   "description": "Increase one ability score of your choice by 2, or increase two ability scores of your choice by 1. This feat can’t increase an ability score above 20.",
+   "benefits": [],
+   "repeatable": "You can take this feat more than once."
+  },
+  {
+   "id": "grappler",
+   "name": "Grappler",
+   "category": "General",
+   "prerequisite": "Level 4+, Strength or Dexterity 13+",
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Ability Score Increase",
+     "text": "Increase your Strength or Dexterity score by 1, to a maximum of 20."
+    },
+    {
+     "name": "Punch and Grab",
+     "text": "When you hit a creature with an Unarmed Strike as part of the Attack action on your turn, you can use both the Damage and the Grapple option. You can use this benefit only once per turn."
+    },
+    {
+     "name": "Attack Advantage",
+     "text": "You have Advantage on attack rolls against a creature Grappled by you."
+    },
+    {
+     "name": "Fast Wrestler",
+     "text": "You don’t have to spend extra movement to move a creature Grappled by you if the creature is your size or smaller."
+    }
+   ],
+   "repeatable": null
+  },
+  {
+   "id": "archery",
+   "name": "Archery",
+   "category": "Fighting Style",
+   "prerequisite": "Fighting Style Feature",
+   "description": "You gain a +2 bonus to attack rolls you make with Ranged weapons.",
+   "benefits": [],
+   "repeatable": null
+  },
+  {
+   "id": "defense",
+   "name": "Defense",
+   "category": "Fighting Style",
+   "prerequisite": "Fighting Style Feature",
+   "description": "While you’re wearing Light, Medium, or Heavy armor, you gain a +1 bonus to Armor Class.",
+   "benefits": [],
+   "repeatable": null
+  },
+  {
+   "id": "great-weapon-fighting",
+   "name": "Great Weapon Fighting",
+   "category": "Fighting Style",
+   "prerequisite": "Fighting Style Feature",
+   "description": "When you roll damage for an attack you make with a Melee weapon that you are holding with two hands, you can treat any 1 or 2 on a damage die as a 3. The weapon must have the Two-Handed or Versatile property to gain this benefit.",
+   "benefits": [],
+   "repeatable": null
+  },
+  {
+   "id": "two-weapon-fighting",
+   "name": "Two-Weapon Fighting",
+   "category": "Fighting Style",
+   "prerequisite": "Fighting Style Feature",
+   "description": "When you make an extra attack as a result of using a weapon that has the Light property, you can add your ability modifier to the damage of that attack if you aren’t already adding it to the damage.",
+   "benefits": [],
+   "repeatable": null
+  },
+  {
+   "id": "boon-of-combat-prowess",
+   "name": "Boon of Combat Prowess",
+   "category": "Epic Boon",
+   "prerequisite": "Level 19+",
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Ability Score Increase",
+     "text": "Increase one ability score of your choice by 1, to a maximum of 30."
+    },
+    {
+     "name": "Peerless Aim",
+     "text": "When you miss with an attack roll, you can hit instead. Once you use this benefit, you can’t use it again until the start of your next turn."
+    }
+   ],
+   "repeatable": null
+  },
+  {
+   "id": "boon-of-dimensional-travel",
+   "name": "Boon of Dimensional Travel",
+   "category": "Epic Boon",
+   "prerequisite": "Level 19+",
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Ability Score Increase",
+     "text": "Increase one ability score of your choice by 1, to a maximum of 30."
+    },
+    {
+     "name": "Blink Steps",
+     "text": "Immediately after you take the Attack action or the Magic action, you can teleport up to 30 feet to an unoccupied space you can see."
+    }
+   ],
+   "repeatable": null
+  },
+  {
+   "id": "boon-of-fate",
+   "name": "Boon of Fate",
+   "category": "Epic Boon",
+   "prerequisite": "Level 19+",
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Ability Score Increase",
+     "text": "Increase one ability score of your choice by 1, to a maximum of 30."
+    },
+    {
+     "name": "Improve Fate",
+     "text": "When you or another creature within 60 feet of you succeeds on or fails a D20 Test, you can roll 2d4 and apply the total rolled as a bonus or penalty to the d20 roll. Once you use this benefit, you can’t use it again until you roll Initiative or finish a Short or Long Rest."
+    }
+   ],
+   "repeatable": null
+  },
+  {
+   "id": "boon-of-irresistible-offense",
+   "name": "Boon of Irresistible Offense",
+   "category": "Epic Boon",
+   "prerequisite": "Level 19+",
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Ability Score Increase",
+     "text": "Increase your Strength or Dexterity score by 1, to a maximum of 30."
+    },
+    {
+     "name": "Overcome Defenses",
+     "text": "The Bludgeoning, Piercing, and Slashing damage you deal always ignores Resistance."
+    },
+    {
+     "name": "Overwhelming Strike",
+     "text": "When you roll a 20 on the d20 for an attack roll, you can deal extra damage to the target equal to the ability score increased by this feat. The extra damage’s type is the same as the attack’s type."
+    }
+   ],
+   "repeatable": null
+  },
+  {
+   "id": "boon-of-spell-recall",
+   "name": "Boon of Spell Recall",
+   "category": "Epic Boon",
+   "prerequisite": "Level 19+, Spellcasting Feature",
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Ability Score Increase",
+     "text": "Increase your Intelligence, Wisdom, or Charisma score by 1, to a maximum of 30."
+    },
+    {
+     "name": "Free Casting",
+     "text": "Whenever you cast a spell with a level 1–4 spell slot, roll 1d4. If the number you roll is the same as the slot’s level, the slot isn’t expended."
+    }
+   ],
+   "repeatable": null
+  },
+  {
+   "id": "boon-of-the-night-spirit",
+   "name": "Boon of the Night Spirit",
+   "category": "Epic Boon",
+   "prerequisite": "Level 19+",
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Ability Score Increase",
+     "text": "Increase one ability score of your choice by 1, to a maximum of 30."
+    },
+    {
+     "name": "Merge with Shadows",
+     "text": "While within Dim Light or Darkness, you can give yourself the Invisible condition as a Bonus Action. The condition ends on you immediately after you take an action, a Bonus Action, or a Reaction."
+    },
+    {
+     "name": "Shadowy Form",
+     "text": "While within Dim Light or Darkness, you have Resistance to all damage except Psychic and Radiant."
+    }
+   ],
+   "repeatable": null
+  },
+  {
+   "id": "boon-of-truesight",
+   "name": "Boon of Truesight",
+   "category": "Epic Boon",
+   "prerequisite": "Level 19+",
+   "description": "You gain the following benefits.",
+   "benefits": [
+    {
+     "name": "Ability Score Increase",
+     "text": "Increase one ability score of your choice by 1, to a maximum of 30."
+    },
+    {
+     "name": "Truesight",
+     "text": "You have Truesight with a range of 60 feet."
+    }
+   ],
+   "repeatable": null
+  }
+ ]
+}

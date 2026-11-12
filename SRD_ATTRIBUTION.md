@@ -55,6 +55,12 @@ range, components, duration and description as the document gives them.
 nothing to it. Line breaks are rejoined and tables inside a description are
 flattened into running text; nothing else is changed.
 
+`backend/src/rules/dnd/data/srd-5.2.1-origins.json` is text of the document
+too: the 4 backgrounds and 9 species of its "Character Origins" section and
+the 17 feats of its "Feats" section, built from the same PDF by
+`scripts/srd-origins.py`. Its three tables (Draconic Ancestors, Elven
+Lineages, Fiendish Legacies) are kept as rows.
+
 SRD 5.2.1 is released under the Creative Commons Attribution 4.0 International
 Licence only. The required notice is in [SRD_LICENSE.txt](SRD_LICENSE.txt) and
 reads:
