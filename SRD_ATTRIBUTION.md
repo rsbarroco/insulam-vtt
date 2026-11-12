@@ -69,6 +69,12 @@ The class spell lists are not repeated there (each spell of the catalogue
 names its classes), and small tables set inside a feature's text are not
 kept.
 
+`backend/src/rules/dnd/data/srd-5.2.1-monsters.json` is the 330 stat blocks
+of the document's "Monsters A–Z" and "Animals" sections, built by
+`scripts/srd-monsters.py` in the shape the creature library stores. A
+creature's Initiative, its gear and the number of its legendary actions have
+no field there and are kept in its notes.
+
 SRD 5.2.1 is released under the Creative Commons Attribution 4.0 International
 Licence only. The required notice is in [SRD_LICENSE.txt](SRD_LICENSE.txt) and
 reads:
