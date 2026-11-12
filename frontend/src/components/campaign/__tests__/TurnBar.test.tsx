@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { useGameStore } from '@/stores/gameStore';
 import type { CombatState, Token, TurnState } from '@/types';
 import { TokenLayer } from '@/types';
@@ -15,14 +15,17 @@ const h = vi.hoisted(() => ({
   userId: 'dm-1' as string,
   emitTurnUpdate: vi.fn(),
   emitTurnEnd: vi.fn(),
+  rollDeathSave: vi.fn(),
+  showToast: vi.fn(),
 }));
 
 vi.mock('@/contexts/CampaignContext', () => ({ useCampaign: () => ({ userRole: h.role }) }));
 vi.mock('@/contexts/WebSocketContext', () => ({
   useWebSocket: () => ({
-    socket: { emitTurnUpdate: h.emitTurnUpdate, emitTurnEnd: h.emitTurnEnd },
+    socket: { emitTurnUpdate: h.emitTurnUpdate, emitTurnEnd: h.emitTurnEnd, rollDeathSave: h.rollDeathSave },
   }),
 }));
+vi.mock('@/contexts/ToastContext', () => ({ useToast: () => ({ showToast: h.showToast }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: h.userId } }) }));
 
 import TurnBar from '../TurnBar';
@@ -185,5 +188,37 @@ describe('TurnBar', () => {
     render(<TurnBar />);
 
     expect(screen.getByLabelText('Reaction used')).toBeChecked();
+  });
+});
+
+describe('a character at 0 Hit Points', () => {
+  const downedHero = token('hero', 'Hero', { controlledBy: 'player-1', characterId: 'char-1' } as Partial<Token>);
+  const down = (current: number) => {
+    fight();
+    useGameStore.getState().setTokens([downedHero, OGRE]);
+    useGameStore.getState().setCharacterHp('char-1', { current, max: 30, temp: 0 });
+  };
+
+  it('is offered a death save by whoever may act for it, and told how it went', async () => {
+    as('PLAYER', 'player-1');
+    down(0);
+    h.rollDeathSave.mockResolvedValue({ ok: true, summary: 'Hero death save: success (1 successes, 0 failures)', natural: 12, result: 'continues', saves: { successes: 1, failures: 0 } });
+    render(<TurnBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Death save' }));
+    expect(h.rollDeathSave).toHaveBeenCalledWith('hero');
+    await waitFor(() => expect(h.showToast).toHaveBeenCalledWith('Hero death save: success (1 successes, 0 failures)', 'info'));
+  });
+
+  it('is not offered one on its feet, nor to someone who cannot act for it', () => {
+    as('PLAYER', 'player-1');
+    down(7);
+    const { unmount } = render(<TurnBar />);
+    expect(screen.queryByRole('button', { name: 'Death save' })).not.toBeInTheDocument();
+    unmount();
+
+    as('PLAYER', 'player-2');
+    down(0);
+    render(<TurnBar />);
+    expect(screen.queryByRole('button', { name: 'Death save' })).not.toBeInTheDocument();
   });
 });

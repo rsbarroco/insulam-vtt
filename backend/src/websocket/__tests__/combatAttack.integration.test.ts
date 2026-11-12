@@ -314,3 +314,68 @@ describe('combat.save', () => {
     expect((await ogreHp())?.current).toBe(59);
   });
 });
+
+describe('death saving throws', () => {
+  const downed = (deathSaves = { successes: 0, failures: 0 }) =>
+    prisma.character.update({ where: { id: heroCharacterId }, data: { data: toJson({ ...heroSheet(), hp: { current: 0, maximum: 30, temporary: 0 }, deathSaves }) } });
+  const saves = async () =>
+    ((await prisma.character.findUniqueOrThrow({ where: { id: heroCharacterId } })).data as { deathSaves: unknown }).deathSaves;
+  type Rolled = Answer & { natural?: number; result?: string; saves?: { successes: number; failures: number } };
+
+  it('marks a success or a failure on the sheet, and logs the roll', async () => {
+    await downed();
+    rolls = [12];
+    const logged = waitForEvent<{ purpose: string; result: number }>(dm, 'dice.rolled');
+    const sheetSent = waitForEvent<{ characterId: string }>(dm, 'character.updated');
+
+    const answer: Rolled = await ask(player, 'combat.deathSave', { tokenId: HERO });
+
+    expect(answer).toMatchObject({ ok: true, natural: 12, result: 'continues', saves: { successes: 1, failures: 0 } });
+    expect(await saves()).toEqual({ successes: 1, failures: 0 });
+    expect(await logged).toMatchObject({ result: 12, purpose: 'Hero death save: success (1 successes, 0 failures)' });
+    expect((await sheetSent).characterId).toBe(heroCharacterId);
+  });
+
+  it('counts a 1 as two failures, and the third failure as death', async () => {
+    await downed({ successes: 0, failures: 1 });
+    rolls = [1];
+    const answer: Rolled = await ask(player, 'combat.deathSave', { tokenId: HERO });
+    expect(answer).toMatchObject({ result: 'dead', saves: { successes: 0, failures: 3 } });
+    expect((await ask(player, 'combat.deathSave', { tokenId: HERO })).error).toBe('Hero has no more death saves to make');
+  });
+
+  it('revives with 1 Hit Point on a 20', async () => {
+    await downed({ successes: 1, failures: 2 });
+    rolls = [20];
+    const hpSent = waitForEvent<{ hp: { current: number } }>(dm, 'character.hp.updated');
+    const answer: Rolled = await ask(player, 'combat.deathSave', { tokenId: HERO });
+    expect(answer).toMatchObject({ result: 'revived', saves: { successes: 0, failures: 0 } });
+    expect((await hpSent).hp.current).toBe(1);
+    expect(await heroHp()).toBe(1);
+  });
+
+  it('refuses a character on its feet, a token with no sheet and another player’s token', async () => {
+    expect((await ask(player, 'combat.deathSave', { tokenId: HERO })).error).toBe('Hero is not at 0 Hit Points');
+    expect((await ask(dm, 'combat.deathSave', { tokenId: OGRE })).error).toBe('Ogre has no D&D character sheet to keep death saves on');
+    expect((await ask(player, 'combat.deathSave', { tokenId: OGRE })).error).toBe('You can only act for your own token');
+  });
+
+  it('counts a hit on a character at 0 Hit Points as a failure, two on a critical hit', async () => {
+    await downed();
+    rolls = [15, 4, 4];
+    await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: 0 });
+    expect(await saves()).toEqual({ successes: 0, failures: 1 });
+
+    rolls = [20, 4, 4, 4, 4];
+    await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: 0 });
+    expect(await saves()).toEqual({ successes: 0, failures: 3 });
+  });
+
+  it('starts the saves afresh when a hit drops a character to 0', async () => {
+    await prisma.character.update({ where: { id: heroCharacterId }, data: { data: toJson({ ...heroSheet(), hp: { current: 5, maximum: 30, temporary: 0 }, deathSaves: { successes: 2, failures: 2 } }) } });
+    rolls = [15, 4, 4];
+    await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: 0 });
+    expect(await heroHp()).toBe(0);
+    expect(await saves()).toEqual({ successes: 0, failures: 0 });
+  });
+});

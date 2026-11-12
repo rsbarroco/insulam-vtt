@@ -23,12 +23,13 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatSaveSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatDeathSaveSchema, CombatSaveSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import type { Ability } from '../../rules/dnd/conditions';
 import type { HitPoints } from '../../rules/dnd/damage';
+import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import type { Standing } from '../../utils/boardSight';
 
@@ -159,7 +160,7 @@ async function applyDealt(
   io: Server,
   campaignId: string,
   mapId: string,
-  hits: ReadonlyArray<{ token: Token; sheet: Record<string, unknown> | null; dealt: number; hp: HitPoints | null }>
+  hits: ReadonlyArray<{ token: Token; sheet: Record<string, unknown> | null; dealt: number; hp: HitPoints | null; critical?: boolean }>
 ): Promise<void> {
   const onTokens = new Map<string, HitPoints>();
   for (const hit of hits) {
@@ -172,10 +173,21 @@ async function applyDealt(
         if (!fresh) return null;
         const change = applyHpDelta(DND, fresh.data, -hit.dealt);
         if ('error' in change) return null;
-        await tx.character.update({ where: { id: characterId }, data: { data: toJson(change.data) } });
-        return change.hp;
+        // Damage at 0 Hit Points is a failed death save; dropping to 0 starts them afresh.
+        const sheet = (fresh.data ?? {}) as Record<string, unknown>;
+        const before = extractCharacterHp(DND, sheet)?.current ?? 0;
+        const saves = deathSavesAfterDamage(readDeathSaves(sheet.deathSaves), before, change.hp.current, hit.critical === true);
+        const data = saves ? { ...change.data, deathSaves: saves } : change.data;
+        const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(data) } });
+        return { hp: change.hp, sheetChanged: saves ? updated : null };
       });
-      if (applied) io.to(campaignId).emit('character.hp.updated', { characterId, hp: applied });
+      if (applied) io.to(campaignId).emit('character.hp.updated', { characterId, hp: applied.hp });
+      if (applied?.sheetChanged) {
+        const changed = applied.sheetChanged;
+        await bestEffort('sheet after a failed death save', () =>
+          emitCharacterUpdated(campaignId, changed, { characterId, userId: changed.userId, tokensChanged: false })
+        );
+      }
     } else if (hit.hp) {
       onTokens.set(hit.token.id, hit.hp);
     }
@@ -428,7 +440,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
 
-      await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp }]);
+      await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
       await spendAction(io, campaignId, attackerId, 'Attack');
       // An attack by or on a token the players are not shown goes to the DM alone.
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
@@ -531,6 +543,88 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.save failed', { err: error });
       refuseRequest(socket, ack, 'Failed to resolve the saving throw');
+    }
+  });
+
+  /**
+   * COMBAT.DEATHSAVE — Roll a death saving throw for the character a token is bound to, at 0 Hit Points: the server rolls the d20, marks the success or failure on the sheet (two failures on a 1), revives the character with 1 Hit Point on a 20, and records the roll in the dice log. The DM, or the player who controls the token.
+   */
+  socket.on('combat.deathSave', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.deathSave', ack)) return;
+      const parsed = CombatDeathSaveSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+
+      const map = await currentMap(campaignId);
+      if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
+      const token = readTokens(map.tokens).find((t) => t.id === parsed.data.tokenId);
+      if (!token || !canControlToken(socket.role, token.controlledBy, socket.userId)) {
+        return refuseRequest(socket, ack, 'You can only act for your own token');
+      }
+      const characterId = token.characterId;
+      if (!characterId || !(await sheetOf(token, campaignId))) {
+        return refuseRequest(socket, ack, `${token.name} has no D&D character sheet to keep death saves on`);
+      }
+
+      // Rolled and written under the row lock, so two rolls sent at once count as two.
+      const rolled = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+        const fresh = await tx.character.findUnique({ where: { id: characterId } });
+        const sheet = (fresh?.data ?? null) as Record<string, unknown> | null;
+        const hp = extractCharacterHp(DND, sheet);
+        if (!fresh || !sheet || !hp) return { refusal: `${token.name} tracks no Hit Points` };
+        const saves = readDeathSaves(sheet.deathSaves);
+        if (!isDying(hp.current, saves)) {
+          return { refusal: hp.current > 0 ? `${token.name} is not at 0 Hit Points` : `${token.name} has no more death saves to make` };
+        }
+        const outcome = deathSavingThrow(saves);
+        const revived = outcome.result === 'revived';
+        const next = { ...sheet, deathSaves: outcome.saves, ...(revived ? { hp: { ...(sheet.hp as object), current: 1 } } : {}) };
+        const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(next) } });
+        return { outcome, updated, hp: revived ? { current: 1, max: hp.max, temp: hp.temp } : null };
+      });
+      if ('refusal' in rolled) return refuseRequest(socket, ack, rolled.refusal!);
+
+      const { outcome, updated } = rolled;
+      await bestEffort('sheet after a death save', () =>
+        emitCharacterUpdated(campaignId, updated, { characterId, userId: updated.userId, tokensChanged: false })
+      );
+      if (rolled.hp) io.to(campaignId).emit('character.hp.updated', { characterId, hp: rolled.hp });
+
+      const verdict =
+        outcome.result === 'revived'
+          ? 'a 20: back up with 1 Hit Point'
+          : outcome.result === 'dead'
+            ? `${outcome.natural === 1 ? 'a 1, two failures' : 'failure'}: dead`
+            : outcome.result === 'stable'
+              ? 'success: Stable'
+              : `${outcome.natural >= 10 ? 'success' : outcome.natural === 1 ? 'a 1, two failures' : 'failure'} (${outcome.saves.successes} successes, ${outcome.saves.failures} failures)`;
+      const summary = `${token.name} death save: ${verdict}`;
+      await logRoll(
+        io,
+        socket,
+        campaignId,
+        {
+          expression: '1d20',
+          total: outcome.natural,
+          breakdown: {
+            expression: '1d20',
+            rolls: [{ type: 'dice' as const, notation: '1d20', count: 1, sides: 20, results: [outcome.natural], kept: [outcome.natural], total: outcome.natural }],
+            total: outcome.natural,
+            formula: `[${outcome.natural}] = ${outcome.natural}`,
+          },
+        },
+        token.name,
+        summary,
+        hiddenFromPlayers(token)
+      );
+      if (ack) ack({ ok: true, summary, natural: outcome.natural, result: outcome.result, saves: outcome.saves });
+    } catch (error) {
+      logger.error('combat.deathSave failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to roll the death save');
     }
   });
 }

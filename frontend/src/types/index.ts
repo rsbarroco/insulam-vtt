@@ -1676,6 +1676,11 @@ export type CombatSaveAck =
   | { ok: true; summary: string; dc: number; ability: string; targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }> }
   | { ok: false; error: string };
 
+/** `combat.deathSave`: what a death saving throw came to. */
+export type CombatDeathSaveAck =
+  | { ok: true; summary: string; natural: number; result: 'continues' | 'stable' | 'dead' | 'revived'; saves: { successes: number; failures: number } }
+  | { ok: false; error: string };
+
 export interface InitiativeAddEvent    { tokenId: string; mapId: string; }
 export interface InitiativeRemoveEvent { tokenId: string; }
 export interface InitiativeSetEvent    { tokenId: string; mapId: string; value: number | null; }
