@@ -37,6 +37,7 @@ interface Answer {
   ok: boolean;
   error?: string;
   summary?: string;
+  targets?: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }>;
   hit?: boolean;
   critical?: boolean;
   dealt?: number;
@@ -56,10 +57,12 @@ const token = (id: string, name: string, x: number, extra: Record<string, unknow
 });
 const ogreBlock = {
   ac: 11,
+  abilities: { str: 19, dex: 8, con: 16, int: 5, wis: 7, cha: 7 },
   actions: [
     { name: 'Greatclub', description: 'Melee Attack Roll: +6, reach 5 ft. Hit: 13 (2d8 + 4) Bludgeoning damage.' },
     { name: 'Javelin', description: 'Ranged Attack Roll: +6, range 30/120 ft. Hit: 11 (2d6 + 4) Piercing damage.' },
     { name: 'Roar', description: 'The ogre roars.' },
+    { name: 'Stomp', description: 'Dexterity Saving Throw: DC 13, each creature within 10 feet. Failure: 9 (2d8) Thunder damage. Success: Half damage.' },
   ],
 };
 const freshTokens = () => [
@@ -71,6 +74,7 @@ const freshTokens = () => [
 const heroSheet = () => ({
   hp: { current: 30, maximum: 30, temporary: 0 },
   armorClass: 16,
+  savingThrows: { strength: { bonus: 2 }, dexterity: { bonus: 4 }, constitution: { bonus: 2 }, intelligence: { bonus: 0 }, wisdom: { bonus: 1 }, charisma: { bonus: 0 } },
   attacks: [{ name: 'Longsword', attackBonus: 5, damageRoll: '1d8+3', damageType: 'slashing' }],
   spellcasting: { spellAttackBonus: 6, spellSaveDC: 14, cantrips: ['Fire Bolt'], spells: [{ name: 'Fireball', level: 3, prepared: true, ritual: false, concentration: false }] },
 });
@@ -139,8 +143,7 @@ describe('combat.actions', () => {
     expect(answer.actions).toEqual([
       expect.objectContaining({ index: 0, name: 'Longsword', attack: expect.objectContaining({ kind: 'melee', bonus: 5, damage: '1d8+3 slashing' }) }),
       expect.objectContaining({ index: 1, name: 'Fire Bolt', attack: expect.objectContaining({ kind: 'ranged', bonus: 6, damage: '1d10 fire' }) }),
-      // A spell that calls for a saving throw is listed, and is not yet the server's to roll.
-      expect.objectContaining({ index: 2, name: 'Fireball', attack: null }),
+      expect.objectContaining({ index: 2, name: 'Fireball', attack: null, save: expect.objectContaining({ ability: 'dex', dc: 14, damage: '8d6 fire', halfOnSuccess: true }) }),
     ]);
   });
 
@@ -150,6 +153,7 @@ describe('combat.actions', () => {
       ['Greatclub', 'melee'],
       ['Javelin', 'ranged'],
       ['Roar', null],
+      ['Stomp', null],
     ]);
   });
 
@@ -245,5 +249,45 @@ describe('combat.attack', () => {
   it('refuses a payload it does not know', async () => {
     expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: HERO, action: 0 })).ok).toBe(false);
     expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: 0, bonus: 99 })).ok).toBe(false);
+  });
+});
+
+describe('combat.save', () => {
+  it('rolls the damage once and a save for each target, on tokens and on sheets', async () => {
+    // Fireball from the hero's sheet at the two ogres: 8d6 all threes = 24;
+    // the near ogre rolls 3 (-1 = 2, fails), the far one 18 (-1 = 17, saves).
+    rolls = [3, 3, 3, 3, 3, 3, 3, 3, 3, 18];
+    const logged = waitForEvent<{ purpose: string; result: number; expression: string }>(dm, 'dice.rolled');
+
+    const answer = await ask(player, 'combat.save', { sourceId: HERO, targetIds: [OGRE, FAR], action: 2 });
+
+    expect(answer.ok).toBe(true);
+    expect(answer.targets).toEqual([
+      { tokenId: OGRE, saved: false, total: 2, dealt: 24 },
+      { tokenId: FAR, saved: true, total: 17, dealt: 12 },
+    ]);
+    const tokens = readTokens((await prisma.map.findUniqueOrThrow({ where: { id: mapId } })).tokens);
+    expect(tokens.find((t) => t.id === OGRE)?.hp?.current).toBe(35);
+    expect(tokens.find((t) => t.id === FAR)?.hp?.current).toBe(47);
+    expect(await logged).toMatchObject({ result: 24, expression: '8d6', purpose: answer.summary });
+  });
+
+  it("takes a stat block's save effect from a character's sheet", async () => {
+    // Stomp: 2d8 = 5 + 6; the hero rolls 4 (+4 = 8, fails DC 13).
+    rolls = [5, 6, 4];
+    const hpSent = waitForEvent<{ hp: { current: number } }>(player, 'character.hp.updated');
+
+    const answer = await ask(dm, 'combat.save', { sourceId: OGRE, targetIds: [HERO], action: 3 });
+
+    expect(answer.targets).toEqual([{ tokenId: HERO, saved: false, total: 8, dealt: 11 }]);
+    expect((await hpSent).hp.current).toBe(19);
+  });
+
+  it('refuses a player another creature, a hidden target and an action with no save', async () => {
+    expect((await ask(player, 'combat.save', { sourceId: OGRE, targetIds: [HERO], action: 3 })).error).toBe('You can only act for your own token');
+    expect((await ask(player, 'combat.save', { sourceId: HERO, targetIds: [LURKER], action: 2 })).error).toBe('That target is not on the map');
+    expect((await ask(player, 'combat.save', { sourceId: HERO, targetIds: [OGRE], action: 0 })).ok).toBe(false);
+    expect((await ask(player, 'combat.save', { sourceId: HERO, targetIds: [OGRE, OGRE], action: 2 })).ok).toBe(false);
+    expect((await ogreHp())?.current).toBe(59);
   });
 });

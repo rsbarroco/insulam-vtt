@@ -989,7 +989,9 @@ While you carry a token over the board, **right-click another creature** to have
 - The roll and its outcome go to the dice log for everyone. An attack by or against a token hidden from players is logged for you alone.
 - If it is the attacker's turn and its action is unspent, the turn bar marks the action as **Attack**.
 
-The attacker stays where it stood. The target needs an Armor Class, from its sheet or its stat block. You can attack with any token; a player only with their own. The VTT makes one attack roll at a time, so Multiattack is each attack in turn, and actions and spells that call for a saving throw are still yours to resolve. Casting through the menu does not spend a spell slot yet; mark it on the sheet. Nothing here stops you changing hit points by hand afterwards.
+The attacker stays where it stood. The target needs an Armor Class, from its sheet or its stat block. You can attack with any token; a player only with their own. The VTT makes one attack roll at a time, so Multiattack is each attack in turn.
+
+**Saving throws.** The same menu lists the actions and spells that call for a saving throw, such as a breath weapon or Fireball, with the DC, the damage and the area. Choose one and the VTT rolls the damage, rolls the target's save with its conditions (and its cover, on a Dexterity save), and takes the full damage, half or none from its hit points. A creature's save bonus comes from its sheet, or from its stat block's saving throws or ability scores. For now the menu aims such an effect at the one creature you right-clicked: for an area that catches several, use it on each, or adjust hit points by hand. Casting through the menu does not spend a spell slot yet; mark it on the sheet. Nothing here stops you changing hit points by hand afterwards.
 
 ## Fog of War
 

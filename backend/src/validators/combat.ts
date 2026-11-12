@@ -21,3 +21,14 @@ export const CombatAttackSchema = z
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
+
+/** `combat.save`: an action that calls for a saving throw, against one or more tokens. */
+export const CombatSaveSchema = z
+  .object({
+    sourceId: tokenId,
+    targetIds: z.array(tokenId).min(1).max(30),
+    /** Which of the creature's actions, by its place in the list `combat.actions` gave. */
+    action: z.number().int().min(0).max(199),
+  })
+  .strict()
+  .refine((save) => new Set(save.targetIds).size === save.targetIds.length, { message: 'A target is named twice' });

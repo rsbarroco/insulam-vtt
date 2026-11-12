@@ -18,6 +18,8 @@ import type {
   CombatActionsAck,
   CombatAttackAck,
   CombatAttackEvent,
+  CombatSaveAck,
+  CombatSaveEvent,
   ChatMessageBroadcast,
   ChatSystemBroadcast,
   SessionStartedBroadcast,
@@ -751,6 +753,11 @@ class SocketClient {
   /** Have the server make an attack, apply its damage and log the roll. */
   resolveAttack(attack: CombatAttackEvent): Promise<CombatAttackAck> {
     return this.askFor<CombatAttackAck>('combat.attack', attack, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  }
+
+  /** Have the server roll the targets' saving throws against an action, and apply what it does. */
+  resolveSave(save: CombatSaveEvent): Promise<CombatSaveAck> {
+    return this.askFor<CombatSaveAck>('combat.save', save, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   onInitiativeState(callback: EventCallback<CombatState>) {
