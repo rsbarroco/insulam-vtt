@@ -192,6 +192,10 @@ const dmEvent = (what: string): SocketCeiling => ({
 const atmosphere = dmEvent('atmosphere changes');
 const spiritLayer = dmEvent('spirit layer changes');
 const initiative = dmEvent('initiative changes');
+const turnEvents: SocketCeiling = {
+  windows: [{ limit: 30, windowMs: SECOND }],
+  refusal: 'Too many turn changes at once. Wait a moment, then try again.',
+};
 
 /**
  * Abuse ceilings on the events a member sends by hand, each its own budget
@@ -254,6 +258,9 @@ export const SOCKET_CEILINGS = {
   'initiative.end': initiative,
   // The DM's own rolls; a player's count against their dice rolls.
   'initiative.roll': initiative,
+  // A click apiece, from the DM or the player whose turn it is.
+  'turn.update': turnEvents,
+  'turn.end': turnEvents,
   'dice.clearHistory': dmEvent('requests to clear the dice log'),
   'exploration:reset': dmEvent('explored-area resets'),
 } satisfies Record<string, SocketCeiling>;

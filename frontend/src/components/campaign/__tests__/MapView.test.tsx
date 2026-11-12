@@ -75,6 +75,7 @@ vi.mock('@/components/campaign/MapCanvas', () => ({ default: () => <div>top-down
 vi.mock('@/components/campaign/TacticalMapCanvas', () => ({
   default: () => <div>tactical canvas</div>,
 }));
+vi.mock('@/components/campaign/TurnBar', () => ({ default: () => null }));
 
 import MapView, { tacticalViewAllowed } from '../MapView';
 

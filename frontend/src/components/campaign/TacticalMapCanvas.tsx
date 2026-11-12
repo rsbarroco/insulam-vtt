@@ -28,6 +28,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import {
   useCharacterHp,
+  useCombatState,
   useCurrentTurnTokenId,
   useGameStore,
   useMapPeekTokenId,
@@ -38,6 +39,7 @@ import { TokenLayer } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import Button from '@/components/ui/Button';
+import { movementLeft } from '@/utils/turn';
 import { useTokenImages } from './map/useTokenImages';
 import { cachedTokenImage, placeholderColor, DOWNED_TOKEN_ALPHA } from './map/layers/drawTokens';
 import {
@@ -137,6 +139,7 @@ export default function TacticalMapCanvas() {
   const characterHpCache = useCharacterHp();
   const currentTurnTokenId = useCurrentTurnTokenId();
   const peekTokenId = useMapPeekTokenId();
+  const combat = useCombatState();
   const isDM = userRole === 'DM';
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -359,7 +362,12 @@ export default function TacticalMapCanvas() {
   // from its stat block, or set on it by the DM. What is in the way is what
   // this viewer can see.
   const reachToken = held ?? (brushMode ? null : hoverToken);
-  const reachSpeed = reachToken ? (tokenSpeed(reachToken)?.feet ?? null) : null;
+  const fullSpeed = reachToken ? (tokenSpeed(reachToken)?.feet ?? null) : null;
+  // On its own turn in combat a token has what is left of its movement.
+  const actingTurn =
+    reachToken && combat.active && combat.currentTokenId === reachToken.id ? combat.turn : null;
+  const reachSpeed =
+    fullSpeed !== null && actingTurn ? movementLeft(fullSpeed, actingTurn) : fullSpeed;
   const reach = useMemo(() => {
     if (!reachToken || reachSpeed === null || !currentMap) return null;
     const obstacles = reachObstacles(reachToken, visibleTokens, characterHpCache);
@@ -522,6 +530,12 @@ export default function TacticalMapCanvas() {
           y: target.y,
         });
       useGameStore.getState().applyTokenMove(held.id, target);
+      // On its own turn, a move inside its reach is counted against its
+      // movement. One outside it is the table's to settle, and counts nothing.
+      const walked = actingTurn && reach ? reach.stops.get(cellKey(target)) : undefined;
+      if (walked && walked.feet > 0 && canEmit()) {
+        socket!.emitTurnUpdate({ movementSpent: actingTurn!.movementSpent + walked.feet });
+      }
       setHeld(null);
       return;
     }
@@ -857,7 +871,7 @@ export default function TacticalMapCanvas() {
       )}
 
       {held && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
           Click a square to put {tokenDisplayName(held)} down, or press Esc to cancel
           {reachSpeed !== null && drop && ` · ${moveSummary}`}
         </div>
@@ -876,7 +890,7 @@ export default function TacticalMapCanvas() {
       )}
 
       {brushMode && !held && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
           Click or drag over squares to change their height. Drag with the right button to move the
           map.
         </div>

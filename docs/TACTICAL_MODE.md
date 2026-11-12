@@ -149,4 +149,5 @@ matters, change per map.
 | 4 Height brush | Done: raise, lower and level brushes with undo in `TacticalMapCanvas.tsx`, from `map/iso/heightBrush.ts` and `map/iso/useHeightBrush.ts` |
 | 5 Movement reach | Done, then reworked by phase 6: the reach flood fill, highlighted cells and path preview |
 | 6 Movement by the rules | Done: speed from the stat block or set on the token, eight-way movement with the map's diagonal rule, slopes, climbs and falls, in `map/iso/reach.ts`. Replaces phase 5's Move and Jump. Player character speed is set by hand until the server reads sheets |
-| 7 to 14 | Not started |
+| 7 The turn | Done: `turn` and `reactionsSpent` in the combat state, the `turn.update` and `turn.end` events, and `TurnBar.tsx` under the map. Movement is counted for moves in the tactical view. Counts are kept, not enforced |
+| 8 to 14 | Not started |

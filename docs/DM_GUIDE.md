@@ -919,6 +919,17 @@ Click **End combat** (the circled ✕ beside **Next Turn**) and confirm with **E
 
 ---
 
+### The turn bar
+
+Once combat has started, a bar under the map shows the turn of whoever is acting, by the D&D rules: the **movement** it has left, its **action**, its **bonus action** and its **reaction**. Everyone at the table sees it. You can change it for any combatant; a player can for a token they control.
+
+- **Movement** starts at the token's speed and goes down as the token is moved in the tactical view, by the feet the move cost. A token with no speed just shows the feet it has moved. Moves made in the top-down view are not counted.
+- **Action** is a list of the actions every creature has. Choosing one records it; **Dash** also adds the token's speed to its movement for the turn, and the reach on the map grows with it. **Not taken** gives the action back.
+- **Bonus action used** and **Reaction used** are ticks. A reaction comes back when that combatant's own turn begins. While someone else acts, a player still sees a tick for the reaction of each of their own tokens.
+- **End turn** passes to the next combatant, as **Next** in the tracker does. A player can end their own turn with it, so you do not have to.
+
+The bar records what was spent; it refuses nothing. A token can still be moved further than its movement, and a second action can be recorded over the first. Starting combat, ending a turn and removing the acting combatant each start a fresh turn.
+
 ## The Tactical View
 
 The **Tactical view** button at the top of the map draws the current map on a diamond grid, seen from an angle, with each square raised to its height. Your map picture is laid over the tops of the tiles, so any map you already have works. **Top-down view** switches back. Each person chooses their own view.

@@ -44,6 +44,8 @@ const EMPTY_COMBAT: CombatState = {
   round: 0,
   currentTokenId: null,
   combatants: [],
+  turn: null,
+  reactionsSpent: [],
 };
 
 interface GameState {
@@ -99,7 +101,13 @@ interface GameState {
   /** Full-object replace after an editor save (NpcQuickEditor). */
   replaceToken: (token: Token) => void;
   /** `initiative.state` — wholesale replace of the combat snapshot. */
-  setCombatState: (combat: CombatState) => void;
+  /**
+   * Takes the state as a server sends it. One from before turns were tracked
+   * has no turn fields, and is stored with nobody's turn recorded.
+   */
+  setCombatState: (
+    combat: Omit<CombatState, 'turn' | 'reactionsSpent'> & Partial<Pick<CombatState, 'turn' | 'reactionsSpent'>>
+  ) => void;
   /** Point at a token from either side; pass null to clear. */
   setPeekToken: (tokenId: string | null, source: 'tracker' | 'map') => void;
   /** `character.hp.updated`: one character's hit points. */
@@ -180,7 +188,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ tokens: { ...get().tokens, [token.id]: token } });
   },
 
-  setCombatState: (combat) => set({ combat }),
+  setCombatState: (combat) =>
+    set({ combat: { ...combat, turn: combat.turn ?? null, reactionsSpent: combat.reactionsSpent ?? [] } }),
 
   setPeekToken: (tokenId, source) => {
     const s = get();

@@ -1,0 +1,142 @@
+// ============================================
+// The acting combatant's turn, under the map
+//
+// What the rules give a creature on its turn and how much of it is spent:
+// movement, an action, a bonus action and a reaction. The DM sees and
+// changes it for whoever is acting; a player for a token they control, and
+// a player can end their own turn. A player also keeps track here of the
+// reaction of each of their tokens while others act.
+//
+// The server holds the counts and sends them to the whole table; nothing is
+// enforced. Movement is counted for moves made in the tactical view.
+// ============================================
+
+import { Footprints, SkipForward } from 'lucide-react';
+import { useCampaign } from '@/contexts/CampaignContext';
+import { useWebSocket } from '@/contexts/WebSocketContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCombatState, useTokenList } from '@/stores/gameStore';
+import type { Token } from '@/types';
+import { controlsToken } from '@/utils/tokenOwnership';
+import { tokenDisplayName } from '@/utils/tokenDisplayName';
+import {
+  actionChange,
+  formatFeet,
+  movementBudget,
+  movementLeft,
+  STANDARD_ACTIONS,
+} from '@/utils/turn';
+import Button from '@/components/ui/Button';
+import { tokenSpeed } from './map/iso/tacticalStats';
+
+export default function TurnBar() {
+  const { userRole } = useCampaign();
+  const { socket } = useWebSocket();
+  const { user } = useAuth();
+  const combat = useCombatState();
+  const tokens = useTokenList();
+  const isDM = userRole === 'DM';
+
+  if (!combat.active || !combat.turn || !combat.currentTokenId) return null;
+  const turn = combat.turn;
+  const actingId = combat.currentTokenId;
+  const acting = tokens.find((token) => token.id === actingId) ?? null;
+  const entry = combat.combatants.find((combatant) => combatant.tokenId === actingId);
+  const actingName = acting ? tokenDisplayName(acting) : (entry?.name ?? 'Someone');
+  const mine = (token: Token) => isDM || controlsToken(token, user?.id, userRole);
+  const canAct = acting !== null && mine(acting);
+
+  // The tokens whose reaction this viewer keeps: the acting one if it is
+  // theirs, and for a player each of their own combatants waiting its turn.
+  const inOrder = new Set(combat.combatants.map((combatant) => combatant.tokenId));
+  const reactionTokens = tokens.filter(
+    (token) =>
+      inOrder.has(token.id) &&
+      (token.id === actingId ? canAct : !isDM && controlsToken(token, user?.id, userRole))
+  );
+
+  const speed = acting ? (tokenSpeed(acting)?.feet ?? null) : null;
+  const movement =
+    speed === null
+      ? `${formatFeet(turn.movementSpent)} ft moved`
+      : `${formatFeet(movementLeft(speed, turn))} of ${formatFeet(movementBudget(speed, turn))} ft left`;
+
+  return (
+    <div
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 glass-panel px-3 py-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-parchment/95 backdrop-blur-xs text-sm text-ink max-w-[calc(100%-2rem)]"
+      role="group"
+      aria-label={`Turn of ${actingName}`}
+    >
+      <span className="font-medium truncate max-w-40">{actingName}</span>
+
+      <span className="flex items-center gap-1" title="Movement this turn">
+        <Footprints className="w-4 h-4" aria-hidden="true" />
+        {movement}
+      </span>
+
+      {canAct ? (
+        <>
+          <label className="flex items-center gap-1">
+            Action
+            <select
+              className="input-cozy text-sm py-1 w-32"
+              value={turn.action ?? ''}
+              onChange={(event) =>
+                socket.emitTurnUpdate(actionChange(turn, event.target.value || null))
+              }
+            >
+              <option value="">Not taken</option>
+              {STANDARD_ACTIONS.map((action) => (
+                <option key={action} value={action}>
+                  {action}
+                </option>
+              ))}
+              {turn.action && !(STANDARD_ACTIONS as readonly string[]).includes(turn.action) && (
+                <option value={turn.action}>{turn.action}</option>
+              )}
+            </select>
+          </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={turn.bonusAction}
+              onChange={(event) => socket.emitTurnUpdate({ bonusAction: event.target.checked })}
+            />
+            Bonus action used
+          </label>
+        </>
+      ) : (
+        <span className="text-ink-muted">
+          {turn.action ? `Action: ${turn.action}` : 'Action not taken'}
+          {turn.bonusAction ? ' · bonus action used' : ''}
+        </span>
+      )}
+
+      {reactionTokens.map((token) => (
+        <label key={token.id} className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={combat.reactionsSpent.includes(token.id)}
+            onChange={(event) =>
+              socket.emitTurnUpdate({
+                reaction: { tokenId: token.id, spent: event.target.checked },
+              })
+            }
+          />
+          {token.id === actingId ? 'Reaction used' : `${tokenDisplayName(token)}: reaction used`}
+        </label>
+      ))}
+
+      {canAct && (
+        <Button
+          variant="primary"
+          size="sm"
+          icon={SkipForward}
+          onClick={() => socket.emitTurnEnd(actingId)}
+        >
+          End turn
+        </Button>
+      )}
+    </div>
+  );
+}

@@ -38,6 +38,7 @@ import type {
   InitiativeRemoveEvent,
   InitiativeSetEvent,
   InitiativeRollEvent,
+  TurnUpdateEvent,
   InitiativeReorderEvent,
   MapPingEvent,
   MapPingedBroadcast,
@@ -727,6 +728,16 @@ class SocketClient {
 
   emitInitiativeRequestState() {
     this.socket?.emit('initiative.request_state');
+  }
+
+  /** Record what the acting combatant has spent of its turn, or a reaction. */
+  emitTurnUpdate(data: TurnUpdateEvent) {
+    this.socket?.emit('turn.update', data);
+  }
+
+  /** End the named combatant's turn. */
+  emitTurnEnd(tokenId: string) {
+    this.socket?.emit('turn.end', { tokenId });
   }
 
   onInitiativeState(callback: EventCallback<CombatState>) {

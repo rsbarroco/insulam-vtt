@@ -1604,12 +1604,30 @@ export interface CombatantEntry {
   disposition: 'friendly' | 'neutral' | 'hostile' | null;
 }
 
+/** What the acting combatant has spent of its turn, by the D&D rules. */
+export interface TurnState {
+  /** Feet of movement spent this turn. */
+  movementSpent: number;
+  /** Times it has taken the Dash action this turn. */
+  dashes: number;
+  /** The action taken this turn, by name, or null while it still has one. */
+  action: string | null;
+  bonusAction: boolean;
+}
+
 export interface CombatState {
   active: boolean;
   round: number;
   currentTokenId: string | null;
   combatants: CombatantEntry[];
+  /** The acting combatant's turn so far; null when nobody is acting. */
+  turn: TurnState | null;
+  /** tokenIds whose reaction is spent. */
+  reactionsSpent: string[];
 }
+
+/** `turn.update`: any of the turn fields, and optionally one combatant's reaction. */
+export type TurnUpdateEvent = Partial<TurnState> & { reaction?: { tokenId: string; spent: boolean } };
 
 export interface InitiativeAddEvent    { tokenId: string; mapId: string; }
 export interface InitiativeRemoveEvent { tokenId: string; }
