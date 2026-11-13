@@ -23,10 +23,12 @@
 
 import type { CombatAction } from './actions';
 
-export type ExtraAttack = 'cleave' | 'light';
+export type ExtraAttack = 'cleave' | 'light' | 'flurry';
 
 /** The extra attacks an action can be made as: Cleave for a weapon whose mastery it uses, Light for a Light weapon. */
 export function extrasOf(action: CombatAction): ExtraAttack[] {
+  // An Unarmed Strike can be one of Flurry of Blows' two.
+  if (action.unarmed === 'damage') return ['flurry'];
   if (!action.attack || action.source === 'spell' || action.source === 'unarmed') return [];
   const out: ExtraAttack[] = [];
   if (action.mastery === 'Cleave' && action.attack.kind === 'melee') out.push('cleave');

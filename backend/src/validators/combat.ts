@@ -23,7 +23,7 @@ export const CombatAttackSchema = z
     /** The Opportunity Attack the target's movement offered this attacker: its reaction, not its action. */
     opportunity: z.literal(true).optional(),
     /** An extra attack the weapon gives on the attacker's turn: Cleave after a hit, or the Light weapon's extra attack. */
-    extra: z.enum(['cleave', 'light']).optional(),
+    extra: z.enum(['cleave', 'light', 'flurry']).optional(),
     /** The attack the attacker readied against this target, made now with its reaction: `action` is then the readied one. */
     readied: z.literal(true).optional(),
     /** The stat block Legendary Action (by index) this attack is made for: it spends one use. */
@@ -67,6 +67,8 @@ export const CombatCheckSchema = z
     ability: z.enum(ABILITIES).optional(),
     /** The Hide action: Stealth against DC 15, and the Invisible condition on a success. */
     hide: z.literal(true).optional(),
+    /** With `hide`: taken as a Bonus Action through Cunning Action. */
+    bonusAction: z.literal(true).optional(),
     /** The Difficulty Class, when the table set one. */
     dc: z.number().int().min(1).max(40).optional(),
     mode: z.enum(['normal', 'advantage', 'disadvantage']).optional(),
@@ -98,7 +100,15 @@ export const CombatFeatureSchema = z
       'Sorcery Points',
       'Favored Enemy',
       'Lay on Hands',
+      'Cunning Action',
+      'Flurry of Blows',
+      'Patient Defense',
+      'Step of the Wind',
     ]),
+    /** Cunning Action: the action it takes as a Bonus Action (Hide is `combat.check` with `bonusAction`). */
+    as: z.enum(['Dash', 'Disengage']).optional(),
+    /** Patient Defense, Step of the Wind: spend a Focus Point for the stronger use. */
+    focus: z.literal(true).optional(),
     /** How many points of Focus Points, Sorcery Points or Lay on Hands; other features spend one use. */
     amount: z.number().int().min(1).max(100).optional(),
     /** Lay on Hands: the creature touched, the user itself when left out. */

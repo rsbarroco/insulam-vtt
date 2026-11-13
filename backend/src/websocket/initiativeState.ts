@@ -38,6 +38,8 @@ export interface TurnState {
   bonusAction: boolean;
   /** Attacks made with the Attack action this turn. Extra Attack lets a character make more than one. */
   attacks: number;
+  /** Disengaged with a Bonus Action (Cunning Action, Patient Defense, Step of the Wind): its movement provokes no Opportunity Attacks. */
+  disengaged?: boolean;
 }
 
 export interface CombatState {

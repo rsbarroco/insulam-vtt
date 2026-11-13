@@ -1621,6 +1621,8 @@ export interface TurnState {
   bonusAction: boolean;
   /** Attacks made with the Attack action this turn. */
   attacks: number;
+  /** Disengaged with a Bonus Action (Cunning Action, Patient Defense, Step of the Wind): its movement provokes no Opportunity Attacks. */
+  disengaged?: boolean;
 }
 
 export interface CombatState {
@@ -1700,7 +1702,7 @@ export interface CombatActionSummary {
   /** A healing spell, made with `combat.heal`: what it restores at its own level ("2d8+3") and its range. */
   heal?: { dice: string; rangeFeet: number };
 }
-export type CombatExtraAttack = 'cleave' | 'light';
+export type CombatExtraAttack = 'cleave' | 'light' | 'flurry';
 /** A feature the turn can offer, with its rule. */
 export interface CombatFeatureOption {
   name: string;
@@ -1765,6 +1767,8 @@ export interface CombatCheckEvent {
   skill?: string;
   ability?: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
   hide?: true;
+  /** With `hide`: taken as a Bonus Action through Cunning Action. */
+  bonusAction?: true;
   dc?: number;
   mode?: AttackMode;
 }
@@ -1794,7 +1798,11 @@ export type CombatFeatureName =
   | 'Focus Points'
   | 'Sorcery Points'
   | 'Favored Enemy'
-  | 'Lay on Hands';
+  | 'Lay on Hands'
+  | 'Cunning Action'
+  | 'Flurry of Blows'
+  | 'Patient Defense'
+  | 'Step of the Wind';
 export type CombatFeatureAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
 
 /** `combat.stand`: a Prone token got up. */

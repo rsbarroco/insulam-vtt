@@ -783,11 +783,13 @@ class SocketClient {
     tokenId: string,
     feature: CombatFeatureName,
     amount?: number,
-    touch?: { targetId: string; cure?: 'Poisoned' }
+    touch?: { targetId: string; cure?: 'Poisoned' },
+    turn?: { as?: 'Dash' | 'Disengage'; focus?: true }
   ): Promise<CombatFeatureAck> {
     const payload = {
       tokenId,
       feature,
+      ...(turn ?? {}),
       ...(amount && (amount > 1 || touch) && !touch?.cure ? { amount } : {}),
       ...(touch ? { targetId: touch.targetId, ...(touch.cure ? { cure: touch.cure } : {}) } : {}),
     };

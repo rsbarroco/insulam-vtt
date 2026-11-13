@@ -68,6 +68,10 @@ const EXTRA_LABELS: Record<CombatExtraAttack, { label: string; title: string }> 
     title:
       'After a hit with this weapon this turn: attack a creature within 5 feet of the first, without your ability modifier to the damage. Once a turn.',
   },
+  flurry: {
+    label: 'Flurry of Blows strike',
+    title: 'One of the two Unarmed Strikes your Flurry of Blows gave this turn.',
+  },
   light: {
     label: 'Light extra attack',
     title:
