@@ -100,6 +100,11 @@ const devilBlock = {
       description:
         'Dexterity Saving Throw: DC 13, each creature in a 15-foot Cone. Failure: 21 (6d6) Fire damage. Success: Half damage.',
     },
+    { name: 'Multiattack', description: 'The devil makes two Claw attacks.' },
+    {
+      name: 'Claw',
+      description: 'Melee Attack Roll: +7, reach 5 ft. Hit: 8 (1d8 + 4) Slashing damage.',
+    },
   ],
 };
 const freshTokens = () => [
@@ -286,5 +291,15 @@ describe('Recharge', () => {
     await next(); // a 6 does
     expect(getState(campaignId).marks).toEqual([]);
     expect((await breathe()).ok).toBe(true);
+  });
+
+  it('lists a Multiattack with the attacks it makes', async () => {
+    const listed = (await ask(dm, 'combat.actions', { tokenId: DEVIL })) as unknown as {
+      actions: Array<{ name: string; multiattack?: Array<{ count: number; choices: number[] }> }>;
+    };
+    expect(listed.actions[1]).toMatchObject({
+      name: 'Multiattack',
+      multiattack: [{ count: 2, choices: [2] }],
+    });
   });
 });

@@ -1693,6 +1693,8 @@ export interface CombatActionSummary {
   extras?: CombatExtraAttack[];
   /** A "(Recharge 5–6)" action: the lowest d6 roll that gives it back, and whether it is ready now. */
   recharge?: { min: number; ready: boolean };
+  /** A stat block's Multiattack: how many attacks, and which actions (by index) each may be. */
+  multiattack?: Array<{ count: number; choices: number[] }>;
 }
 export type CombatExtraAttack = 'cleave' | 'light';
 /** A feature the turn can offer, with its rule. */
