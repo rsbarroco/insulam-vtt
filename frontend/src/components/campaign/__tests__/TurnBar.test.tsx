@@ -520,6 +520,27 @@ describe('a barbarian', () => {
   });
 });
 
+describe('a rogue', () => {
+  const uncanny = { name: 'Uncanny Dodge', cost: 'reaction', text: '' };
+  beforeEach(() => {
+    h.useFeature.mockReset().mockResolvedValue({ ok: true, summary: 'Hero holds Uncanny Dodge ready', left: 0 });
+  });
+
+  it('holds Uncanny Dodge ready, and lets it go once held', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({ ok: true, actions: [], attacksPerAction: 1, features: [uncanny] });
+    fight();
+    const { unmount } = render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Hold Uncanny Dodge' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Uncanny Dodge'));
+    unmount();
+
+    fight({ marks: [{ kind: 'uncanny', attackerId: 'hero', targetId: 'hero', turnEndsLeft: 1 }] });
+    render(<TurnBar />);
+    expect(await screen.findByRole('button', { name: 'Let Uncanny Dodge go' })).toBeInTheDocument();
+  });
+});
+
 describe('the features the server counts', () => {
   beforeEach(() => {
     h.useFeature.mockReset().mockResolvedValue({ ok: true, summary: 'Hero spends 1 Focus Point (3 left)', left: 3 });

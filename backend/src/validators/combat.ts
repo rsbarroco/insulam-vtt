@@ -106,6 +106,7 @@ export const CombatFeatureSchema = z
       'Flurry of Blows',
       'Patient Defense',
       'Step of the Wind',
+      'Uncanny Dodge',
     ]),
     /** Cunning Action: the action it takes as a Bonus Action (Hide is `combat.check` with `bonusAction`). */
     as: z.enum(['Dash', 'Disengage']).optional(),

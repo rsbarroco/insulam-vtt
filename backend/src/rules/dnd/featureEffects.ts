@@ -69,13 +69,18 @@ const VERB = '(?:[Aa]s|[Ww]ith|[Tt]akes?|[Uu]ses?|[Uu]sing)';
 const BONUS = new RegExp(`\\b${VERB} (?:a|your|its) Bonus Action\\b`);
 const REACTION = new RegExp(`\\b${VERB} (?:a|your|its) Reaction\\b`);
 
+/** Reactions the server resolves, listed by their name when a sheet gives no text for them. */
+const REACTIONS_BY_NAME = new Set(['uncanny dodge']);
+
 /** The features used with a Bonus Action or a Reaction, in the sheet's order. A feature that offers both is listed twice. */
 export function featureOptions(features: readonly SheetFeature[]): FeatureOption[] {
   const out: FeatureOption[] = [];
   for (const feature of features) {
     const name = featureName(feature.name);
     if (BONUS.test(feature.description)) out.push({ name, cost: 'bonusAction', text: feature.description });
-    if (REACTION.test(feature.description)) out.push({ name, cost: 'reaction', text: feature.description });
+    if (REACTION.test(feature.description) || (REACTIONS_BY_NAME.has(name.toLowerCase()) && !feature.description.trim())) {
+      out.push({ name, cost: 'reaction', text: feature.description });
+    }
   }
   return out;
 }

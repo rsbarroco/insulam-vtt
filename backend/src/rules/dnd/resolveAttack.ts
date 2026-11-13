@@ -67,6 +67,8 @@ export interface AttackRequest {
   savage?: boolean;
   /** Great Weapon Fighting: a 1 or 2 on a damage die counts as a 3. */
   greatWeapon?: boolean;
+  /** A reaction of the target's that halves a hit's damage (round down), by name: "Uncanny Dodge". */
+  halveDamage?: string;
 }
 
 export interface AttackRefusal {
@@ -91,6 +93,8 @@ export interface AttackResult {
   hp: HitPoints | null;
   dropped: boolean;
   instantDeath: boolean;
+  /** The target's reaction that halved the damage of the hit. */
+  halvedBy?: string;
   /** One line for the log. */
   summary: string;
 }
@@ -191,6 +195,8 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
           : adjustedDamage({ amount: entry.rolled.total, type: entry.type }, target.defences ?? {})),
       0
     );
+    // A reaction that halves the hit's damage (Uncanny Dodge), rounded down.
+    if (request.halveDamage) dealt = Math.floor(dealt / 2);
     if (target.hp) {
       // Already adjusted, so applied as it stands.
       const applied = applyDamage(target.hp, [{ amount: dealt, type: 'force' }]);
@@ -212,7 +218,8 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     hp,
     dropped,
     instantDeath,
-    summary: summarize(target.name, action.name, outcome, damage, dealt, dropped, instantDeath),
+    ...(outcome.hit && request.halveDamage ? { halvedBy: request.halveDamage } : {}),
+    summary: summarize(target.name, action.name, outcome, damage, dealt, dropped, instantDeath, outcome.hit ? request.halveDamage : undefined),
   };
 }
 
@@ -223,12 +230,13 @@ function summarize(
   damage: AttackResult['damage'],
   dealt: number,
   dropped: boolean,
-  instantDeath: boolean
+  instantDeath: boolean,
+  halvedBy?: string
 ): string {
   const versus = `${action} vs ${target} (AC ${outcome.armorClass})`;
   if (!outcome.hit) return `${versus}: miss`;
   const types = [...new Set(damage.map((entry) => entry.type).filter(Boolean))].join(' and ');
-  const amount = `${dealt}${types ? ` ${types}` : ''} damage`;
+  const amount = `${dealt}${types ? ` ${types}` : ''} damage${halvedBy ? ` (halved by ${halvedBy})` : ''}`;
   const fate = instantDeath ? `; ${target} is killed outright` : dropped ? `; ${target} drops to 0 hit points` : '';
   return `${versus}: ${outcome.critical ? 'critical hit' : 'hit'}, ${amount}${fate}`;
 }

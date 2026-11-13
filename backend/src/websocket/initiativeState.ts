@@ -92,9 +92,11 @@ export interface CombatState {
  * caster (both ids) concentrates on the spell `action`, until it ends it, casts
  * another, fails a save when damaged or drops to 0 Hit Points. Reckless: the
  * Barbarian (both ids) attacks recklessly, until the start of its next turn.
+ * Uncanny: the Rogue (both ids) holds its reaction for Uncanny Dodge, until a
+ * hit uses it or it lets it go.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -159,6 +161,7 @@ export function advanceTurn(state: CombatState): void {
       (mark.kind === 'condition' && mark.ends === 'save') ||
       mark.kind === 'recharge' ||
       mark.kind === 'concentration' ||
+      mark.kind === 'uncanny' ||
       mark.attackerId !== state.currentTokenId
   );
 }
