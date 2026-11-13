@@ -34,7 +34,7 @@ import {
   useMapPeekTokenId,
   useTokenList,
 } from '@/stores/gameStore';
-import type { Token } from '@/types';
+import type { CampaignMap, Token } from '@/types';
 import { TokenLayer, TokenType } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
@@ -60,7 +60,8 @@ import { cellKey, computeReach, FALL_FEET, fallDamageDice, pathTo } from './map/
 import {
   reachObstacles,
   speedPatch,
-  tokenSpeed,
+  isProne,
+  movingSpeed,
   readSpeedOverride,
   walkingSpeedFromLine,
   TACTICAL_LIMITS,
@@ -298,6 +299,21 @@ export default function TacticalMapCanvas() {
     };
   }, [socket, setCurrentMap]);
 
+  // A map sent whole: the DM hid or changed a token, or the server resolved
+  // damage, a fall or a condition on one. Without this the view kept the
+  // tokens it opened with until the top-down view was shown again.
+  useEffect(() => {
+    if (!socket) return;
+    const onMapChanged = ({ mapData }: { mapId: string; mapData: CampaignMap }) => {
+      setCurrentMap(mapData);
+      useGameStore.getState().setTokens(mapData.tokens || []);
+    };
+    socket.onMapChanged(onMapChanged);
+    return () => {
+      socket.off('map.changed', onMapChanged);
+    };
+  }, [socket, setCurrentMap]);
+
   // ── Tokens ─────────────────────────────────────────────────────────────
   const canMoveToken = useCallback(
     (token: Token): boolean => {
@@ -375,7 +391,7 @@ export default function TacticalMapCanvas() {
   // from its stat block, or set on it by the DM. What is in the way is what
   // this viewer can see.
   const reachToken = held ?? (brushMode ? null : hoverToken);
-  const fullSpeed = reachToken ? (tokenSpeed(reachToken)?.feet ?? null) : null;
+  const fullSpeed = reachToken ? movingSpeed(reachToken) : null;
   // On its own turn in combat a token has what is left of its movement.
   const actingTurn =
     reachToken && combat.active && combat.currentTokenId === reachToken.id ? combat.turn : null;
@@ -389,6 +405,7 @@ export default function TacticalMapCanvas() {
         cell: { x: Math.floor(reachToken.position.x), y: Math.floor(reachToken.position.y) },
         size: reachToken.size,
         speed: reachSpeed,
+        crawling: isProne(reachToken),
       },
       {
         cols: currentMap.width,

@@ -20,6 +20,7 @@ import type {
   CombatAttackEvent,
   CombatDeathSaveAck,
   CombatFallAck,
+  CombatStandAck,
   CombatSaveAck,
   CombatSaveEvent,
   ChatMessageBroadcast,
@@ -760,6 +761,11 @@ class SocketClient {
   /** Have the server roll the targets' saving throws against an action, and apply what it does. */
   resolveSave(save: CombatSaveEvent): Promise<CombatSaveAck> {
     return this.askFor<CombatSaveAck>('combat.save', save, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  }
+
+  /** A Prone token stands up: the server takes the condition off it. */
+  standUp(tokenId: string): Promise<CombatStandAck> {
+    return this.askFor<CombatStandAck>('combat.stand', { tokenId }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** Have the server roll a fall's damage for a token, apply it and land the token Prone. */

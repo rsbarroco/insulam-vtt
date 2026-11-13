@@ -265,3 +265,20 @@ describe('fallDamageDice', () => {
     expect(fallDamageDice(900)).toBe(20);
   });
 });
+
+describe('a Prone creature', () => {
+  it('crawls: every foot costs a foot more', () => {
+    const reach = computeReach(unit({ speed: 20, crawling: true }), board());
+    expect(reach.stops.get(cellKey({ x: 5, y: 4 }))?.feet).toBe(10);
+    expect(reach.stops.get(cellKey({ x: 6, y: 4 }))?.feet).toBe(20);
+    expect(reach.stops.has(cellKey({ x: 7, y: 4 }))).toBe(false);
+  });
+
+  it('gets half as far as one on its feet', () => {
+    const walking = computeReach(unit({ speed: 30 }), board());
+    const crawling = computeReach(unit({ speed: 30, crawling: true }), board());
+    expect(walking.stops.has(cellKey({ x: 8, y: 4 }))).toBe(true);
+    expect(crawling.stops.has(cellKey({ x: 7, y: 4 }))).toBe(true);
+    expect(crawling.stops.has(cellKey({ x: 8, y: 4 }))).toBe(false);
+  });
+});
