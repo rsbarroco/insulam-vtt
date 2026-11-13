@@ -33,7 +33,7 @@ import { rollDie, savingThrow } from '../../rules/dnd/d20';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import { resolveFall } from '../../rules/dnd/falling';
 import { longRest, spendHitDie } from '../../rules/dnd/rests';
-import { rageDamage, resourcesOf, restoreResources, secondWindBonus, spendResource } from '../../rules/dnd/resources';
+import { bardicDie, POINT_RESOURCES, rageDamage, resourcesOf, restoreResources, secondWindBonus, spendResource, type ResourceName } from '../../rules/dnd/resources';
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
@@ -465,6 +465,23 @@ function spendBonusAction(campaignId: string, tokenId: string): void {
   if (someoneActing(now) && now.currentTokenId === tokenId && now.turn) {
     now.turn = { ...now.turn, bonusAction: true };
     setCombatState(campaignId, now);
+  }
+}
+
+/** The log line for a class feature the server counts and the table applies. */
+function featureSummary(name: string, feature: string, sheet: Record<string, unknown>, amount: number, left: number): string {
+  const uses = `${left} ${left === 1 ? 'use' : 'uses'} left`;
+  switch (feature) {
+    case 'Bardic Inspiration':
+      return `${name} uses Bardic Inspiration: a creature within 60 feet gains a ${bardicDie(sheet) ?? 'd6'} Bardic Inspiration die (${uses})`;
+    case 'Channel Divinity':
+      return `${name} uses Channel Divinity (${uses})`;
+    case 'Wild Shape':
+      return `${name} uses Wild Shape (${uses})`;
+    case 'Favored Enemy':
+      return `${name} casts Hunter's Mark without a spell slot (${uses})`;
+    default:
+      return `${name} spends ${amount} ${feature === 'Focus Points' ? 'Focus' : 'Sorcery'} ${amount === 1 ? 'Point' : 'Points'} (${left} left)`;
   }
 }
 
@@ -1163,7 +1180,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for Second Wind. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1173,7 +1190,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.feature', ack)) return;
       const parsed = CombatFeatureSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { tokenId, feature } = parsed.data;
+      const { tokenId, feature, amount } = parsed.data;
+      if (amount !== undefined && amount > 1 && !POINT_RESOURCES.includes(feature as ResourceName)) {
+        return refuseRequest(socket, ack, `${feature} is spent one use at a time`);
+      }
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -1200,7 +1220,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (!combat.active) return refuseRequest(socket, ack, 'A Rage is kept during combat');
         if (isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is already raging`);
       }
-      if ((feature === 'Second Wind' || feature === 'Rage') && ownTurn && combat.turn!.bonusAction) {
+      const bonusAction = feature === 'Second Wind' || feature === 'Rage' || feature === 'Bardic Inspiration' || feature === 'Wild Shape';
+      if (bonusAction && ownTurn && combat.turn!.bonusAction) {
         return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
       }
       if (feature === 'Action Surge') {
@@ -1216,7 +1237,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         const fresh = await tx.character.findUnique({ where: { id: characterId } });
         if (!fresh) return { refusal: `${token.name} has no D&D character sheet` };
         const sheet = (fresh.data ?? {}) as Record<string, unknown>;
-        const spent = spendResource(sheet, feature);
+        const spent = spendResource(sheet, feature, amount ?? 1);
         if (!spent.ok) return { refusal: `${token.name}: ${spent.reason}` };
         let next = spent.sheet;
         let healed: { rolled: number; bonus: number; hp: { current: number; max: number; temp: number } } | null = null;
@@ -1269,6 +1290,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         addMark(campaignId, { kind: 'rage', attackerId: tokenId, targetId: tokenId });
         if (ownTurn) spendBonusAction(campaignId, tokenId);
         summary = `${token.name} enters a Rage: Resistance to Bludgeoning, Piercing and Slashing damage, +${rageDamage(updated.data as Record<string, unknown>)} damage on Strength attacks, Advantage on Strength checks and saves (${usesLeft})`;
+      } else if (feature !== 'Action Surge') {
+        // A use the table applies: the server counts it, and a Bonus Action feature spends the Bonus Action.
+        if (bonusAction && ownTurn) spendBonusAction(campaignId, tokenId);
+        summary = featureSummary(token.name, feature, updated.data as Record<string, unknown>, amount ?? 1, left);
       } else {
         // One more action: the one taken is given back, and the turn remembers the surge.
         const now = getCombatState(campaignId);
