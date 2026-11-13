@@ -60,6 +60,7 @@ import {
 } from '@/utils/rules/initiative';
 import { readProficiencyGroups, flattenProficiencyGroups } from '@/utils/proficiencies';
 import { findSrdWeapon, proficientWith, SRD_WEAPONS, weaponAttack } from '@/utils/srdWeapons';
+import { armorClassOf } from '@/utils/srdArmor';
 import {
   DND5E_WEAPON_PROPERTIES,
   MAX_WEAPON_PROPERTY_LENGTH,
@@ -337,6 +338,26 @@ function withEveryEntry<T>(stored: unknown, keys: readonly string[], blank: () =
 /**
  * DnD5eCharacterEditor - Editable D&D 5e character sheet
  */
+/**
+ * The Armor Class a sheet works out to: its equipped armor and Shield from the
+ * inventory, its Dexterity (Constitution, Wisdom) modifiers, its classes'
+ * Unarmored Defense and the Defense fighting style among its features.
+ */
+function armorClassFromSheet(data: DnD5eCharacterData) {
+  const mod = (ability: 'dexterity' | 'constitution' | 'wisdom') => {
+    const stat = data.stats?.[ability];
+    return typeof stat?.score === 'number' ? Math.floor((stat.score - 10) / 2) : (stat?.modifier ?? 0);
+  };
+  return armorClassOf({
+    dex: mod('dexterity'),
+    con: mod('constitution'),
+    wis: mod('wisdom'),
+    classes: (data.class ?? '').split('/').map((name) => name.trim()),
+    features: (data.featuresAndTraits ?? []).map((feature) => (typeof feature === 'string' ? feature : feature.name)),
+    equipped: (data.inventory ?? []).filter((item) => item.equipped).map((item) => item.name),
+  });
+}
+
 export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
   character,
   onSave,
@@ -380,6 +401,8 @@ export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
   // sheet's inner objects shared they wrote them into the character the host,
   // the sheet behind and the Characters page's list are holding, before
   // anything was saved.
+  // How the last "From equipment" worked out the Armor Class, shown under it.
+  const [armorNote, setArmorNote] = useState<string | null>(null);
   const [formData, setFormData] = useState<DnD5eFormData>(() => {
     const own = JSON.parse(JSON.stringify(data ?? {})) as DnD5eFormData;
     return {
@@ -1890,6 +1913,19 @@ export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
           fallback={10}
           />
           {fieldError('armorClass')}
+          <button
+            type="button"
+            className="mt-1 text-xs text-brand-ink hover:underline"
+            title="Work out the Armor Class from the equipped armor and Shield in the inventory, the Dexterity modifier, Unarmored Defense and the Defense fighting style"
+            onClick={() => {
+              const worked = armorClassFromSheet(formData);
+              updateField('armorClass', worked.armorClass);
+              setArmorNote(worked.from);
+            }}
+          >
+            From equipment
+          </button>
+          {armorNote && <p className="text-xs text-ink-muted">{armorNote}</p>}
         </div>
         <div>
           {/* Derived, not typed. Initiative is the Dexterity modifier plus the

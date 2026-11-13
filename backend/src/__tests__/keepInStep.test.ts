@@ -422,6 +422,14 @@ describe('distance, sight and cover on the board', () => {
   });
 });
 
+describe('the armor of the reference document', () => {
+  // The character builder works out a new character's Armor Class and the
+  // sheet editor one from equipped items; the two must use the same table.
+  it('is the same file in the browser and on the server', () => {
+    expect(read('frontend/src/utils/srdArmor.ts')).toBe(read('backend/src/utils/srdArmor.ts'));
+  });
+});
+
 describe('the weapons of the reference document', () => {
   // The sheet editor fills an attack from a weapon and the server reads the
   // weapon's properties when it resolves one; the two must name the same.
