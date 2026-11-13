@@ -1,4 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
+import { darkvisionFeet } from '../rules/dnd/species';
 import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
@@ -1510,10 +1511,13 @@ router.post('/:id/tokens', campaignDM, async (req: AuthenticatedRequest, res: Re
         message: 'Token controlledBy must name a player of this campaign',
       });
     }
+    // A character's token sees in the dark as far as its species' Darkvision,
+    // unless the request sets a sight radius of its own.
+    let speciesSight = 0;
     if (characterId) {
       const character = await prisma.character.findUnique({
         where: { id: characterId },
-        select: { userId: true, campaignId: true },
+        select: { userId: true, campaignId: true, data: true },
       });
       if (!character || character.campaignId !== campaignId) {
         return res.status(400).json({
@@ -1524,6 +1528,8 @@ router.post('/:id/tokens', campaignDM, async (req: AuthenticatedRequest, res: Re
       if (!controllerGiven && (await canHoldTokens(campaignId, character.userId))) {
         controlledBy = character.userId;
       }
+      const feet = darkvisionFeet((character.data ?? {}) as Record<string, unknown>);
+      if (feet > 0) speciesSight = Math.floor(feet / (map.feetPerSquare || 5));
     }
 
     // Build the new token with defaults
@@ -1548,7 +1554,7 @@ router.post('/:id/tokens', campaignDM, async (req: AuthenticatedRequest, res: Re
       initiative: shapes.value.initiative ?? null,
       // Darkvision in squares; 0 = none. Decides what the server sends this
       // token's owner, so it is set here and by the DM, never by a player.
-      sightRadius: shapes.value.sightRadius ?? 0,
+      sightRadius: shapes.value.sightRadius || speciesSight,
       displayMode: displayMode,
       statBlock: shapes.value.statBlock ?? null,
       creatureTemplateId: shapes.value.creatureTemplateId ?? null,

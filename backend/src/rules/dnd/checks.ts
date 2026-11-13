@@ -10,6 +10,7 @@
 // Pure: the caller reads the bonus from the sheet or the stat block.
 // ============================================
 
+import { lucky } from './species';
 import { d20Penalty, type Ability, type ConditionState } from './conditions';
 import { rollD20, rollDie, rollMode, type D20Roll, type RollDie, type RollMode } from './d20';
 
@@ -90,6 +91,8 @@ export interface CheckRequest {
   conditions: ConditionState;
   /** The ability the check uses, when the conditions care which. */
   ability?: Ability;
+  /** A Halfling's Luck: a 1 on the d20 is rolled again. */
+  lucky?: boolean;
 }
 
 export interface CheckResult {
@@ -111,7 +114,7 @@ export function resolveCheck(request: CheckRequest, roll: RollDie = rollDie): Ch
     request.mode === 'advantage' || modifiers.advantage,
     modifiers.disadvantage || request.mode === 'disadvantage'
   );
-  const rolled = rollD20(request.bonus + modifiers.penalty, mode, roll);
+  const rolled = rollD20(request.bonus + modifiers.penalty, mode, request.lucky ? lucky(roll) : roll);
   const success = request.dc === undefined ? null : rolled.total >= request.dc;
   const verdict =
     success === null
