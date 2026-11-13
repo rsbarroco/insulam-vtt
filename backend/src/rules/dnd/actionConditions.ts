@@ -41,6 +41,8 @@ export interface ConditionRider {
   largest?: Size;
   /** How long it lasts, as the text says: "the start of the assassin's next turn". */
   until?: string;
+  /** The target repeats the save at the end of each of its turns, ending the condition on a success. */
+  repeats?: boolean;
 }
 
 const SIZE_GATE = new RegExp(
@@ -79,10 +81,19 @@ export function conditionsOnHit(text: string): ConditionRider[] {
   return hit ? conditionsIn(hit[1]) : [];
 }
 
-/** What a failed save gives the target: the conditions written after "Failure:", before "Success:". */
+/**
+ * What a failed save gives the target: the conditions written after
+ * "Failure:", before "Success:" or a "Second Failure:". When the failure says
+ * the target "repeats the save at the end of each of its turns", each one
+ * not tied to a turn is marked to be saved against again.
+ */
 export function conditionsOnFailure(text: string): ConditionRider[] {
-  const failure = /\bfailure:\s*(.*?)(?:\bsuccess:|$)/is.exec(text);
-  return failure ? conditionsIn(failure[1]) : [];
+  const failure = /\bfailure:\s*(.*?)(?:\bsecond failure:|\bsuccess:|$)/is.exec(text);
+  if (!failure) return [];
+  const repeats = /repeats the save at the end of each of its turns/i.test(failure[1]);
+  return conditionsIn(failure[1]).map((rider) =>
+    repeats && !turnLimit(rider) ? { ...rider, repeats: true } : rider
+  );
 }
 
 /**

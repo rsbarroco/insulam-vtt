@@ -110,6 +110,11 @@ const devilBlock = {
       description:
         "Wisdom Saving Throw: DC 13, one creature the devil can see within 60 feet. Failure: The target has the Frightened condition until the end of the devil's next turn. Success: The target is immune to this glare for 24 hours.",
     },
+    {
+      name: 'Visage',
+      description:
+        'Wisdom Saving Throw: DC 13, each creature in a 15-foot Emanation originating from the devil. Failure: The target has the Frightened condition and repeats the save at the end of each of its turns, ending the effect on itself on a success. After 1 minute, it succeeds automatically.',
+    },
   ],
 };
 const freshTokens = () => [
@@ -334,6 +339,52 @@ describe('conditions an action gives', () => {
     dm.emit('initiative.next');
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(getState(campaignId).currentTokenId).toBe(DEVIL);
+    expect(await heroConditions()).toEqual([]);
+    expect(getState(campaignId).marks).toEqual([]);
+  });
+
+  it('rolls a repeated save at the end of the target’s turn, and ends the condition on a success', async () => {
+    const entry = (tokenId: string, name: string, initiative: number): CombatantEntry => ({
+      tokenId,
+      mapId,
+      name,
+      imageUrl: '',
+      initiative,
+      hp: null,
+      type: 'npc',
+      disposition: null,
+    });
+    setState(campaignId, {
+      active: true,
+      round: 1,
+      currentTokenId: HERO,
+      combatants: [entry(HERO, 'Hero', 20), entry(DEVIL, 'Chain Devil', 10)],
+    });
+    rolls = [2];
+    await ask(dm, 'combat.save', { sourceId: DEVIL, targetIds: [HERO], action: 3 });
+    expect(await heroConditions()).toEqual(['Frightened']);
+    expect(getState(campaignId).marks).toEqual([
+      {
+        kind: 'condition',
+        attackerId: HERO,
+        targetId: HERO,
+        condition: 'Frightened',
+        ends: 'save',
+        save: { ability: 'wis', dc: 13 },
+        turnEndsLeft: 1,
+      },
+    ]);
+
+    const next = async () => {
+      dm.emit('initiative.next');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    };
+    rolls = [3];
+    await next(); // the hero's turn ends: 3 + 1 fails
+    expect(await heroConditions()).toEqual(['Frightened']);
+    await next(); // the devil's turn ends: nothing to save
+    rolls = [18];
+    await next(); // the hero's turn ends again: 18 + 1 succeeds
     expect(await heroConditions()).toEqual([]);
     expect(getState(campaignId).marks).toEqual([]);
   });

@@ -47,6 +47,21 @@ describe('conditionsOnFailure', () => {
   });
 });
 
+describe('repeated saves', () => {
+  it('marks a condition saved against again at the end of each turn, and stops at a Second Failure', () => {
+    expect(
+      conditionsOnFailure(
+        'Wisdom Saving Throw: DC 12. Failure: The target has the Frightened condition and repeats the save at the end of each of its turns, ending the effect on itself on a success.'
+      )
+    ).toEqual([{ condition: 'Frightened', repeats: true }]);
+    expect(
+      conditionsOnFailure(
+        'Constitution Saving Throw: DC 14. Failure: The target has the Incapacitated condition until the end of its next turn, when it repeats the save. Second Failure: The target has the Paralyzed condition, and it repeats the save at the end of each of its turns.'
+      )
+    ).toEqual([{ condition: 'Incapacitated', until: 'end of its next turn' }]);
+  });
+});
+
 describe('sizes', () => {
   it('takes one square as Medium, and checks the largest size', () => {
     expect(sizeOfSquares(1)).toBe('Medium');

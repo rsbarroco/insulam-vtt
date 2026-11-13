@@ -41,6 +41,7 @@ import {
 } from '../initiativeState';
 import { bestEffort, campaignSockets, getSocketInstance, stillInCampaign } from '../utils';
 import { broadcastMapData, stateRequestAllowed, withinCeiling } from '../shared';
+import { runTurnEnd } from '../turnHooks';
 import { TurnEndSchema, TurnUpdateSchema } from '../../validators/turn';
 
 /** What a send needs of a socket; a connected one and a fetched one both have it. */
@@ -706,9 +707,12 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       if (!withinCeiling(socket, 'initiative.next')) return;
       if (socket.role !== 'DM') { socket.emit('error', { message: 'Only the DM can advance the turn' }); return; }
 
-      const state = getCombatState(socket.campaignId);
-      if (!state.active || state.combatants.length === 0) { socket.emit('error', { message: 'Combat is not active' }); return; }
+      const current = getCombatState(socket.campaignId);
+      if (!current.active || current.combatants.length === 0) { socket.emit('error', { message: 'Combat is not active' }); return; }
 
+      // What the rules make happen as the turn ends (a repeated save) happens first.
+      if (current.currentTokenId) await runTurnEnd(io, socket, socket.campaignId, current.currentTokenId);
+      const state = getCombatState(socket.campaignId);
       const marksBefore = state.marks;
       advanceTurn(state);
       setCombatState(socket.campaignId, state);
@@ -826,6 +830,8 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
 
       // The turn is named, so an end sent twice, or after the DM has moved
       // on, passes one turn and not two.
+      if (!someoneActing(getCombatState(socket.campaignId)) || getCombatState(socket.campaignId).currentTokenId !== tokenId) return;
+      await runTurnEnd(io, socket, socket.campaignId, tokenId);
       const state = getCombatState(socket.campaignId);
       if (!someoneActing(state) || state.currentTokenId !== tokenId) return;
       const marksBefore = state.marks;
