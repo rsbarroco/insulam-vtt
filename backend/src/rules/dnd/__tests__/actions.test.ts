@@ -1,4 +1,5 @@
 import {
+  rechargeOf,
   actionFromSheetAttack,
   actionFromStatBlockEntry,
   actionsFromSheet,
@@ -276,5 +277,15 @@ describe('a Light weapon', () => {
     expect(actionFromSheetAttack({ name: 'Scimitar', attackBonus: 5, damageRoll: '1d6+3' }).attack?.light).toBe(true);
     expect(actionFromSheetAttack({ name: 'Knife', attackBonus: 5, damageRoll: '1d4', properties: ['Light'] }).attack?.light).toBe(true);
     expect(actionFromSheetAttack({ name: 'Greataxe', attackBonus: 5, damageRoll: '1d12' }).attack?.light).toBeUndefined();
+  });
+});
+
+describe('rechargeOf', () => {
+  it('reads the lowest roll a Recharge asks for', () => {
+    expect(rechargeOf('Fire Breath (Recharge 5–6)')).toBe(5);
+    expect(rechargeOf('Roar (Recharge 6)')).toBe(6);
+    expect(rechargeOf('Web (Recharge 4-6)')).toBe(4);
+    expect(rechargeOf('Teleport (Recharge after a Short or Long Rest)')).toBeNull();
+    expect(rechargeOf('Bite')).toBeNull();
   });
 });

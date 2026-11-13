@@ -83,10 +83,12 @@ export interface CombatState {
  * target, to be made with its reaction when the trigger comes, until its next
  * turn starts. Condition: a condition an action gave the target lasts until
  * the start, or the end, of the `attackerId` creature's next turn; the server
- * takes it off the token then.
+ * takes it off the token then. Recharge: the creature (both ids) has spent
+ * the action `action`, until a d6 at the start of one of its turns rolls high
+ * enough.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -95,6 +97,8 @@ export interface WeaponMark {
   ends?: 'start' | 'end' | 'save';
   /** For `ends: 'save'`: the save the target repeats at the end of each of its turns. */
   save?: { ability: string; dc: number };
+  /** For a `recharge` mark: the action spent, until a d6 at the start of the creature's turn gives it back. */
+  action?: string;
 }
 
 /** The combat state as a member is sent it: an offered attack without where its target stood. */
@@ -144,7 +148,11 @@ export function advanceTurn(state: CombatState): void {
   // Sap, Slow, Help and a readied attack last until the start of the attacker's next turn.
   // A condition saved against again lasts until a save ends it.
   state.marks = state.marks.filter(
-    (mark) => countsEnds(mark) || (mark.kind === 'condition' && mark.ends === 'save') || mark.attackerId !== state.currentTokenId
+    (mark) =>
+      countsEnds(mark) ||
+      (mark.kind === 'condition' && mark.ends === 'save') ||
+      mark.kind === 'recharge' ||
+      mark.attackerId !== state.currentTokenId
   );
 }
 

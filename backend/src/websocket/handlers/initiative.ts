@@ -41,7 +41,7 @@ import {
 } from '../initiativeState';
 import { bestEffort, campaignSockets, getSocketInstance, stillInCampaign } from '../utils';
 import { broadcastMapData, stateRequestAllowed, withinCeiling } from '../shared';
-import { runTurnEnd } from '../turnHooks';
+import { runTurnEnd, runTurnStart } from '../turnHooks';
 import { TurnEndSchema, TurnUpdateSchema } from '../../validators/turn';
 
 /** What a send needs of a socket; a connected one and a fetched one both have it. */
@@ -717,6 +717,7 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       advanceTurn(state);
       setCombatState(socket.campaignId, state);
       await takeOffEndedConditions(io, socket.campaignId, state, endedConditions(marksBefore, getCombatState(socket.campaignId).marks));
+      if (state.currentTokenId) await runTurnStart(io, socket, socket.campaignId, state.currentTokenId);
       await broadcastInitiativeState(socket.campaignId);
       logger.debug('initiative.next', { round: state.round, current: state.currentTokenId, campaignId: socket.campaignId });
     } catch (error) {
@@ -838,6 +839,7 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       advanceTurn(state);
       setCombatState(socket.campaignId, state);
       await takeOffEndedConditions(io, socket.campaignId, state, endedConditions(marksBefore, getCombatState(socket.campaignId).marks));
+      if (state.currentTokenId) await runTurnStart(io, socket, socket.campaignId, state.currentTokenId);
       await broadcastInitiativeState(socket.campaignId);
       logger.debug('turn.end', { round: state.round, current: state.currentTokenId, campaignId: socket.campaignId });
     } catch (error) {

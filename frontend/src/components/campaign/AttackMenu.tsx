@@ -124,13 +124,16 @@ function ActionRow({
   onMake: (slotLevel?: number) => void;
 }) {
   const what = action.attack ? attackText(action.attack) : saveText(action.save!);
-  const detail = catches
+  const caught = catches
     ? `${what} · ${catches.length > 0 ? `catches ${catches.join(', ')}` : 'catches nobody'}`
     : what;
+  // A spent "(Recharge 5–6)" waits for its d6 at the start of the creature's turn.
+  const spent = action.recharge !== undefined && !action.recharge.ready;
+  const detail = spent ? `${caught} · not recharged` : caught;
   const levelled = action.spell !== null && action.spell.level > 0;
   if (!levelled) {
     return (
-      <button type="button" disabled={busy} onClick={() => onMake()} className={ROW}>
+      <button type="button" disabled={busy || spent} onClick={() => onMake()} className={ROW}>
         <span className="block text-sm font-medium text-ink">{action.name}</span>
         <span className="block text-xs text-ink-muted">{detail}</span>
       </button>

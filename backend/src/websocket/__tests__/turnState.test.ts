@@ -90,6 +90,13 @@ describe('advanceTurn', () => {
     expect(state.marks).toEqual([mark]);
   });
 
+  it('keeps a spent Recharge however turns pass', () => {
+    const mark = { kind: 'recharge' as const, attackerId: 'b', targetId: 'b', action: 'Fire Breath (Recharge 5–6)', turnEndsLeft: 1 };
+    const state = fight({ marks: [mark] });
+    advanceTurn(state);
+    expect(state.marks).toEqual([mark]);
+  });
+
   it('keeps a Vex to the end of its maker’s next turn', () => {
     const state = fight({ marks: [{ kind: 'vex', attackerId: 'a', targetId: 'b', turnEndsLeft: 2 }] });
     advanceTurn(state); // a's turn ends: one left

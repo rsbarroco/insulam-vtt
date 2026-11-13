@@ -86,4 +86,42 @@ describe('AttackMenu extra attacks', () => {
       expect(socket.ready).toHaveBeenCalledWith('hero', 'ogre', 0, 'when it opens the door')
     );
   });
+
+  it('shows a spent Recharge and does not make it', async () => {
+    const socket = {
+      listCombatActions: vi.fn().mockResolvedValue({
+        ok: true,
+        actions: [
+          {
+            index: 0,
+            name: 'Fire Breath (Recharge 5–6)',
+            cost: 'action',
+            attack: null,
+            spell: null,
+            save: { ability: 'dex', dc: 13, halfOnSuccess: true, damage: '6d6 fire' },
+            recharge: { min: 5, ready: false },
+          },
+        ],
+      }),
+      resolveAttack: vi.fn(),
+      resolveSave: vi.fn(),
+      help: vi.fn(),
+      ready: vi.fn(),
+    };
+    render(
+      <AttackMenu
+        socket={socket as unknown as typeof socketService}
+        attacker={{ id: 'drake', name: 'Drake' }}
+        target={{ id: 'hero', name: 'Hero' }}
+        situation={null}
+        style={{}}
+        caughtBy={() => []}
+        onAim={() => {}}
+        onResolved={() => {}}
+        onClose={() => {}}
+      />
+    );
+    expect(await screen.findByText(/not recharged/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Fire Breath/ })).toBeDisabled();
+  });
 });
