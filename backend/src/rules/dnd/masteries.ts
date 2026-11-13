@@ -4,7 +4,7 @@
 // A character with a feature such as Weapon Mastery uses the mastery
 // property of the kinds of weapons it chose (SRD 5.2.1, "Mastery
 // Properties"; the definitions are in utils/srdWeapons.ts). These are the
-// ones that act at once on the attack that triggers them:
+// ones applied on the attack that triggers them:
 //
 //   • Topple: on a hit, a Constitution saving throw against DC 8 + the
 //     attack's ability modifier + Proficiency Bonus, or the target is Prone.
@@ -12,6 +12,8 @@
 //     feet straight away.
 //   • Graze: on a miss, the target takes damage equal to the attack's
 //     ability modifier, of the weapon's type.
+//   • Sap, Slow and Vex: a mark the combat state keeps until it is used or
+//     runs out (see WeaponMark in websocket/initiativeState.ts).
 //
 // Pure: what the mastery does; the caller applies it.
 // ============================================
@@ -36,6 +38,7 @@ export type MasteryEffect =
   | { kind: 'topple'; dc: number }
   | { kind: 'push'; squares: number }
   | { kind: 'graze'; damage: number; type: string }
+  | { kind: 'mark'; mark: 'sap' | 'slow' | 'vex' }
   | null;
 
 /**
@@ -45,12 +48,17 @@ export type MasteryEffect =
  */
 export function masteryEffect(
   mastery: WeaponMastery,
-  outcome: { hit: boolean },
+  outcome: { hit: boolean; dealt?: number },
   wielder: { modifier: number; proficiencyBonus: number },
   target: { squares: number },
   weaponName: string,
   feetPerSquare = 5
 ): MasteryEffect {
+  // Sap on a hit; Slow and Vex on a hit that deals damage. Each lasts, and the combat state keeps it.
+  if (mastery === 'Sap' && outcome.hit) return { kind: 'mark', mark: 'sap' };
+  if ((mastery === 'Slow' || mastery === 'Vex') && outcome.hit && (outcome.dealt ?? 0) > 0) {
+    return { kind: 'mark', mark: mastery === 'Slow' ? 'slow' : 'vex' };
+  }
   if (mastery === 'Topple' && outcome.hit)
     return { kind: 'topple', dc: 8 + wielder.modifier + wielder.proficiencyBonus };
   if (mastery === 'Push' && outcome.hit && target.squares <= 2)

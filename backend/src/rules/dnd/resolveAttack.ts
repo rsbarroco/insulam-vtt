@@ -46,6 +46,8 @@ export interface AttackRequest {
   };
   /** Advantage or Disadvantage the table grants beyond what the engine can see. */
   mode?: RollMode;
+  /** Reasons the caller found, written as the engine writes its own: "Advantage: Vex". */
+  extraReasons?: readonly string[];
 }
 
 export interface AttackRefusal {
@@ -109,6 +111,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     const score = ranged ? attacker.scores.dex : attacker.scores.str;
     if (score !== null && score < 13) reasons.push(`Disadvantage: a Heavy weapon wants ${ranged ? 'Dexterity' : 'Strength'} 13`);
   }
+  reasons.push(...(request.extraReasons ?? []));
   if (request.mode === 'advantage') reasons.push('Advantage: granted by the table');
   if (request.mode === 'disadvantage') reasons.push('Disadvantage: imposed by the table');
   const mode = rollMode(

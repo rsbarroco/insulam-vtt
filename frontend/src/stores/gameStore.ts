@@ -48,6 +48,7 @@ const EMPTY_COMBAT: CombatState = {
   reactionsSpent: [],
   dodging: [],
   opportunities: [],
+  marks: [],
 };
 
 interface GameState {
@@ -108,8 +109,8 @@ interface GameState {
    * has no turn fields, and is stored with nobody's turn recorded.
    */
   setCombatState: (
-    combat: Omit<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities'> &
-      Partial<Pick<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities'>>
+    combat: Omit<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities' | 'marks'> &
+      Partial<Pick<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities' | 'marks'>>
   ) => void;
   /** Point at a token from either side; pass null to clear. */
   setPeekToken: (tokenId: string | null, source: 'tracker' | 'map') => void;
@@ -200,6 +201,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         reactionsSpent: combat.reactionsSpent ?? [],
         dodging: combat.dodging ?? [],
         opportunities: combat.opportunities ?? [],
+        marks: combat.marks ?? [],
       },
     }),
 

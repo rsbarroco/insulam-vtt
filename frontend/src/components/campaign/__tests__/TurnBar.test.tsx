@@ -437,3 +437,12 @@ describe('a combatant whose conditions stop it', () => {
     expect(screen.getByText('0 of 0 ft left')).toBeInTheDocument();
   });
 });
+
+describe('a Slowed combatant', () => {
+  it('has 10 feet less to move', () => {
+    as('DM', 'dm-1');
+    fight({ marks: [{ kind: 'slow', attackerId: 'ogre', targetId: 'hero', turnEndsLeft: 1 }] });
+    render(<TurnBar />);
+    expect(screen.getByText('20 of 20 ft left')).toBeInTheDocument();
+  });
+});

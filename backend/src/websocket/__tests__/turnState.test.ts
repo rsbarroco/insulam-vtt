@@ -24,7 +24,7 @@ const token = (id: string) => ({ id, name: id, imageUrl: '' });
 const spent = { movementSpent: 15, dashes: 1, action: 'Dash', bonusAction: true, attacks: 0 };
 const fight = (over: Partial<CombatState> = {}): CombatState => ({
   active: true, round: 1, currentTokenId: 'a', combatants: [entry('a'), entry('b'), entry('c')],
-  turn: { ...spent }, reactionsSpent: ['b', 'c'], dodging: [], opportunities: [], ...over,
+  turn: { ...spent }, reactionsSpent: ['b', 'c'], dodging: [], opportunities: [], marks: [], ...over,
 });
 
 describe('freshTurn', () => {
@@ -40,6 +40,29 @@ describe('advanceTurn', () => {
     expect(state.currentTokenId).toBe('b');
     expect(state.round).toBe(1);
     expect(state.turn).toEqual(freshTurn());
+  });
+
+  it('ends a Sap or Slow when the turn of the one who made it begins', () => {
+    // a acts now; b's turn is next.
+    const state = fight({
+      marks: [
+        { kind: 'sap', attackerId: 'b', targetId: 'a', turnEndsLeft: 1 },
+        { kind: 'slow', attackerId: 'c', targetId: 'a', turnEndsLeft: 1 },
+      ],
+    });
+    advanceTurn(state);
+    expect(state.marks).toEqual([{ kind: 'slow', attackerId: 'c', targetId: 'a', turnEndsLeft: 1 }]);
+  });
+
+  it('keeps a Vex to the end of its maker’s next turn', () => {
+    const state = fight({ marks: [{ kind: 'vex', attackerId: 'a', targetId: 'b', turnEndsLeft: 2 }] });
+    advanceTurn(state); // a's turn ends: one left
+    expect(state.marks).toEqual([{ kind: 'vex', attackerId: 'a', targetId: 'b', turnEndsLeft: 1 }]);
+    advanceTurn(state); // b's turn ends
+    advanceTurn(state); // c's turn ends; a's begins
+    expect(state.marks).toHaveLength(1);
+    advanceTurn(state); // a's next turn ends
+    expect(state.marks).toEqual([]);
   });
 
   it('ends the Dodge of the combatant whose turn begins, and nobody else’s', () => {

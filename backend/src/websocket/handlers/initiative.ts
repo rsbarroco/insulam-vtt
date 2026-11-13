@@ -647,6 +647,7 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       state.reactionsSpent = [];
       state.dodging = [];
       state.opportunities = [];
+      state.marks = [];
       setCombatState(socket.campaignId, state);
       await broadcastInitiativeState(socket.campaignId);
       logger.info('initiative.start', { campaignId: socket.campaignId, first: state.combatants[0].name });

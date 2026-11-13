@@ -65,6 +65,23 @@ export interface CombatState {
    * passes.
    */
   opportunities: OpportunityOffer[];
+  /** What a weapon's mastery left on a creature: Sap, Slow or Vex, until it is used or runs out. */
+  marks: WeaponMark[];
+}
+
+/**
+ * A lasting weapon mastery. Sap: the target's next attack roll has
+ * Disadvantage, until the attacker's next turn starts. Slow: the target's
+ * Speed is 10 feet less, until the attacker's next turn starts. Vex: the
+ * attacker's next attack roll against the target has Advantage, until the end
+ * of the attacker's next turn (`turnEndsLeft` counts the attacker's turns
+ * still to end before it goes).
+ */
+export interface WeaponMark {
+  kind: 'sap' | 'slow' | 'vex';
+  attackerId: string;
+  targetId: string;
+  turnEndsLeft: number;
 }
 
 /** The combat state as a member is sent it: an offered attack without where its target stood. */
@@ -94,6 +111,11 @@ export function freshTurn(): TurnState {
  * back. Changes `state`; the caller stores it.
  */
 export function advanceTurn(state: CombatState): void {
+  // The turn that ends counts down a Vex its combatant made.
+  const ending = state.currentTokenId;
+  state.marks = state.marks
+    .map((mark) => (mark.kind === 'vex' && mark.attackerId === ending ? { ...mark, turnEndsLeft: mark.turnEndsLeft - 1 } : mark))
+    .filter((mark) => mark.turnEndsLeft > 0);
   const nextIndex = state.combatants.findIndex((c) => c.tokenId === state.currentTokenId) + 1;
   if (nextIndex >= state.combatants.length) {
     state.round += 1;
@@ -105,6 +127,8 @@ export function advanceTurn(state: CombatState): void {
   state.reactionsSpent = state.reactionsSpent.filter((tokenId) => tokenId !== state.currentTokenId);
   state.dodging = state.dodging.filter((tokenId) => tokenId !== state.currentTokenId);
   state.opportunities = [];
+  // Sap and Slow last until the start of the attacker's next turn.
+  state.marks = state.marks.filter((mark) => mark.kind === 'vex' || mark.attackerId !== state.currentTokenId);
 }
 
 const campaignStates = new Map<string, CombatState>();
@@ -160,6 +184,7 @@ function defaultState(): CombatState {
     reactionsSpent: [],
     dodging: [],
     opportunities: [],
+    marks: [],
   };
 }
 
@@ -168,8 +193,8 @@ export function getState(campaignId: string): CombatState {
 }
 
 /** A combat state as it may be handed in: the turn fields may be left out. */
-export type CombatStateInput = Omit<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities'> &
-  Partial<Pick<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities'>>;
+export type CombatStateInput = Omit<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities' | 'marks'> &
+  Partial<Pick<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities' | 'marks'>>;
 
 export function setState(campaignId: string, input: CombatStateInput): void {
   const listed = new Set(input.combatants.map((c) => c.tokenId));
@@ -191,6 +216,7 @@ export function setState(campaignId: string, input: CombatStateInput): void {
               !(input.reactionsSpent ?? []).includes(offer.attackerId)
           )
         : [],
+    marks: input.active ? (input.marks ?? []).filter((mark) => listed.has(mark.attackerId) && listed.has(mark.targetId)) : [],
   };
   campaignStates.set(campaignId, state);
   bump(campaignId);
@@ -297,6 +323,7 @@ export function withoutCombatants(state: CombatState, gone: (entry: CombatantEnt
       (tokenId) => kept.some((c) => c.tokenId === tokenId) && !(passedOn && tokenId === currentTokenId)
     ),
     opportunities: passedOn ? [] : state.opportunities.filter((offer) => kept.some((c) => c.tokenId === offer.attackerId)),
+    marks: state.marks.filter((mark) => kept.some((c) => c.tokenId === mark.attackerId) && kept.some((c) => c.tokenId === mark.targetId)),
   };
 }
 
@@ -373,5 +400,6 @@ export function projectCombatState(
     opportunities: state.opportunities
       .filter((offer) => listed.has(offer.attackerId) && listed.has(offer.targetId))
       .map(({ attackerId, targetId }) => ({ attackerId, targetId })),
+    marks: state.marks.filter((mark) => listed.has(mark.attackerId) && listed.has(mark.targetId)),
   };
 }

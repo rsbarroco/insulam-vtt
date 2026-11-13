@@ -55,8 +55,16 @@ describe('masteryEffect', () => {
     ).toBeNull();
   });
 
-  it('leaves the others to the table', () => {
-    expect(masteryEffect('Sap', { hit: true }, wielder, medium, 'Mace')).toBeNull();
-    expect(masteryEffect('Vex', { hit: true }, wielder, medium, 'Rapier')).toBeNull();
+  it('marks the target with Sap on a hit, and with Slow or Vex on a hit that deals damage', () => {
+    expect(masteryEffect('Sap', { hit: true, dealt: 0 }, wielder, medium, 'Mace')).toEqual({ kind: 'mark', mark: 'sap' });
+    expect(masteryEffect('Vex', { hit: true, dealt: 5 }, wielder, medium, 'Rapier')).toEqual({ kind: 'mark', mark: 'vex' });
+    expect(masteryEffect('Slow', { hit: true, dealt: 2 }, wielder, medium, 'Club')).toEqual({ kind: 'mark', mark: 'slow' });
+    expect(masteryEffect('Vex', { hit: true, dealt: 0 }, wielder, medium, 'Rapier')).toBeNull();
+    expect(masteryEffect('Sap', { hit: false }, wielder, medium, 'Mace')).toBeNull();
+  });
+
+  it('leaves Cleave and Nick to the table', () => {
+    expect(masteryEffect('Cleave', { hit: true, dealt: 5 }, wielder, medium, 'Greataxe')).toBeNull();
+    expect(masteryEffect('Nick', { hit: true, dealt: 5 }, wielder, medium, 'Dagger')).toBeNull();
   });
 });

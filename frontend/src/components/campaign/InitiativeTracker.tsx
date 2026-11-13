@@ -13,6 +13,7 @@
  *   both readers. Mutations still emit straight from here.
  */
 
+import { markLabels } from '@/utils/turn';
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useId } from 'react';
 import {
   Swords,
@@ -195,6 +196,8 @@ function CombatantRow({
   const refocusValue = useRef(false);
   const name = tokenDisplayName(entry);
   const dodging = useGameStore((state) => state.combat.dodging.includes(entry.tokenId));
+  const marks = useGameStore((state) => state.combat.marks);
+  const marked = markLabels(marks, entry.tokenId);
 
   useEffect(() => {
     if (editing) {
@@ -326,6 +329,14 @@ function CombatantRow({
             title="Took the Dodge action: attack rolls against it have Disadvantage and it makes Dexterity saving throws with Advantage, until its next turn starts"
           >
             Dodging
+          </div>
+        )}
+        {marked.length > 0 && (
+          <div
+            className="text-xs text-ink-muted"
+            title="Weapon masteries: Sapped has Disadvantage on its next attack roll; Slowed has 10 feet less Speed; Vexed gives its attacker Advantage on the next attack roll against it"
+          >
+            {marked.join(' · ')}
           </div>
         )}
         {entry.hp && (
