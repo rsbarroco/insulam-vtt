@@ -27,14 +27,16 @@ import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeath
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
-import { canAct, DODGING, effectiveSpeed, readConditions, type Ability } from '../../rules/dnd/conditions';
+import { canAct, DODGING, effectiveSpeed, readConditions, saveModifiers, type Ability } from '../../rules/dnd/conditions';
+import { savingThrow } from '../../rules/dnd/d20';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import { resolveFall } from '../../rules/dnd/falling';
 import { longRest, spendHitDie } from '../../rules/dnd/rests';
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
-import type { HitPoints } from '../../rules/dnd/damage';
+import { adjustedDamage, applyDamage, DAMAGE_TYPES, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
+import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
 import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
@@ -258,14 +260,14 @@ async function pushToken(
   campaignId: string,
   map: { id: string; width: number; height: number },
   pusher: Token,
-  target: Token
+  target: Token,
+  squares = 1
 ): Promise<boolean> {
   const size = (token: Token) => ({ width: token.size?.width ?? 1, height: token.size?.height ?? 1 });
-  const to = pushedTo(
-    { ...pusher.position, ...size(pusher) },
-    { ...target.position, ...size(target) },
-    { cols: map.width, rows: map.height }
-  );
+  let to = { ...target.position };
+  for (let step = 0; step < squares; step++) {
+    to = pushedTo({ ...pusher.position, ...size(pusher) }, { ...to, ...size(target) }, { cols: map.width, rows: map.height });
+  }
   if (to.x === target.position.x && to.y === target.position.y) return false;
   const updated = await withMapsLocked([map.id], async (tx) => {
     const fresh = await tx.map.findUnique({ where: { id: map.id } });
@@ -279,6 +281,60 @@ async function pushToken(
   if (!updated) return false;
   await bestEffort('map after a shove', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
   return true;
+}
+
+/**
+ * What the attack's weapon mastery does, for a character whose sheet marks
+ * the weapon as one it uses and lists Weapon Mastery among its features:
+ * Topple, Push and Graze are applied here. Answers a line for the log, or
+ * null when nothing happened.
+ */
+async function applyMastery(
+  io: Server,
+  campaignId: string,
+  map: { id: string; width: number; height: number; feetPerSquare: number },
+  action: CombatAction,
+  attackerToken: Token,
+  attackerSheet: Record<string, unknown> | null,
+  targetToken: Token,
+  targetSheet: Record<string, unknown> | null,
+  result: { outcome: { hit: boolean } },
+  defences: Defences | undefined
+): Promise<string | null> {
+  if (!action.mastery || !action.weapon || !attackerSheet || !hasWeaponMastery(readFeatures(attackerSheet))) return null;
+  const modifier = weaponModifier(action.weapon, {
+    str: abilityModifierOf(attackerToken, attackerSheet, 'str') ?? 0,
+    dex: abilityModifierOf(attackerToken, attackerSheet, 'dex') ?? 0,
+  });
+  const effect = masteryEffect(
+    action.mastery,
+    result.outcome,
+    { modifier, proficiencyBonus: proficiencyBonusOf(attackerToken, attackerSheet) },
+    { squares: targetToken.size?.width ?? 1 },
+    action.weapon,
+    map.feetPerSquare
+  );
+  if (!effect) return null;
+  if (effect.kind === 'topple') {
+    const bonus = saveBonusOf(targetToken, targetSheet, 'con') ?? 0;
+    const state = readConditions(targetToken.conditions ?? []);
+    const modifiers = saveModifiers(state, 'con');
+    const save = savingThrow({ bonus: bonus + modifiers.penalty, dc: effect.dc, mode: modifiers.mode, autoFail: modifiers.autoFail });
+    const rolled = save.roll ? `${save.roll.total}` : 'no roll';
+    if (save.success) return `Topple: ${targetToken.name} saves (Constitution ${rolled} vs DC ${effect.dc})`;
+    await giveCondition(io, campaignId, map.id, targetToken.id, 'Prone');
+    return `Topple: ${targetToken.name} fails (Constitution ${rolled} vs DC ${effect.dc}) and is Prone`;
+  }
+  if (effect.kind === 'push') {
+    const moved = await pushToken(io, campaignId, map, attackerToken, targetToken, effect.squares);
+    return moved ? `Push: ${targetToken.name} is pushed ${effect.squares * map.feetPerSquare} ft` : `Push: ${targetToken.name} has nowhere to be pushed`;
+  }
+  const type = (DAMAGE_TYPES as readonly string[]).includes(effect.type) ? (effect.type as DamageType) : null;
+  const dealt = type ? adjustedDamage({ amount: effect.damage, type }, defences ?? {}) : effect.damage;
+  if (dealt <= 0) return `Graze: ${targetToken.name} takes no damage`;
+  const hp = targetSheet ? null : targetToken.hp ? applyDamage(targetToken.hp, [{ amount: dealt, type: 'force' }]).hp : null;
+  await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt, hp }]);
+  return `Graze: ${targetToken.name} takes ${dealt} ${effect.type} damage`;
 }
 
 /** Take a condition off a token of the map, and tell the table. */
@@ -682,13 +738,15 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
+      const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
       if (offer) await spendReaction(io, campaignId, attackerId);
       else await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
       // An attack by or on a token the players are not shown goes to the DM alone.
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
-      await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, result.summary, secret);
+      const summary = mastered ? `${result.summary}; ${mastered}` : result.summary;
+      await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
-      answer(ack, result);
+      answer(ack, { ...result, summary });
       logger.debug('combat.attack', { campaignId, attackerId, targetId, hit: result.outcome.hit, dealt: result.dealt });
     } catch (error) {
       logger.error('combat.attack failed', { err: error });

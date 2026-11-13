@@ -2339,6 +2339,19 @@ export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
                   />
                 </div>
               </div>
+              {/* A weapon of the reference document has a mastery property,
+                  which the VTT applies when the character uses it (Weapon
+                  Mastery, and this kind of weapon chosen). */}
+              {findSrdWeapon(attack.name) && (
+                <label className="flex items-center gap-2 text-xs text-ink-secondary">
+                  <input
+                    type="checkbox"
+                    checked={attack.useMastery === true}
+                    onChange={(e) => updateField(`attacks.${index}.useMastery`, e.target.checked)}
+                  />
+                  Uses its mastery: {findSrdWeapon(attack.name)!.mastery}
+                </label>
+              )}
               {/* Properties.
                   These draw as badges on the read-only sheet, but until now
                   only the built-in templates could set them — the editor's only

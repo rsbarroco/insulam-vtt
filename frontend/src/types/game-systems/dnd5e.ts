@@ -164,6 +164,8 @@ export interface DnD5eAttack {
   notes?: string;
   /** Extra damage lines beyond the primary one. Absent on most attacks. */
   additionalDamage?: DnD5eAdditionalDamage[];
+  /** The character uses this weapon's mastery property, as Weapon Mastery lets it. */
+  useMastery?: boolean;
 }
 
 /**
