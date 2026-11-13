@@ -124,4 +124,71 @@ describe('AttackMenu extra attacks', () => {
     expect(await screen.findByText(/not recharged/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Fire Breath/ })).toBeDisabled();
   });
+
+  it('makes a Multiattack one attack after another against the target', async () => {
+    const claw = {
+      index: 1,
+      name: 'Claw',
+      cost: 'action' as const,
+      attack: { kind: 'melee' as const, bonus: 5, damage: '1d6+3' },
+      spell: null,
+      save: null,
+    };
+    const bite = {
+      index: 2,
+      name: 'Bite',
+      cost: 'action' as const,
+      attack: { kind: 'melee' as const, bonus: 5, damage: '1d8+3' },
+      spell: null,
+      save: null,
+    };
+    const socket = {
+      listCombatActions: vi.fn().mockResolvedValue({
+        ok: true,
+        actions: [
+          {
+            index: 0,
+            name: 'Multiattack',
+            cost: 'action',
+            attack: null,
+            spell: null,
+            save: null,
+            multiattack: [
+              { count: 2, choices: [1] },
+              { count: 1, choices: [2] },
+            ],
+          },
+          claw,
+          bite,
+        ],
+      }),
+      resolveAttack: vi.fn().mockResolvedValue({ ok: true, summary: 'hit', hit: true }),
+      resolveSave: vi.fn(),
+      help: vi.fn(),
+      ready: vi.fn(),
+    };
+    const onResolved = vi.fn();
+    render(
+      <AttackMenu
+        socket={socket as unknown as typeof socketService}
+        attacker={{ id: 'wolf', name: 'Wolf' }}
+        target={{ id: 'hero', name: 'Hero' }}
+        situation={null}
+        style={{}}
+        caughtBy={() => []}
+        onAim={() => {}}
+        onResolved={onResolved}
+        onClose={() => {}}
+      />
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Make them all' }));
+    await waitFor(() =>
+      expect(onResolved).toHaveBeenCalledWith({
+        ok: true,
+        summary: 'hit · hit · hit',
+        landed: true,
+      })
+    );
+    expect(socket.resolveAttack.mock.calls.map(([call]) => call.action)).toEqual([1, 1, 2]);
+  });
 });

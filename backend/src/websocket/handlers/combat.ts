@@ -47,6 +47,7 @@ import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack'
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
 import { onTurnEnd, onTurnStart } from '../turnHooks';
+import { multiattackSteps, type MultiattackStep } from '../../rules/dnd/multiattack';
 import { conditionsOnFailure, conditionsOnHit, fits, sizeOfSquares, turnLimit, type ConditionRider } from '../../rules/dnd/actionConditions';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
@@ -68,6 +69,8 @@ interface ActionSummary {
   extras?: ExtraAttack[];
   /** A "(Recharge 5–6)" action: the lowest d6 roll that gives it back, and whether it is ready now. */
   recharge?: { min: number; ready: boolean };
+  /** A stat block's Multiattack: how many attacks, and which actions (by index) each may be. */
+  multiattack?: MultiattackStep[];
 }
 
 const standing = (token: Token): Standing => ({
@@ -1117,7 +1120,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   }
 
   /**
-   * COMBAT.ACTIONS — List the actions of a token on the current map: its character's attacks and spells or its stat block's actions, with what the server can roll for each. Answered through the acknowledgement. The DM, or the player who controls the token.
+   * COMBAT.ACTIONS — List the actions of a token on the current map: its character's attacks and spells or its stat block's actions, with what the server can roll for each (a Multiattack with the attacks it makes). Answered through the acknowledgement. The DM, or the player who controls the token.
    */
   socket.on('combat.actions', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1139,7 +1142,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (ack) {
         ack({
           ok: true,
-          actions: actionsOf(token, sheet).map((action, index) => summarizeAction(action, index, slots, spentRecharges(socket.campaignId!, token.id))),
+          actions: actionsOf(token, sheet).map((action, index, all) => {
+            const summary = summarizeAction(action, index, slots, spentRecharges(socket.campaignId!, token.id));
+            const steps =
+              action.source === 'statBlock' && /^multiattack/i.test(action.name)
+                ? multiattackSteps(action.text ?? '', all.map((entry) => entry.name))
+                : null;
+            return steps ? { ...summary, multiattack: steps } : summary;
+          }),
           // A stat block's Multiattack says how many attacks it makes; a character's features do.
           attacksPerAction: sheet ? attacksPerAction(features) : null,
           features: featureOptions(features),

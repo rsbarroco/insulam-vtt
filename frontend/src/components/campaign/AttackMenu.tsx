@@ -201,6 +201,36 @@ export default function AttackMenu({
     (action) => action.attack !== null || action.save !== null
   );
   const anyAttackRoll = attacks.some((action) => action.attack !== null);
+  const multiattacks = (actions ?? []).filter((action) => (action.multiattack ?? []).length > 0);
+  const [picks, setPicks] = useState<Record<string, number>>({});
+  const nameOf = (index: number) => actions?.find((action) => action.index === index)?.name ?? `#${index}`;
+
+  /** A Multiattack: each of its attacks against this target, one after another, until one is refused. */
+  const makeAll = async (multi: CombatActionSummary) => {
+    setBusy(true);
+    const lines: string[] = [];
+    let landed = false;
+    for (const [step, { count, choices }] of (multi.multiattack ?? []).entries()) {
+      const index = picks[`${multi.index}:${step}`] ?? choices[0];
+      for (let made = 0; made < count; made += 1) {
+        const answer = await socket.resolveAttack({
+          attackerId: attacker.id,
+          targetId: target.id,
+          action: index,
+          ...(mode !== 'normal' ? { mode } : {}),
+        });
+        if (!answer.ok) {
+          setBusy(false);
+          onResolved(lines.length > 0 ? { ok: true, summary: [...lines, answer.error].join(' · '), landed } : answer);
+          return;
+        }
+        lines.push(answer.summary);
+        landed = landed || answer.hit;
+      }
+    }
+    setBusy(false);
+    onResolved({ ok: true, summary: lines.join(' · '), landed });
+  };
 
   /** Who a save effect is rolled for: everyone its area catches, or the creature aimed at. */
   const targetsOf = (action: CombatActionSummary): string[] => {
@@ -288,6 +318,38 @@ export default function AttackMenu({
           character sheet, or actions to its stat block.
         </p>
       )}
+
+      {multiattacks.map((multi) => (
+        <div key={`multi:${multi.index}`} className="px-2 py-1.5 space-y-1" aria-label={`${multi.name} against ${target.name}`}>
+          <span className="block text-sm font-medium text-ink">{multi.name}</span>
+          <span className="flex flex-wrap items-center gap-1 text-xs text-ink-muted">
+            {(multi.multiattack ?? []).map(({ count, choices }, step) => (
+              <span key={step} className="flex items-center gap-1">
+                {count}×
+                {choices.length > 1 ? (
+                  <select
+                    aria-label={`${multi.name}: attack ${step + 1}`}
+                    className="input-cozy text-xs py-0.5"
+                    value={picks[`${multi.index}:${step}`] ?? choices[0]}
+                    onChange={(event) => setPicks((now) => ({ ...now, [`${multi.index}:${step}`]: Number(event.target.value) }))}
+                  >
+                    {choices.map((choice) => (
+                      <option key={choice} value={choice}>
+                        {nameOf(choice)}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span>{nameOf(choices[0])}</span>
+                )}
+              </span>
+            ))}
+            <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void makeAll(multi)}>
+              Make them all
+            </Button>
+          </span>
+        </div>
+      ))}
 
       {attacks.length > 0 && (
         <>
