@@ -581,3 +581,17 @@ describe('a paladin', () => {
     await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Lay on Hands', 7, { targetId: 'ogre', cure: 'Poisoned' }));
   });
 });
+
+describe('a readied attack', () => {
+  it('is released from the bar with the reaction', async () => {
+    as('PLAYER', 'player-1');
+    h.resolveAttack.mockReset().mockResolvedValue({ ok: true, summary: 'hit; readied: when it moves', hit: true });
+    fight({ currentTokenId: 'ogre', marks: [{ kind: 'ready', attackerId: 'hero', targetId: 'ogre', turnEndsLeft: 1 }] });
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: /Readied: Hero on Ogre/ }));
+    await waitFor(() =>
+      expect(h.resolveAttack).toHaveBeenCalledWith({ attackerId: 'hero', targetId: 'ogre', action: 0, readied: true })
+    );
+  });
+});
+

@@ -24,7 +24,7 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing, turnSerial, type WeaponMark } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
@@ -589,6 +589,9 @@ function featureSummary(name: string, feature: string, sheet: Record<string, unk
   }
 }
 
+/** The attack each token has readied, by campaign: which of its actions, against whom, and for what trigger. */
+const readiedAttacks = new Map<string, Map<string, { targetId: string; action: number; name: string; trigger: string }>>();
+
 /** What each attacker has done this turn that a weapon's extra attack follows from. */
 interface TurnAttacks {
   turn: string;
@@ -942,7 +945,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -952,8 +955,17 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, action: actionIndex, mode, slotLevel, opportunity, extra } = parsed.data;
+      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied } = parsed.data;
       if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
+      if (readied && (opportunity || extra)) return refuseRequest(socket, ack, 'A readied attack is made on its own');
+      // A readied attack is the one readied: its action, against its target, while the mark lasts.
+      const ready = readied ? readiedAttacks.get(campaignId)?.get(attackerId) : undefined;
+      if (readied) {
+        const marked = getCombatState(campaignId).marks.some((m) => m.kind === 'ready' && m.attackerId === attackerId && m.targetId === targetId);
+        if (!ready || ready.targetId !== targetId || !marked) return refuseRequest(socket, ack, 'There is no attack readied against that creature');
+        if (getCombatState(campaignId).reactionsSpent.includes(attackerId)) return refuseRequest(socket, ack, 'The attacker has used its reaction');
+      }
+      const actionIndex = ready ? ready.action : parsed.data.action;
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -982,7 +994,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const acting = someoneActing(turnNow) && turnNow.currentTokenId === attackerId ? turnNow.turn : null;
       const weapon = action.source !== 'spell';
       const allowed = attackerSheet ? attacksPerAction(readFeatures(attackerSheet)) : null;
-      if (!extra && acting && weapon && allowed !== null && acting.action === 'Attack' && acting.attacks >= allowed && socket.role !== 'DM') {
+      if (!extra && !readied && acting && weapon && allowed !== null && acting.action === 'Attack' && acting.attacks >= allowed && socket.role !== 'DM') {
         return refuseRequest(
           socket,
           ack,
@@ -1130,6 +1142,12 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
       if (vexed || sapped || helped) useMarks(campaignId, [vexed, sapped, helped]);
+      if (ready) {
+        const now = getCombatState(campaignId);
+        now.marks = now.marks.filter((m) => !(m.kind === 'ready' && m.attackerId === attackerId));
+        setCombatState(campaignId, now);
+        readiedAttacks.get(campaignId)?.delete(attackerId);
+      }
       if (result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) useSneakAttack(campaignId, attackerId);
       if (attackerRaging && turnNow.currentTokenId === attackerId) keepRaging(campaignId, attackerId);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
@@ -1144,14 +1162,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           }
         }
       }
-      if (offer) await spendReaction(io, campaignId, attackerId);
+      if (offer || ready) await spendReaction(io, campaignId, attackerId);
       else if (extra === 'light' && !nicked) {
         spendBonusAction(campaignId, attackerId);
         await resendInitiativeState(io, campaignId);
       } else if (!extra) await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
       // An attack by or on a token the players are not shown goes to the DM alone.
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
-      const extraLabel = extra === 'cleave' ? 'Cleave' : extra === 'light' ? (nicked ? 'Light extra attack, with Nick' : 'Light extra attack, a Bonus Action') : null;
+      const extraLabel = ready
+        ? `readied: ${ready.trigger}`
+        : extra === 'cleave'
+          ? 'Cleave'
+          : extra === 'light'
+            ? nicked
+              ? 'Light extra attack, with Nick'
+              : 'Light extra attack, a Bonus Action'
+            : null;
       const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : [])].join('; ');
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
@@ -1616,6 +1642,62 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.help failed', { err: error });
       refuseRequest(socket, ack, 'Failed to give the help');
+    }
+  });
+
+  /**
+   * COMBAT.READY — The acting combatant takes the Ready action: it readies one of its attacks (by its place in `combat.actions`; not a spell) against a creature, for a trigger it names. The server spends its action and keeps the readied attack as a mark of kind `ready`; `combat.attack` with `readied: true` makes it, with the reaction, while the mark lasts (until the readier's next turn starts). On the readier's own turn, with its action not yet taken; the DM may overrule both. The DM, or the player who controls the token.
+   */
+  socket.on('combat.ready', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.ready', ack)) return;
+      const parsed = CombatReadySchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const { tokenId, targetId, action: actionIndex, trigger } = parsed.data;
+
+      const map = await currentMap(campaignId);
+      if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
+      const tokens = readTokens(map.tokens);
+      const token = tokens.find((t) => t.id === tokenId);
+      if (!token || !canControlToken(socket.role, token.controlledBy, socket.userId)) {
+        return refuseRequest(socket, ack, 'You can only act for your own token');
+      }
+      const target = tokens.find((t) => t.id === targetId);
+      if (!target || target.id === tokenId || target.layer !== token.layer || (socket.role !== 'DM' && hiddenFromPlayers(target))) {
+        return refuseRequest(socket, ack, 'That creature is not on the map');
+      }
+      const combat = getCombatState(campaignId);
+      if (!combat.active) return refuseRequest(socket, ack, 'An action is readied during combat');
+      const ownTurn = someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn !== null;
+      if (socket.role !== 'DM') {
+        if (!ownTurn) return refuseRequest(socket, ack, 'Ready is an action on the creature’s own turn');
+        if (combat.turn!.action !== null) return refuseRequest(socket, ack, `${token.name} has taken its action this turn`);
+      }
+      const sheet = await sheetOf(token, campaignId);
+      const action = actionsOf(token, sheet)[actionIndex];
+      if (!action?.attack) return refuseRequest(socket, ack, 'That is not an attack the creature has');
+      if (action.source === 'spell') return refuseRequest(socket, ack, 'A readied spell is the table’s to hold for now');
+
+      const now = getCombatState(campaignId);
+      now.marks = [
+        ...now.marks.filter((m) => !(m.kind === 'ready' && m.attackerId === tokenId)),
+        { kind: 'ready', attackerId: tokenId, targetId, turnEndsLeft: 1 },
+      ];
+      if (ownTurn && now.turn) now.turn = { ...now.turn, action: 'Ready' };
+      setCombatState(campaignId, now);
+      const kept = readiedAttacks.get(campaignId) ?? new Map();
+      kept.set(tokenId, { targetId, action: actionIndex, name: action.name, trigger });
+      readiedAttacks.set(campaignId, kept);
+      await resendInitiativeState(io, campaignId);
+      const summary = `${token.name} readies ${action.name} against ${target.name}: ${trigger}`;
+      ack?.({ ok: true, summary });
+      logger.debug('combat.ready', { campaignId, tokenId, targetId });
+    } catch (error) {
+      logger.error('combat.ready failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to ready the attack');
     }
   });
 

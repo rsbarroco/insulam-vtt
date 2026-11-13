@@ -187,6 +187,18 @@ export default function TurnBar() {
     const target = tokens.find((token) => token.id === offer.targetId);
     return attacker && target && mine(attacker) ? [{ attacker, target }] : [];
   });
+  // The attacks this viewer's creatures have readied: made with the reaction when the trigger comes.
+  const readied = combat.marks.flatMap((mark) => {
+    if (mark.kind !== 'ready') return [];
+    const attacker = tokens.find((token) => token.id === mark.attackerId);
+    const target = tokens.find((token) => token.id === mark.targetId);
+    return attacker && target && mine(attacker) ? [{ attacker, target }] : [];
+  });
+  const release = async (attackerId: string, targetId: string) => {
+    const answer = await socket.resolveAttack({ attackerId, targetId, action: 0, readied: true });
+    if (answer.ok) showToast(answer.summary, answer.hit ? 'success' : 'info');
+    else showToast(answer.error, 'error');
+  };
   const strike = async (attackerId: string, targetId: string, action: number) => {
     setWeapons(null);
     const answer = await socket.resolveAttack({ attackerId, targetId, action, opportunity: true });
@@ -311,6 +323,19 @@ export default function TurnBar() {
           />
           {token.id === actingId ? 'Reaction used' : `${tokenDisplayName(token)}: reaction used`}
         </label>
+      ))}
+
+      {readied.map(({ attacker, target }) => (
+        <Button
+          key={`ready:${attacker.id}`}
+          variant="secondary"
+          size="sm"
+          icon={Swords}
+          title="The trigger came: make the readied attack, with the attacker's reaction"
+          onClick={() => void release(attacker.id, target.id)}
+        >
+          Readied: {tokenDisplayName(attacker)} on {tokenDisplayName(target)}
+        </Button>
       ))}
 
       {offers.map(({ attacker, target }) => {

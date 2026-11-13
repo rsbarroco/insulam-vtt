@@ -1642,7 +1642,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1719,6 +1719,8 @@ export interface CombatAttackEvent {
   opportunity?: true;
   /** An extra attack the weapon gives on the attacker's turn. */
   extra?: CombatExtraAttack;
+  /** The attack the attacker readied against this target, made now with its reaction. */
+  readied?: true;
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
@@ -1773,6 +1775,9 @@ export type CombatStandAck = { ok: true } | { ok: false; error: string };
 
 /** `combat.help`: the helper distracted the creature for its allies' next attack. */
 export type CombatHelpAck = { ok: true; summary: string } | { ok: false; error: string };
+
+/** `combat.ready`: the attack is readied for its trigger. */
+export type CombatReadyAck = { ok: true; summary: string } | { ok: false; error: string };
 
 /** `combat.fall`: what a fall did to the token that fell. */
 export type CombatFallAck =
