@@ -46,7 +46,9 @@ export interface SaveProfile {
 export interface CombatAction {
   name: string;
   cost: ActionCost;
-  source: 'sheet' | 'statBlock' | 'spell';
+  source: 'sheet' | 'statBlock' | 'spell' | 'unarmed';
+  /** Which use of the Unarmed Strike it is, when it is one. */
+  unarmed?: 'damage' | 'grapple' | 'prone' | 'push';
   /** An attack roll against Armor Class. A thrown weapon can be both melee and ranged; this is the first it names. */
   attack?: AttackProfile;
   /** A saving throw the targets make. */

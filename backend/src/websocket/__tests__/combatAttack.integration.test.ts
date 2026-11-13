@@ -80,6 +80,7 @@ const heroSheet = () => ({
   armorClass: 16,
   savingThrows: { strength: { bonus: 2 }, dexterity: { bonus: 4 }, constitution: { bonus: 2 }, intelligence: { bonus: 0 }, wisdom: { bonus: 1 }, charisma: { bonus: 0 } },
   attacks: [{ name: 'Longsword', attackBonus: 5, damageRoll: '1d8+3', damageType: 'slashing' }],
+  proficiencyBonus: 2,
   stats: { strength: { score: 16, modifier: 3 }, wisdom: { score: 12, modifier: 1 } },
   skills: { stealth: { proficient: true, expertise: false, bonus: 6 }, perception: { proficient: true, expertise: false, bonus: 4 } },
   spellcasting: { spellAttackBonus: 6, spellSaveDC: 14, cantrips: ['Fire Bolt'], spells: [{ name: 'Fireball', level: 3, prepared: true, ritual: false, concentration: false }], slots: { '3': { total: 2, expended: 0 }, '4': { total: 1, expended: 0 } } },
@@ -152,6 +153,11 @@ describe('combat.actions', () => {
       expect.objectContaining({ index: 0, name: 'Longsword', attack: expect.objectContaining({ kind: 'melee', bonus: 5, damage: '1d8+3 slashing' }) }),
       expect.objectContaining({ index: 1, name: 'Fire Bolt', attack: expect.objectContaining({ kind: 'ranged', bonus: 6, damage: '1d10 fire' }) }),
       expect.objectContaining({ index: 2, name: 'Fireball', attack: null, spell: { level: 3, slotLevels: [3, 4] }, save: expect.objectContaining({ ability: 'dex', dc: 14, damage: '8d6 fire', halfOnSuccess: true }) }),
+      // Every creature's Unarmed Strike comes after its own: Strength +3 and a Proficiency Bonus of +2.
+      expect.objectContaining({ index: 3, name: 'Unarmed Strike', attack: expect.objectContaining({ kind: 'melee', bonus: 5, damage: '4 bludgeoning' }) }),
+      expect.objectContaining({ index: 4, name: 'Grapple', attack: null, save: expect.objectContaining({ dc: 13 }) }),
+      expect.objectContaining({ index: 5, name: 'Shove: knock Prone', save: expect.objectContaining({ dc: 13 }) }),
+      expect.objectContaining({ index: 6, name: 'Shove: push 5 ft', save: expect.objectContaining({ dc: 13 }) }),
     ]);
   });
 
@@ -162,6 +168,10 @@ describe('combat.actions', () => {
       ['Javelin', 'ranged'],
       ['Roar', null],
       ['Stomp', null],
+      ['Unarmed Strike', 'melee'],
+      ['Grapple', null],
+      ['Shove: knock Prone', null],
+      ['Shove: push 5 ft', null],
     ]);
   });
 
