@@ -196,13 +196,17 @@ export default function AttackMenu({
   const [mode, setMode] = useState<AttackMode>('normal');
   const [busy, setBusy] = useState(false);
   const [trigger, setTrigger] = useState('');
+  const [canReckless, setCanReckless] = useState(false);
+  const [reckless, setReckless] = useState(false);
 
   useEffect(() => {
     let current = true;
     void socket.listCombatActions(attacker.id).then((answer) => {
       if (!current) return;
-      if (answer.ok) setActions(answer.actions);
-      else setProblem(answer.error);
+      if (answer.ok) {
+        setActions(answer.actions);
+        setCanReckless(answer.reckless === true);
+      } else setProblem(answer.error);
     });
     return () => {
       current = false;
@@ -235,6 +239,7 @@ export default function AttackMenu({
           action: index,
           ...(mode !== 'normal' ? { mode } : {}),
           ...(legendaryFor !== undefined ? { legendary: legendaryFor } : {}),
+          ...(reckless && lines.length === 0 ? { reckless: true as const } : {}),
         });
         legendaryFor = undefined;
         if (!answer.ok) {
@@ -279,6 +284,7 @@ export default function AttackMenu({
         ...(mode !== 'normal' ? { mode } : {}),
         ...slot,
         ...(extra ? { extra } : {}),
+        ...(reckless ? { reckless: true as const } : {}),
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -445,6 +451,19 @@ export default function AttackMenu({
                 onChange={(event) => setTrigger(event.target.value)}
                 className="input-cozy text-sm py-1 w-40"
               />
+            </label>
+          )}
+          {anyAttackRoll && canReckless && (
+            <label
+              className="flex items-center gap-2 text-sm text-ink"
+              title="Reckless Attack, with the first attack roll of your turn: Advantage on attack rolls using Strength, and attack rolls against you have Advantage, until your next turn."
+            >
+              <input
+                type="checkbox"
+                checked={reckless}
+                onChange={(event) => setReckless(event.target.checked)}
+              />
+              Attack recklessly
             </label>
           )}
           {anyAttackRoll && (

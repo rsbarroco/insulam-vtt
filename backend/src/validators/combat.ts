@@ -28,6 +28,8 @@ export const CombatAttackSchema = z
     readied: z.literal(true).optional(),
     /** The stat block Legendary Action (by index) this attack is made for: it spends one use. */
     legendary: z.number().int().min(0).max(199).optional(),
+    /** A Barbarian's Reckless Attack, decided with the first attack roll of its turn. */
+    reckless: z.literal(true).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });

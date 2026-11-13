@@ -90,10 +90,11 @@ export interface CombatState {
  * enough. Legendary: one Legendary Action the creature (both ids) has taken
  * this round; all of them go at the start of its turn. Concentration: the
  * caster (both ids) concentrates on the spell `action`, until it ends it, casts
- * another, fails a save when damaged or drops to 0 Hit Points.
+ * another, fails a save when damaged or drops to 0 Hit Points. Reckless: the
+ * Barbarian (both ids) attacks recklessly, until the start of its next turn.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;

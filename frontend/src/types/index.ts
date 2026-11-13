@@ -1644,7 +1644,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1724,6 +1724,8 @@ export type CombatActionsAck =
       /** The spell it concentrates on, and the concentration spells its sheet has ready. */
       concentration?: string | null;
       concentrationSpells?: string[];
+      /** A Barbarian's Reckless Attack, decided with the first attack roll of its turn. */
+      reckless?: boolean;
     }
   | { ok: false; error: string };
 
@@ -1743,6 +1745,8 @@ export interface CombatAttackEvent {
   readied?: true;
   /** The stat block Legendary Action (by index) this attack is made for: it spends one use. */
   legendary?: number;
+  /** Attack recklessly: Advantage on Strength attacks, and attacks against it, until its next turn. */
+  reckless?: true;
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
