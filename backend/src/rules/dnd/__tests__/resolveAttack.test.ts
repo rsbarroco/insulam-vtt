@@ -264,3 +264,24 @@ describe('damage a spell adds on a hit', () => {
     expect(crit.dealt).toBe(9);
   });
 });
+
+describe('a reaction that takes damage off a hit', () => {
+  const deflect = { label: 'Deflect Attacks', roll: { count: 1, sides: 10, bonus: 5 }, types: ['bludgeoning', 'piercing', 'slashing'] as const };
+
+  it('takes the roll off a hit of a type it answers, to no less than 0', () => {
+    // 6 + 3 = 9 slashing; 2 + 5 = 7 off.
+    const hit = ok(resolveAttack(request({ reduceDamage: { ...deflect, types: [...deflect.types] } }), dice(12, 6, 2)));
+    expect(hit.dealt).toBe(2);
+    expect(hit.reducedBy).toEqual({ label: 'Deflect Attacks', amount: 7 });
+    expect(hit.summary).toBe('Longsword vs Ogre (AC 14): hit, 2 slashing damage (7 taken off by Deflect Attacks)');
+    const all = ok(resolveAttack(request({ reduceDamage: { ...deflect, types: [...deflect.types] } }), dice(12, 1, 10)));
+    expect(all.dealt).toBe(0);
+  });
+
+  it('does nothing against a type it does not answer', () => {
+    const fire: typeof sword = { ...sword, attack: { ...sword.attack!, damage: [{ roll: { count: 1, sides: 8, bonus: 3 }, type: 'fire' }] } };
+    const hit = ok(resolveAttack(request({ action: fire, reduceDamage: { ...deflect, types: [...deflect.types] } }), dice(12, 6, 2)));
+    expect(hit.dealt).toBe(9);
+    expect(hit.reducedBy).toBeUndefined();
+  });
+});

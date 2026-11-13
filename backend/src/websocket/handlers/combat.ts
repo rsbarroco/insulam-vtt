@@ -45,6 +45,7 @@ import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dn
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd/smites';
+import { deflectReduction } from '../../rules/dnd/reactions';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
 import { onTurnEnd, onTurnStart } from '../turnHooks';
@@ -830,6 +831,10 @@ function useSneakAttack(campaignId: string, tokenId: string): void {
 /** The turn each campaign's last Action Surge was used in: once a turn. */
 const actionSurges = new Map<string, { tokenId: string; round: number }>();
 
+/** The reactions a creature can hold ready for the next hit on it, by the mark each leaves. */
+const HELD_REACTIONS = { 'Uncanny Dodge': 'uncanny', 'Deflect Attacks': 'deflect' } as const;
+const isHeldReaction = (mark: WeaponMark) => mark.kind === 'uncanny' || mark.kind === 'deflect';
+
 /** A combatant's reaction is spent; what it was offered to spend it on goes with it. */
 async function spendReaction(io: Server, campaignId: string, tokenId: string): Promise<void> {
   const combat = getCombatState(campaignId);
@@ -1588,11 +1593,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         !targetState.has.has('blinded') &&
         !readConditions(attackerToken.conditions ?? []).has.has('invisible') &&
         !lit?.attacker;
+      // Deflect Attacks the target holds ready: its reaction takes 1d10 + Dexterity modifier + Monk level off a hit.
+      const deflect =
+        !uncanny &&
+        turnNow.marks.some((mark) => mark.kind === 'deflect' && mark.attackerId === targetId) &&
+        targetSheet !== null &&
+        hasFeature(readFeatures(targetSheet), 'Deflect Attacks') &&
+        !turnNow.reactionsSpent.includes(targetId) &&
+        canAct(targetState)
+          ? deflectReduction(targetSheet)
+          : null;
 
       const result = resolveAttack({
         unseen: lit,
         extraReasons,
         ...(uncanny ? { halveDamage: 'Uncanny Dodge' } : {}),
+        ...(deflect ? { reduceDamage: deflect } : {}),
         ...(smite !== undefined
           ? {
               hitDamage: [
@@ -1639,9 +1655,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const concentrating = action.spell ? findSpell(action.name) : null;
       if (concentrating?.concentration) startConcentration(campaignId, attackerId, concentrating.name);
       if (vexed || sapped || helped) useMarks(campaignId, [vexed, sapped, helped]);
-      if (result.halvedBy) {
+      if (result.halvedBy || result.reducedBy) {
         const now = getCombatState(campaignId);
-        now.marks = now.marks.filter((mark) => !(mark.kind === 'uncanny' && mark.attackerId === targetId));
+        now.marks = now.marks.filter((mark) => !(isHeldReaction(mark) && mark.attackerId === targetId));
         setCombatState(campaignId, now);
         await spendReaction(io, campaignId, targetId);
       }
@@ -1945,7 +1961,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Uncanny Dodge` holds the Rogue's reaction ready, or lets it go: the next hit from an attacker it can see deals half damage and spends it. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Uncanny Dodge` holds the Rogue's reaction ready, or lets it go: the next hit from an attacker it can see deals half damage and spends it. `Deflect Attacks` does the same for a Monk: the next hit that deals Bludgeoning, Piercing or Slashing damage is reduced by 1d10 + its Dexterity modifier + its Monk level. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1975,17 +1991,18 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const combat = getCombatState(campaignId);
       const ownTurn = someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn !== null;
-      // Uncanny Dodge: the reaction is held for the next hit from an attacker the Rogue can see, or let go.
-      if (feature === 'Uncanny Dodge') {
-        if (!combat.active) return refuseRequest(socket, ack, 'Uncanny Dodge is held ready during combat');
-        if (!hasFeature(readFeatures(ownSheet), 'Uncanny Dodge')) return refuseRequest(socket, ack, `${token.name} has no Uncanny Dodge`);
-        const held = combat.marks.some((mark) => mark.kind === 'uncanny' && mark.attackerId === tokenId);
-        combat.marks = held
-          ? combat.marks.filter((mark) => !(mark.kind === 'uncanny' && mark.attackerId === tokenId))
-          : [...combat.marks, { kind: 'uncanny', attackerId: tokenId, targetId: tokenId, turnEndsLeft: 1 }];
+      // Uncanny Dodge, Deflect Attacks: the reaction is held for the next hit it answers, or let go.
+      // One reaction: holding one lets the other go.
+      if (feature === 'Uncanny Dodge' || feature === 'Deflect Attacks') {
+        if (!combat.active) return refuseRequest(socket, ack, `${feature} is held ready during combat`);
+        if (!hasFeature(readFeatures(ownSheet), feature)) return refuseRequest(socket, ack, `${token.name} has no ${feature}`);
+        const kind = HELD_REACTIONS[feature];
+        const held = combat.marks.some((mark) => mark.kind === kind && mark.attackerId === tokenId);
+        const others = combat.marks.filter((mark) => !(isHeldReaction(mark) && mark.attackerId === tokenId));
+        combat.marks = held ? others : [...others, { kind, attackerId: tokenId, targetId: tokenId, turnEndsLeft: 1 }];
         setCombatState(campaignId, combat);
         await resendInitiativeState(io, campaignId);
-        const summary = held ? `${token.name} no longer holds Uncanny Dodge ready` : `${token.name} holds Uncanny Dodge ready`;
+        const summary = held ? `${token.name} no longer holds ${feature} ready` : `${token.name} holds ${feature} ready`;
         ack?.({ ok: true, summary, left: 0 });
         return;
       }

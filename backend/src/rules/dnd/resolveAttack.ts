@@ -16,6 +16,7 @@ import type { CombatAction, DamageComponent } from './actions';
 import { attackModifiers, canAct, readConditions } from './conditions';
 import { attackRoll, rollDie, rollMode, type AttackOutcome, type RollDie, type RollMode } from './d20';
 import { lucky } from './species';
+import type { DamageReduction } from './reactions';
 import { atLeastThree } from './feats';
 import { adjustedDamage, applyDamage, rollDamage, type DamageType, type Defences, type HitPoints, type RolledDamage } from './damage';
 
@@ -69,6 +70,8 @@ export interface AttackRequest {
   greatWeapon?: boolean;
   /** Damage spells cast on a hit add, whatever the roll's mode: Divine Smite. Their dice are doubled on a Critical Hit. */
   hitDamage?: ReadonlyArray<{ label: string; damage: DamageComponent }>;
+  /** A reaction of the target's that takes a rolled amount off a hit with one of its damage types: Deflect Attacks. */
+  reduceDamage?: DamageReduction;
   /** A reaction of the target's that halves a hit's damage (round down), by name: "Uncanny Dodge". */
   halveDamage?: string;
 }
@@ -97,6 +100,8 @@ export interface AttackResult {
   instantDeath: boolean;
   /** The target's reaction that halved the damage of the hit. */
   halvedBy?: string;
+  /** The target's reaction that took damage off the hit, and how much. */
+  reducedBy?: { label: string; amount: number };
   /** One line for the log. */
   summary: string;
 }
@@ -170,6 +175,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   let hp = target.hp;
   let dropped = false;
   let instantDeath = false;
+  let reducedBy: AttackResult['reducedBy'];
   if (outcome.hit) {
     const dieRoll = request.greatWeapon ? atLeastThree(roll) : roll;
     const rollWeapon = () =>
@@ -203,6 +209,13 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     );
     // A reaction that halves the hit's damage (Uncanny Dodge), rounded down.
     if (request.halveDamage) dealt = Math.floor(dealt / 2);
+    // A reaction that takes a roll off the hit (Deflect Attacks), when the hit deals a type it answers.
+    const reduction = request.reduceDamage;
+    if (reduction && damage.some((entry) => entry.type !== null && reduction.types.includes(entry.type))) {
+      const amount = Math.max(0, rollDamage({ count: reduction.roll.count, sides: reduction.roll.sides, bonus: reduction.roll.bonus }, false, roll).total);
+      reducedBy = { label: reduction.label, amount };
+      dealt = Math.max(0, dealt - amount);
+    }
     if (target.hp) {
       // Already adjusted, so applied as it stands.
       const applied = applyDamage(target.hp, [{ amount: dealt, type: 'force' }]);
@@ -225,7 +238,17 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     dropped,
     instantDeath,
     ...(outcome.hit && request.halveDamage ? { halvedBy: request.halveDamage } : {}),
-    summary: summarize(target.name, action.name, outcome, damage, dealt, dropped, instantDeath, outcome.hit ? request.halveDamage : undefined),
+    ...(reducedBy ? { reducedBy } : {}),
+    summary: summarize(
+      target.name,
+      action.name,
+      outcome,
+      damage,
+      dealt,
+      dropped,
+      instantDeath,
+      outcome.hit && request.halveDamage ? `halved by ${request.halveDamage}` : reducedBy ? `${reducedBy.amount} taken off by ${reducedBy.label}` : undefined
+    ),
   };
 }
 
@@ -237,12 +260,12 @@ function summarize(
   dealt: number,
   dropped: boolean,
   instantDeath: boolean,
-  halvedBy?: string
+  note?: string
 ): string {
   const versus = `${action} vs ${target} (AC ${outcome.armorClass})`;
   if (!outcome.hit) return `${versus}: miss`;
   const types = [...new Set(damage.map((entry) => entry.type).filter(Boolean))].join(' and ');
-  const amount = `${dealt}${types ? ` ${types}` : ''} damage${halvedBy ? ` (halved by ${halvedBy})` : ''}`;
+  const amount = `${dealt}${types ? ` ${types}` : ''} damage${note ? ` (${note})` : ''}`;
   const fate = instantDeath ? `; ${target} is killed outright` : dropped ? `; ${target} drops to 0 hit points` : '';
   return `${versus}: ${outcome.critical ? 'critical hit' : 'hit'}, ${amount}${fate}`;
 }
