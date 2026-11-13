@@ -1326,6 +1326,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           // A stat block's Multiattack says how many attacks it makes; a character's features do.
           attacksPerAction: sheet ? attacksPerAction(features) : null,
           features: featureOptions(features),
+          // A Barbarian's Reckless Attack, offered with the first attack roll of its turn.
+          reckless: sheet ? hasFeature(features, 'Reckless Attack') : false,
           // The class features it spends and gets back on a rest, with what is left.
           resources: sheet ? resourcesOf(sheet).map(({ name, max, used }) => ({ name, max, used })) : [],
           // The spell it concentrates on, and those it could.
@@ -1345,7 +1347,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1355,7 +1357,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary } = parsed.data;
+      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless } = parsed.data;
       if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
       if (readied && (opportunity || extra)) return refuseRequest(socket, ack, 'A readied attack is made on its own');
       // A readied attack is the one readied: its action, against its target, while the mark lasts.
@@ -1411,6 +1413,17 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           ack,
           `${attackerToken.name} has made its ${allowed === 1 ? 'attack' : `${allowed} attacks`} with the Attack action this turn`
         );
+      }
+
+      // Reckless Attack is decided with the first attack roll of the Barbarian's own turn.
+      const alreadyReckless = turnNow.marks.some((mark) => mark.kind === 'reckless' && mark.attackerId === attackerId);
+      if (reckless && !alreadyReckless) {
+        if (!attackerSheet || !hasFeature(readFeatures(attackerSheet), 'Reckless Attack')) {
+          return refuseRequest(socket, ack, `${attackerToken.name} has no Reckless Attack`);
+        }
+        if (!acting || acting.attacks > 0 || opportunity || readied) {
+          return refuseRequest(socket, ack, 'Reckless Attack is decided with the first attack roll of the turn');
+        }
       }
 
       // An Opportunity Attack is the one the target's movement offered: one
@@ -1500,7 +1513,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return helperSide !== null && helperSide === ownSide;
       });
       const helperName = helped ? (tokens.find((t) => t.id === helped.attackerId)?.name ?? 'an ally') : null;
+      // Reckless Attack: Advantage on the Barbarian's Strength attacks, and on attacks against it.
+      const attackingRecklessly =
+        (reckless || alreadyReckless) && attackerSheet !== null && usesStrength(action, attackerToken, attackerSheet);
+      const targetReckless = turnNow.marks.some((mark) => mark.kind === 'reckless' && mark.attackerId === targetId);
       const extraReasons = [
+        ...(attackingRecklessly ? ['Advantage: Reckless Attack'] : []),
+        ...(targetReckless ? [`Advantage: Reckless Attack (${targetToken.name})`] : []),
         ...(vexed ? [`Advantage: Vex (${attackerToken.name}'s last hit)`] : []),
         ...(helped ? [`Advantage: Help (${helperName})`] : []),
         ...(sapped ? ['Disadvantage: Sapped'] : []),
@@ -1574,6 +1593,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const concentrating = action.spell ? findSpell(action.name) : null;
       if (concentrating?.concentration) startConcentration(campaignId, attackerId, concentrating.name);
       if (vexed || sapped || helped) useMarks(campaignId, [vexed, sapped, helped]);
+      if (reckless && !alreadyReckless) {
+        const now = getCombatState(campaignId);
+        now.marks = [...now.marks, { kind: 'reckless', attackerId, targetId: attackerId, turnEndsLeft: 1 }];
+        setCombatState(campaignId, now);
+      }
       if (ready) {
         const now = getCombatState(campaignId);
         now.marks = now.marks.filter((m) => !(m.kind === 'ready' && m.attackerId === attackerId));

@@ -77,6 +77,7 @@ export function markLabels(marks: CombatState['marks'], tokenId: string): string
   if (marks.some((mark) => mark.kind === 'rage' && mark.targetId === tokenId)) labels.push('Raging');
   if (marks.some((mark) => mark.kind === 'help' && mark.targetId === tokenId)) labels.push('Distracted');
   if (marks.some((mark) => mark.kind === 'ready' && mark.targetId === tokenId)) labels.push('Readied against');
+  if (marks.some((mark) => mark.kind === 'reckless' && mark.attackerId === tokenId)) labels.push('Reckless');
   const held = marks.find((mark) => mark.kind === 'concentration' && mark.attackerId === tokenId);
   if (held) labels.push(`Concentrating (${held.action ?? 'a spell'})`);
   return labels;
