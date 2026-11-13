@@ -41,6 +41,8 @@ export const CombatSaveSchema = z
     action: z.number().int().min(0).max(199),
     /** The level of the spell slot a spell is cast with; the spell's own when left out. */
     slotLevel: z.number().int().min(1).max(9).optional(),
+    /** The empty square an area is aimed at: it must be within the action's range. */
+    point: z.object({ x: z.number().int().min(0).max(1000), y: z.number().int().min(0).max(1000) }).strict().optional(),
   })
   .strict()
   .refine((save) => new Set(save.targetIds).size === save.targetIds.length, { message: 'A target is named twice' });

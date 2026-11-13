@@ -176,9 +176,14 @@ export default function TacticalMapCanvas() {
   /** The token whose movement numbers the DM is editing, and where the editor sits. */
   const [editing, setEditing] = useState<{ tokenId: string; x: number; y: number } | null>(null);
   /** The target the held token is about to attack, and where its menu opens. */
-  const [attacking, setAttacking] = useState<{ targetId: string; x: number; y: number } | null>(
-    null
-  );
+  // What a held token was right-clicked on: another token, or an empty square
+  // to aim an area at (targetId empty, `cell` the square).
+  const [attacking, setAttacking] = useState<{
+    targetId: string;
+    cell?: { x: number; y: number };
+    x: number;
+    y: number;
+  } | null>(null);
 
   const heights = isHeightGrid(currentMap?.tileHeights) ? currentMap.tileHeights : null;
   // Heights for another size of board would put tiles in the wrong place;
@@ -446,9 +451,15 @@ export default function TacticalMapCanvas() {
   const aimTarget = attacking
     ? (tokens.find((token) => token.id === attacking.targetId) ?? null)
     : null;
+  // Where an area is aimed: the token right-clicked, or the empty square.
+  const aimStanding = aimTarget
+    ? standingOf(aimTarget)
+    : attacking?.cell
+      ? { cell: attacking.cell, size: { width: 1, height: 1 } }
+      : null;
   const cellsOfArea = (area: AreaOfEffect): Set<string> =>
-    held && aimTarget && currentMap
-      ? areaCells(area, standingOf(held), standingOf(aimTarget), {
+    held && aimStanding && currentMap
+      ? areaCells(area, standingOf(held), aimStanding, {
           cols: currentMap.width,
           rows: currentMap.height,
           feetPerSquare: currentMap.feetPerSquare,
@@ -457,7 +468,7 @@ export default function TacticalMapCanvas() {
   const aimedCells = useMemo(
     () => (aimedArea ? cellsOfArea(aimedArea) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- cellsOfArea reads only what is listed here
-    [aimedArea, held, aimTarget, currentMap]
+    [aimedArea, held, aimTarget, attacking?.cell?.x, attacking?.cell?.y, currentMap]
   );
   const caughtBy = (area: AreaOfEffect) => {
     const cells = cellsOfArea(area);
@@ -696,12 +707,23 @@ export default function TacticalMapCanvas() {
     return cell ? pickTokenAt(tokens, cell.x, cell.y, tokenView) : null;
   };
 
-  /** Right-click on another token while one is held: the held one attacks it. */
+  /**
+   * Right-click on another token while one is held: the held one attacks it.
+   * On an empty square, it can aim an area effect there.
+   */
   const openAttackMenu = (event: React.PointerEvent) => {
     const target = tokenUnder(event);
     const rect = containerRef.current?.getBoundingClientRect();
-    if (!held || !target || target.id === held.id || !rect) {
+    if (!held || !rect || target?.id === held.id) {
       setAttacking(null);
+      return;
+    }
+    if (!target) {
+      const iso = toIso(event);
+      const cell = iso && view ? pickCell(iso.x, iso.y, view, boardHeights) : null;
+      setAttacking(
+        cell ? { targetId: '', cell: { x: cell.x, y: cell.y }, x: event.clientX - rect.left, y: event.clientY - rect.top } : null
+      );
       return;
     }
     setAttacking({
@@ -899,6 +921,7 @@ export default function TacticalMapCanvas() {
 
   const attackTarget =
     attacking && held ? (tokens.find((token) => token.id === attacking.targetId) ?? null) : null;
+  const aimedSquare = attacking && held && !attackTarget ? (attacking.cell ?? null) : null;
 
   const editingToken = editing
     ? (tokens.find((token) => token.id === editing.tokenId) ?? null)
@@ -1053,14 +1076,19 @@ export default function TacticalMapCanvas() {
         />
       )}
 
-      {attacking && attackTarget && held && socket && (
+      {attacking && (attackTarget || aimedSquare) && held && socket && (
         <AttackMenu
-          key={`${held.id}:${attackTarget.id}`}
+          key={`${held.id}:${attackTarget?.id ?? `${aimedSquare!.x},${aimedSquare!.y}`}`}
           socket={socket}
           attacker={{ id: held.id, name: tokenDisplayName(held) }}
-          target={{ id: attackTarget.id, name: tokenDisplayName(attackTarget) }}
+          target={
+            attackTarget
+              ? { id: attackTarget.id, name: tokenDisplayName(attackTarget) }
+              : { id: '', name: `the square ${aimedSquare!.x + 1}, ${aimedSquare!.y + 1}` }
+          }
+          point={aimedSquare ?? undefined}
           situation={
-            sight && sightTarget?.id === attackTarget.id
+            attackTarget && sight && sightTarget?.id === attackTarget.id
               ? `${formatFeet(sight.feet)} ft away, ${coverLabel(sight.cover)}`
               : null
           }

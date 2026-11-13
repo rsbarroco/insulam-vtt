@@ -1747,7 +1747,14 @@ export type CombatAttackAck =
   | { ok: false; error: string };
 
 /** `combat.save`: an action that calls for a saving throw, against one or more tokens. */
-export interface CombatSaveEvent { sourceId: string; targetIds: string[]; action: number; slotLevel?: number; }
+export interface CombatSaveEvent {
+  sourceId: string;
+  targetIds: string[];
+  action: number;
+  slotLevel?: number;
+  /** The empty square an area is aimed at, which must be within the action's range. */
+  point?: { x: number; y: number };
+}
 export type CombatSaveAck =
   | { ok: true; summary: string; dc: number; ability: string; targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }> }
   | { ok: false; error: string };
