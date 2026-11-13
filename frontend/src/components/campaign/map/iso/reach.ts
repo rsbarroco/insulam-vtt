@@ -14,7 +14,8 @@
 //   • A larger drop is climbed down at the same price, unless it is 10 feet
 //     or more: that one is jumped, costs nothing extra, and is a fall.
 //
-// A Prone creature crawls: each foot of the way costs a foot more.
+// A Prone creature crawls: each foot of the way costs a foot more. So does
+// each foot into a square the DM marked as Difficult Terrain.
 //
 // A creature walks through others on its own side and round the rest, and
 // stops on no occupied square. One larger than a square moves as a block
@@ -23,7 +24,7 @@
 // Pure: no React, no canvas.
 // ============================================
 
-import { heightAt, type HeightGrid } from './heightGrid';
+import { heightAt, isDifficult, type HeightGrid } from './heightGrid';
 import type { Cell } from './projection';
 
 /** A drop of at least this many feet is a fall. */
@@ -72,6 +73,20 @@ export interface Reach {
 
 export function cellKey(cell: Cell): string {
   return `${cell.x},${cell.y}`;
+}
+
+/** Whether any cell under a footprint is Difficult Terrain. */
+export function difficultUnder(
+  origin: Cell,
+  size: { width: number; height: number },
+  heights: HeightGrid | null
+): boolean {
+  for (let dy = 0; dy < size.height; dy++) {
+    for (let dx = 0; dx < size.width; dx++) {
+      if (isDifficult(heights, origin.x + dx, origin.y + dy)) return true;
+    }
+  }
+  return false;
 }
 
 /** The ground a footprint stands on: the tallest cell under it. */
@@ -184,7 +199,9 @@ export function computeReach(unit: ReachUnit, board: ReachBoard): Reach {
           ? 2 * square
           : square;
       const height = heightCost(groundUnder(to, unit.size, board.heights) - ground, square);
-      const feet = state.feet + across * (unit.crawling ? 2 : 1) + height.extraFeet;
+      // Crawling and Difficult Terrain each add a foot to every foot of the way.
+      const slow = (unit.crawling ? 1 : 0) + (difficultUnder(to, unit.size, board.heights) ? 1 : 0);
+      const feet = state.feet + across * (1 + slow) + height.extraFeet;
       if (feet > speed) continue;
       queue.push({
         cell: to,

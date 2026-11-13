@@ -12,7 +12,15 @@ import {
   sameHeights,
   strokeCell,
 } from '../iso/heightBrush';
-import { createHeightGrid, heightAt, MAX_TILE_HEIGHT, withHeight } from '../iso/heightGrid';
+import {
+  createHeightGrid,
+  heightAt,
+  isDifficult,
+  isHeightGrid,
+  MAX_TILE_HEIGHT,
+  withDifficult,
+  withHeight,
+} from '../iso/heightGrid';
 
 describe('brushedHeight', () => {
   it('raises and lowers by one step', () => {
@@ -90,5 +98,44 @@ describe('sameHeights', () => {
     expect(sameHeights(a, b)).toBe(true);
     expect(sameHeights(a, createHeightGrid(2, 2))).toBe(false);
     expect(sameHeights(a, createHeightGrid(4, 1))).toBe(false);
+  });
+});
+
+describe('the Difficult Terrain brush', () => {
+  const paint = (cells: Array<[number, number]>, start = createHeightGrid(4, 3)) => {
+    let stroke = beginStroke(start);
+    let grid = start;
+    for (const [x, y] of cells) ({ stroke, grid } = strokeCell(stroke, grid, { x, y }, 'difficult', 0));
+    return grid;
+  };
+
+  it('marks the squares a stroke touches, and leaves their heights alone', () => {
+    const grid = paint([[1, 0], [2, 0]], withHeight(createHeightGrid(4, 3), 1, 0, 3));
+    expect([isDifficult(grid, 1, 0), isDifficult(grid, 2, 0), isDifficult(grid, 3, 0)]).toEqual([true, true, false]);
+    expect(heightAt(grid, 1, 0)).toBe(3);
+  });
+
+  it('clears instead when the stroke starts on a marked square', () => {
+    const marked = paint([[1, 0], [2, 0]]);
+    const grid = paint([[1, 0], [2, 0], [3, 0]], marked);
+    expect([isDifficult(grid, 1, 0), isDifficult(grid, 2, 0), isDifficult(grid, 3, 0)]).toEqual([false, false, false]);
+  });
+
+  it('counts as a change, so the stroke is saved and can be undone', () => {
+    const before = createHeightGrid(4, 3);
+    expect(sameHeights(before, paint([[1, 0]]))).toBe(false);
+    expect(sameHeights(before, withDifficult(paint([[1, 0]]), 1, 0, false))).toBe(true);
+  });
+
+  it('is kept when a height changes, and is part of a usable grid', () => {
+    const grid = withHeight(paint([[1, 0]]), 2, 2, 5);
+    expect(isDifficult(grid, 1, 0)).toBe(true);
+    expect(isHeightGrid(grid)).toBe(true);
+    expect(isHeightGrid({ ...grid, difficult: [1] })).toBe(false);
+  });
+
+  it('is nowhere on a board with none, or off the board', () => {
+    expect(isDifficult(null, 0, 0)).toBe(false);
+    expect(isDifficult(paint([[1, 0]]), 9, 9)).toBe(false);
   });
 });

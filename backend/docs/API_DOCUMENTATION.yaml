@@ -8357,6 +8357,11 @@ paths:
         length, or holding anything else, answers 400 and changes nothing.
         All zeros stores a flat board, which reads back as `null`.
 
+        `difficult`, when sent, replaces the map's Difficult Terrain the same
+        way: a 0 or 1 for each square, in the same order. Left out, what is
+        stored stays. A flat board with a marked square is stored, and reads
+        back with `difficult`; with no square marked the field is dropped.
+
         Connected clients are told with `heights:replaced`, carrying the map's
         id and the new `tileHeights`: every member for the map the campaign is
         showing, and the DM's connections for any other. Resizing a map
@@ -8378,6 +8383,12 @@ paths:
                     type: integer
                     minimum: 0
                     maximum: 32
+                difficult:
+                  type: array
+                  description: A 0 or 1 for each square; a 1 marks Difficult Terrain.
+                  items:
+                    type: integer
+                    enum: [0, 1]
               required: [heights]
       responses:
         '200':
@@ -13785,6 +13796,14 @@ components:
             type: integer
             minimum: 0
             maximum: 32
+        difficult:
+          type: array
+          description: >
+            Difficult Terrain: a 0 or 1 for each square, in the same order as
+            `heights`. Absent when no square is marked.
+          items:
+            type: integer
+            enum: [0, 1]
       required: [cols, rows, heights]
     LightSource:
       type: object

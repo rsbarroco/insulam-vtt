@@ -282,3 +282,30 @@ describe('a Prone creature', () => {
     expect(crawling.stops.has(cellKey({ x: 8, y: 4 }))).toBe(false);
   });
 });
+
+describe('Difficult Terrain', () => {
+  // Column 5 is marked, on a flat board.
+  const rough = (): HeightGrid => {
+    const grid = createHeightGrid(COLS, ROWS);
+    return { ...grid, difficult: grid.heights.map((_, index) => (index % COLS === 5 ? 1 : 0)) };
+  };
+
+  it('costs a foot more for every foot into a marked square, and nothing more to leave it', () => {
+    const reach = computeReach(unit({ speed: 30 }), board({ heights: rough() }));
+    expect(reach.stops.get(cellKey({ x: 5, y: 4 }))?.feet).toBe(10);
+    expect(reach.stops.get(cellKey({ x: 6, y: 4 }))?.feet).toBe(15);
+    expect(reach.stops.get(cellKey({ x: 3, y: 4 }))?.feet).toBe(5);
+  });
+
+  it('adds to crawling: three feet for each foot', () => {
+    const reach = computeReach(unit({ speed: 30, crawling: true }), board({ heights: rough() }));
+    expect(reach.stops.get(cellKey({ x: 5, y: 4 }))?.feet).toBe(15);
+  });
+
+  it('slows a large creature when any square under it is marked', () => {
+    const large = unit({ cell: { x: 2, y: 4 }, size: { width: 2, height: 2 }, speed: 30 });
+    const reach = computeReach(large, board({ heights: rough() }));
+    expect(reach.stops.get(cellKey({ x: 3, y: 4 }))?.feet).toBe(5);
+    expect(reach.stops.get(cellKey({ x: 4, y: 4 }))?.feet).toBe(15);
+  });
+});

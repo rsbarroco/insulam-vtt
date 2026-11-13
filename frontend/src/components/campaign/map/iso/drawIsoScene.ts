@@ -9,7 +9,7 @@
 // Pure: `(ctx, scene, camera) => void`, no React, like the top-down layers.
 // ============================================
 
-import { heightAt, type HeightGrid } from './heightGrid';
+import { heightAt, isDifficult, type HeightGrid } from './heightGrid';
 import {
   cellDepth,
   cellDiamond,
@@ -91,6 +91,7 @@ export const ISO_COLOURS = {
   reach: 'rgba(80, 150, 255, 0.3)',
   path: 'rgba(80, 150, 255, 0.6)',
   area: 'rgba(235, 95, 50, 0.42)',
+  difficult: 'rgba(92, 64, 38, 0.38)',
   sightClear: 'rgba(96, 200, 120, 0.95)',
   sightCover: 'rgba(235, 170, 60, 0.95)',
   sightBlocked: 'rgba(220, 80, 70, 0.95)',
@@ -374,6 +375,8 @@ export function drawIsoScene(
       ctx.stroke();
     }
     const key = `${cell.x},${cell.y}`;
+    if (isDifficult(scene.heights, cell.x, cell.y))
+      tintFootprint(ctx, cell, { width: 1, height: 1 }, ISO_COLOURS.difficult, scene);
     if (scene.area?.has(key))
       tintFootprint(ctx, cell, { width: 1, height: 1 }, ISO_COLOURS.area, scene);
     else if (pathCells.has(key))

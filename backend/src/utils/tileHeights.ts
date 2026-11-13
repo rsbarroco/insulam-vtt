@@ -19,6 +19,8 @@ export interface TileHeights {
   cols: number;
   rows: number;
   heights: number[];
+  /** Difficult Terrain: a 0 or 1 for each square, in the same order. Absent when no square is marked. */
+  difficult?: number[];
 }
 
 const HeightSchema = z
@@ -43,7 +45,22 @@ export function readTileHeights(stored: unknown): TileHeights | null {
   if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) return null;
   if (!Array.isArray(heights) || heights.length !== cols * rows) return null;
   if (!z.array(HeightSchema).safeParse(heights).success) return null;
-  return { cols, rows, heights: heights as number[] };
+  const { difficult } = stored as Record<string, unknown>;
+  const marked =
+    Array.isArray(difficult) && difficult.length === cols * rows && difficult.every((mark) => mark === 0 || mark === 1)
+      ? (difficult as number[])
+      : null;
+  return { cols, rows, heights: heights as number[], ...(marked && marked.includes(1) ? { difficult: marked } : {}) };
+}
+
+/** Request-body schema for a map's Difficult Terrain: a 0 or 1 for each square. */
+export function difficultSchemaFor(map: { width: number; height: number }) {
+  const cells = map.width * map.height;
+  return z
+    .array(z.union([z.literal(0), z.literal(1)], { error: 'Each square is marked with 0 or 1' }), {
+      error: 'difficult must be an array of 0s and 1s',
+    })
+    .length(cells, `difficult must have one mark for each of the map's ${cells} squares`);
 }
 
 /** Whether every cell is at height 0, which is stored as no heights at all. */
@@ -58,10 +75,12 @@ export function isFlat(heights: readonly number[]): boolean {
  */
 export function resizeTileHeights(current: TileHeights, cols: number, rows: number): TileHeights {
   const heights = new Array<number>(cols * rows).fill(0);
+  const difficult = new Array<number>(cols * rows).fill(0);
   for (let y = 0; y < Math.min(rows, current.rows); y++) {
     for (let x = 0; x < Math.min(cols, current.cols); x++) {
       heights[y * cols + x] = current.heights[y * current.cols + x];
+      difficult[y * cols + x] = current.difficult?.[y * current.cols + x] ?? 0;
     }
   }
-  return { cols, rows, heights };
+  return { cols, rows, heights, ...(difficult.includes(1) ? { difficult } : {}) };
 }
