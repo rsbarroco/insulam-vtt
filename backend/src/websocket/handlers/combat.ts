@@ -30,6 +30,8 @@ import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import { canAct, DODGING, effectiveSpeed, readConditions, type Ability } from '../../rules/dnd/conditions';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import { resolveFall } from '../../rules/dnd/falling';
+import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
+import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
 import type { HitPoints } from '../../rules/dnd/damage';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
@@ -109,13 +111,23 @@ async function sheetOf(token: Token, campaignId: string): Promise<Record<string,
 
 /** A token's actions: its character's attacks and spells, or its stat block's. */
 function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatAction[] {
-  if (sheet) {
-    return [
-      ...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }),
-      ...spellActionsFromSheet(sheet as SheetSpellcasting),
-    ];
-  }
-  return token.statBlock ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0]) : [];
+  const own = sheet
+    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...spellActionsFromSheet(sheet as SheetSpellcasting)]
+    : token.statBlock
+      ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0])
+      : [];
+  // Every creature has an Unarmed Strike. They come last, so its own actions keep their places.
+  const strength = abilityModifierOf(token, sheet, 'str');
+  if (strength === null) return own;
+  const listed = own.some((action) => action.name.trim().toLowerCase() === 'unarmed strike');
+  return [...own, ...unarmedActions(strength, proficiencyBonusOf(token, sheet)).filter((action) => !(listed && action.unarmed === 'damage'))];
+}
+
+/** A creature's Proficiency Bonus: its sheet's, or the one its Challenge Rating gives. */
+function proficiencyBonusOf(token: Token, sheet: Record<string, unknown> | null): number {
+  if (sheet) return typeof sheet.proficiencyBonus === 'number' ? sheet.proficiencyBonus : 2;
+  const rating = (token.statBlock as { challengeRating?: unknown } | null | undefined)?.challengeRating;
+  return proficiencyBonusForChallenge(typeof rating === 'string' || typeof rating === 'number' ? challengeNumber(String(rating)) || 0 : 0);
 }
 
 /** A token as the rules see it. */
@@ -230,6 +242,35 @@ async function giveCondition(io: Server, campaignId: string, mapId: string, toke
   if (updated) {
     await bestEffort('map after a condition', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
   }
+}
+
+/** Move a shoved token one square straight away from the one that shoved it. False when the board's edge leaves it where it is. */
+async function pushToken(
+  io: Server,
+  campaignId: string,
+  map: { id: string; width: number; height: number },
+  pusher: Token,
+  target: Token
+): Promise<boolean> {
+  const size = (token: Token) => ({ width: token.size?.width ?? 1, height: token.size?.height ?? 1 });
+  const to = pushedTo(
+    { ...pusher.position, ...size(pusher) },
+    { ...target.position, ...size(target) },
+    { cols: map.width, rows: map.height }
+  );
+  if (to.x === target.position.x && to.y === target.position.y) return false;
+  const updated = await withMapsLocked([map.id], async (tx) => {
+    const fresh = await tx.map.findUnique({ where: { id: map.id } });
+    if (!fresh) return null;
+    const list = readTokens(fresh.tokens);
+    const token = list.find((t) => t.id === target.id);
+    if (!token) return null;
+    token.position = to;
+    return tx.map.update({ where: { id: map.id }, data: { tokens: toJson(list) } });
+  });
+  if (!updated) return false;
+  await bestEffort('map after a shove', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
+  return true;
 }
 
 /** Take a condition off a token of the map, and tell the table. */
@@ -840,11 +881,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!listed) return refuseRequest(socket, ack, 'That action is not one the creature has');
       const cast = castWithSlot(sourceSheet as SheetSpellcasting | null, listed, slotLevel);
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
-      const action = cast.action;
-      const ability = action.save?.ability;
-      if (!ability) return refuseRequest(socket, ack, `${action.name} calls for no saving throw the VTT can make`);
+      let action = cast.action;
+      if (!action.save) return refuseRequest(socket, ack, `${action.name} calls for no saving throw the VTT can make`);
 
       const targetSheets = await Promise.all(targetTokens.map((token) => sheetOf(token, campaignId)));
+      // A grapple or a shove is against one creature no more than a size larger, which saves with the better of its Strength and Dexterity.
+      if (action.unarmed) {
+        if (targetTokens.length !== 1) return refuseRequest(socket, ack, `${action.name} is against one creature`);
+        const [only] = targetTokens;
+        if (!canWrestle(sourceToken.size?.width ?? 1, only.size?.width ?? 1)) {
+          return refuseRequest(socket, ack, `${only.name} is too large for ${sourceToken.name} to ${action.unarmed === 'grapple' ? 'grapple' : 'shove'}`);
+        }
+        const strength = saveBonusOf(only, targetSheets[0], 'str');
+        const dexterity = saveBonusOf(only, targetSheets[0], 'dex');
+        action = { ...action, save: { ...action.save, ability: (dexterity ?? -99) > (strength ?? -99) ? 'dex' : 'str' } };
+      }
+      const ability = action.save!.ability;
       const involved = new Set([sourceId, ...targetIds]);
       const result = resolveSave({
         source: combatant(sourceToken, sourceSheet),
@@ -873,14 +925,31 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         map.id,
         result.targets.map((target, index) => ({ token: targetTokens[index], sheet: targetSheets[index], dealt: target.dealt, hp: target.hp }))
       );
-      await spendAction(io, campaignId, sourceId, action.source === 'spell' ? 'Magic' : action.name);
+      // What a failed save against an Unarmed Strike leaves the target with.
+      let summary = result.summary;
+      if (action.unarmed && !result.targets[0].outcome.success) {
+        const [only] = targetTokens;
+        if (action.unarmed === 'grapple') await giveCondition(io, campaignId, map.id, only.id, 'Grappled');
+        if (action.unarmed === 'prone') await giveCondition(io, campaignId, map.id, only.id, 'Prone');
+        const moved = action.unarmed === 'push' ? await pushToken(io, campaignId, map, sourceToken, only) : false;
+        summary +=
+          action.unarmed === 'grapple'
+            ? `: ${only.name} is Grappled (escape DC ${result.dc})`
+            : action.unarmed === 'prone'
+              ? `: ${only.name} is knocked Prone`
+              : moved
+                ? `: ${only.name} is pushed 5 ft`
+                : `: ${only.name} has nowhere to be pushed`;
+      }
+      if (action.unarmed) await spendAction(io, campaignId, sourceId, 'Attack', true);
+      else await spendAction(io, campaignId, sourceId, action.source === 'spell' ? 'Magic' : action.name);
       const secret = hiddenFromPlayers(sourceToken) || targetTokens.some(hiddenFromPlayers);
-      await logRoll(io, socket, campaignId, saveBreakdown(result, action), sourceToken.name, result.summary, secret);
+      await logRoll(io, socket, campaignId, saveBreakdown(result, action), sourceToken.name, summary, secret);
 
       if (ack) {
         ack({
           ok: true,
-          summary: result.summary,
+          summary,
           dc: result.dc,
           ability: result.ability,
           targets: result.targets.map((target, index) => ({
