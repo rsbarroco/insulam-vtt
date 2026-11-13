@@ -44,8 +44,8 @@ describe('a level 1 character, as written', () => {
       level: 1,
       proficiencyBonus: 2,
       speed: 30,
-      // d10 + Constitution 2.
-      hp: { maximum: 12, current: 12, temporary: 0 },
+      // d10 + Constitution 2, and Dwarven Toughness's 1.
+      hp: { maximum: 13, current: 13, temporary: 0 },
       armorClass: 11,
       initiative: 1,
       passivePerception: 13,
@@ -154,8 +154,10 @@ describe('the house rules', () => {
   it('build a gestalt character with the features, Hit Die, saves and spell slots of both classes', () => {
     const { sheet, summary } = built(gestalt, house);
     expect(sheet.class).toBe('Fighter / Wizard');
-    // d10: 10 + 2 at level 1, then 6 + 2 a level.
-    expect(summary.hitPoints).toBe(12 + 8 * 3);
+    // d10: 10 + 2 at level 1, then 6 + 2 a level, and Dwarven Toughness's 1 a level.
+    expect(summary.hitPoints).toBe(12 + 8 * 3 + 4);
+    // Alert: the Proficiency Bonus on Initiative, Dexterity 13 giving +1.
+    expect(sheet).toMatchObject({ initiative: 1 + 2, initiativeBonus: 2 });
     const saves = sheet.savingThrows as Record<string, { proficient: boolean }>;
     expect(['strength', 'constitution', 'intelligence', 'wisdom'].every((save) => saves[save].proficient)).toBe(true);
     const names = (sheet.featuresAndTraits as Array<{ name: string }>).map((entry) => entry.name);

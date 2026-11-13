@@ -45,6 +45,7 @@ import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dn
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
+import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
 /** The one system whose rules the engine knows. */
@@ -618,6 +619,23 @@ function featureSummary(name: string, feature: string, sheet: Record<string, unk
 /** The attack each token has readied, by campaign: which of its actions, against whom, and for what trigger. */
 const readiedAttacks = new Map<string, Map<string, { targetId: string; action: number; name: string; trigger: string }>>();
 
+/** Who has used Savage Attacker on the current turn of each campaign's combat. */
+const savageAttacks = new Map<string, { turn: string; tokens: Set<string> }>();
+
+function savageUsed(campaignId: string, tokenId: string): boolean {
+  const turn = sneakTurnOf(campaignId);
+  const used = savageAttacks.get(campaignId);
+  return turn !== null && used?.turn === turn && used.tokens.has(tokenId);
+}
+
+function useSavage(campaignId: string, tokenId: string): void {
+  const turn = sneakTurnOf(campaignId);
+  if (turn === null) return;
+  const used = savageAttacks.get(campaignId);
+  if (used?.turn === turn) used.tokens.add(tokenId);
+  else savageAttacks.set(campaignId, { turn, tokens: new Set([tokenId]) });
+}
+
 /** What each attacker has done this turn that a weapon's extra attack follows from. */
 interface TurnAttacks {
   turn: string;
@@ -1089,6 +1107,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         action = { ...action, attack: { ...action.attack, damage: [...action.attack.damage, { roll: { count: 0, sides: 1, bonus: rageBonus }, type }] } };
       }
 
+      // The attacker's feats: Archery's +2 with a Ranged weapon; Great Weapon
+      // Fighting's 3s; Savage Attacker's second damage roll, once a turn.
+      const attackerFeatures = attackerSheet ? readFeatures(attackerSheet) : [];
+      const archery = archeryBonus(attackerFeatures, action);
+      if (archery > 0 && action.attack) action = { ...action, attack: { ...action.attack, bonus: action.attack.bonus + archery } };
+      const savage = savageAttackerApplies(attackerFeatures, action) && !savageUsed(campaignId, attackerId);
+
       // A Vex the attacker holds on this target, and a Sap on the attacker, are used by this roll.
       const vexed = turnNow.marks.find((mark) => mark.kind === 'vex' && mark.attackerId === attackerId && mark.targetId === targetId);
       const sapped = turnNow.marks.find((mark) => mark.kind === 'sap' && mark.targetId === attackerId);
@@ -1147,6 +1172,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         unseen: lit,
         extraReasons,
         bonusDamage: sneakDice > 0 ? sneakAttack : undefined,
+        savage,
+        greatWeapon: greatWeaponFighting(attackerFeatures, action),
         attacker: combatant(attackerToken, attackerSheet, [], attackerRaging),
         target: offer ? { ...target, standing: standing({ ...targetToken, position: offer.from }) } : target,
         action,
@@ -1175,6 +1202,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         readiedAttacks.get(campaignId)?.delete(attackerId);
       }
       if (result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) useSneakAttack(campaignId, attackerId);
+      if (result.bonuses.includes('Savage Attacker')) useSavage(campaignId, attackerId);
       if (attackerRaging && turnNow.currentTokenId === attackerId) keepRaging(campaignId, attackerId);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
       // What the turn remembers for the extra attacks that follow.

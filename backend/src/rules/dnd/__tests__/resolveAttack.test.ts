@@ -224,3 +224,16 @@ describe('damage a feature adds', () => {
     expect(ok(resolveAttack(request({ bonusDamage: () => null }), dice(12, 6))).dealt).toBe(9);
   });
 });
+
+describe('the feats that change the damage', () => {
+  it('Savage Attacker keeps the better of two damage rolls', () => {
+    const result = ok(resolveAttack(request({ savage: true }), dice(12, 2, 7)));
+    expect(result.dealt).toBe(10);
+    expect(result.bonuses).toEqual(['Savage Attacker']);
+  });
+
+  it('Great Weapon Fighting counts a 1 or 2 as a 3', () => {
+    expect(ok(resolveAttack(request({ greatWeapon: true }), dice(12, 1))).dealt).toBe(6);
+  });
+});
+

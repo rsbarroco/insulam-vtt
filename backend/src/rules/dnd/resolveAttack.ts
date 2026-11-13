@@ -16,6 +16,7 @@ import type { CombatAction, DamageComponent } from './actions';
 import { attackModifiers, canAct, readConditions } from './conditions';
 import { attackRoll, rollDie, rollMode, type AttackOutcome, type RollDie, type RollMode } from './d20';
 import { lucky } from './species';
+import { atLeastThree } from './feats';
 import { adjustedDamage, applyDamage, rollDamage, type DamageType, type Defences, type HitPoints, type RolledDamage } from './damage';
 
 export interface Combatant {
@@ -58,6 +59,10 @@ export interface AttackRequest {
    * is known (a Rogue's Sneak Attack asks it); null when it adds none.
    */
   bonusDamage?: (mode: RollMode) => { label: string; damage: DamageComponent } | null;
+  /** Savage Attacker: on a hit, the weapon's damage dice are rolled twice and the better roll is used. */
+  savage?: boolean;
+  /** Great Weapon Fighting: a 1 or 2 on a damage die counts as a 3. */
+  greatWeapon?: boolean;
 }
 
 export interface AttackRefusal {
@@ -156,13 +161,21 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   let dropped = false;
   let instantDeath = false;
   if (outcome.hit) {
-    for (const component of profile.damage) {
-      damage.push({ type: component.type, rolled: rollDamage(component.roll, outcome.critical, roll) });
+    const dieRoll = request.greatWeapon ? atLeastThree(roll) : roll;
+    const rollWeapon = () =>
+      profile.damage.map((component) => ({ type: component.type, rolled: rollDamage(component.roll, outcome.critical, dieRoll) }));
+    const weaponTotal = (lines: AttackResult['damage']) => lines.reduce((sum, line) => sum + line.rolled.total, 0);
+    let weapon = rollWeapon();
+    if (request.savage) {
+      const again = rollWeapon();
+      if (weaponTotal(again) > weaponTotal(weapon)) weapon = again;
+      bonuses.push('Savage Attacker');
     }
+    damage.push(...weapon);
     const bonus = request.bonusDamage?.(mode) ?? null;
     if (bonus) {
       bonuses.push(bonus.label);
-      damage.push({ type: bonus.damage.type, rolled: rollDamage(bonus.damage.roll, outcome.critical, roll) });
+      damage.push({ type: bonus.damage.type, rolled: rollDamage(bonus.damage.roll, outcome.critical, dieRoll) });
     }
     // Each line meets the target's defences on its own; damage of no named
     // type meets none.

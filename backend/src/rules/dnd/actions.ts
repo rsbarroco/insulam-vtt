@@ -40,6 +40,8 @@ export interface AttackProfile {
   finesse?: boolean;
   /** A Light weapon: one extra attack with another Light weapon after the Attack action. */
   light?: boolean;
+  /** A Two-Handed weapon, which Great Weapon Fighting asks for. */
+  twoHanded?: boolean;
 }
 
 export interface SaveProfile {
@@ -199,6 +201,7 @@ export function actionFromSheetAttack(written: SheetAttack): CombatAction {
   if (hasProperty(attack, 'heavy')) profile.heavy = true;
   if (hasProperty(attack, 'finesse')) profile.finesse = true;
   if (hasProperty(attack, 'light')) profile.light = true;
+  if (hasProperty(attack, 'two-handed')) profile.twoHanded = true;
   const srd = findSrdWeapon(written.name);
   return {
     name: attack.name,
