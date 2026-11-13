@@ -180,6 +180,25 @@ export function latestSend(campaignId: string): number {
   return sends.get(campaignId) ?? 0;
 }
 
+/**
+ * A number for each turn of each campaign's combats, which moves on when the
+ * turn, the round or the fight itself changes (and when the state is
+ * forgotten): what is allowed "once on each turn" is counted against it.
+ */
+const turnSerials = new Map<string, { serial: number; seen: string }>();
+
+function noteTurn(campaignId: string, state: CombatState | null): void {
+  const seen = state ? `${state.active}:${state.round}:${state.currentTokenId ?? ''}` : '';
+  const kept = turnSerials.get(campaignId);
+  if (kept && kept.seen === seen && state) return;
+  turnSerials.set(campaignId, { serial: (kept?.serial ?? 0) + 1, seen });
+}
+
+/** The current turn's number for a campaign: two reads on the same turn give the same one. */
+export function turnSerial(campaignId: string): number {
+  return turnSerials.get(campaignId)?.serial ?? 0;
+}
+
 function defaultState(): CombatState {
   return {
     active: false,
@@ -225,6 +244,7 @@ export function setState(campaignId: string, input: CombatStateInput): void {
     marks: input.active ? (input.marks ?? []).filter((mark) => listed.has(mark.attackerId) && listed.has(mark.targetId)) : [],
   };
   campaignStates.set(campaignId, state);
+  noteTurn(campaignId, state);
   bump(campaignId);
   // A combatant that has left the order may be rolled for again when it
   // comes back.
@@ -238,7 +258,10 @@ export function setState(campaignId: string, input: CombatStateInput): void {
 
 /** Forget every campaign's combat state, after a restore replaces the database under it. */
 export function clearAllState(): void {
-  for (const campaignId of campaignStates.keys()) bump(campaignId);
+  for (const campaignId of campaignStates.keys()) {
+    bump(campaignId);
+    noteTurn(campaignId, null);
+  }
   campaignStates.clear();
   playerRolls.clear();
 }
@@ -246,6 +269,7 @@ export function clearAllState(): void {
 export function clearState(campaignId: string): void {
   campaignStates.delete(campaignId);
   playerRolls.delete(campaignId);
+  noteTurn(campaignId, null);
   bump(campaignId);
 }
 

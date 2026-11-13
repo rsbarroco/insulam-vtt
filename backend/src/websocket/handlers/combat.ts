@@ -21,7 +21,7 @@ import { canControlToken } from '../../services/permissions';
 import { ackFrom, refuseRequest, type SocketAck } from '../ack';
 import { broadcastMapData, withinCeiling, type Token } from '../shared';
 import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } from '../utils';
-import { getState as getCombatState, setState as setCombatState, someoneActing, type WeaponMark } from '../initiativeState';
+import { getState as getCombatState, setState as setCombatState, someoneActing, turnSerial, type WeaponMark } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
 import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
@@ -44,6 +44,7 @@ import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/
 import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
+import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
 /** The one system whose rules the engine knows. */
 const DND = 'DND_5E';
@@ -59,6 +60,8 @@ interface ActionSummary {
   spell: { level: number; slotLevels: number[] } | null;
   /** Present when the VTT can roll the targets' saving throws. */
   save: { ability: Ability; dc: number; halfOnSuccess: boolean; damage: string; rangeFeet?: number; area?: AreaOfEffect } | null;
+  /** The extra attacks the weapon can be made as: Cleave, or the Light weapon's extra attack. */
+  extras?: ExtraAttack[];
 }
 
 const standing = (token: Token): Standing => ({
@@ -101,6 +104,7 @@ function summarizeAction(action: CombatAction, index: number, slots: Record<numb
           area: action.area,
         }
       : null,
+    ...(extrasOf(action).length > 0 ? { extras: extrasOf(action) } : {}),
   };
 }
 
@@ -585,13 +589,44 @@ function featureSummary(name: string, feature: string, sheet: Record<string, unk
   }
 }
 
+/** What each attacker has done this turn that a weapon's extra attack follows from. */
+interface TurnAttacks {
+  turn: string;
+  /** Hits with a weapon whose Cleave mastery the attacker uses. */
+  cleaveHits: Array<{ attackerId: string; targetId: string }>;
+  /** The Light weapons each attacker has attacked with, and whether one has Nick. */
+  lightWeapons: Map<string, Array<{ name: string; nick: boolean }>>;
+  cleaved: Set<string>;
+  lightExtra: Set<string>;
+}
+const turnAttacks = new Map<string, TurnAttacks>();
+
+/** This turn's record for a campaign, fresh when the turn has moved on; null outside combat. */
+function turnAttacksOf(campaignId: string): TurnAttacks | null {
+  const turn = sneakTurnOf(campaignId);
+  if (turn === null) return null;
+  const kept = turnAttacks.get(campaignId);
+  if (kept?.turn === turn) return kept;
+  const fresh: TurnAttacks = { turn, cleaveHits: [], lightWeapons: new Map(), cleaved: new Set(), lightExtra: new Set() };
+  turnAttacks.set(campaignId, fresh);
+  return fresh;
+}
+
+/** The ability modifier a weapon attack adds to its damage: Strength, Dexterity at range, the better for Finesse. */
+function attackAbilityModifier(action: CombatAction, token: Token, sheet: Record<string, unknown> | null): number {
+  const str = abilityModifierOf(token, sheet, 'str') ?? 0;
+  const dex = abilityModifierOf(token, sheet, 'dex') ?? 0;
+  if (action.attack?.finesse) return Math.max(str, dex);
+  return action.attack?.kind === 'ranged' ? dex : str;
+}
+
 /** The turn in each campaign whose Sneak Attacks have been dealt, and by whom: once on each turn. */
 const sneakAttacks = new Map<string, { turn: string; tokens: Set<string> }>();
 
 /** The turn a Sneak Attack now would be dealt on; null outside combat, where nothing counts turns. */
 function sneakTurnOf(campaignId: string): string | null {
   const combat = getCombatState(campaignId);
-  return combat.active ? `${combat.round}:${combat.currentTokenId ?? ''}` : null;
+  return combat.active ? `${turnSerial(campaignId)}` : null;
 }
 
 function sneakAttackUsed(campaignId: string, tokenId: string): boolean {
@@ -907,7 +942,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -917,7 +952,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, action: actionIndex, mode, slotLevel, opportunity } = parsed.data;
+      const { attackerId, targetId, action: actionIndex, mode, slotLevel, opportunity, extra } = parsed.data;
+      if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -946,7 +982,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const acting = someoneActing(turnNow) && turnNow.currentTokenId === attackerId ? turnNow.turn : null;
       const weapon = action.source !== 'spell';
       const allowed = attackerSheet ? attacksPerAction(readFeatures(attackerSheet)) : null;
-      if (acting && weapon && allowed !== null && acting.action === 'Attack' && acting.attacks >= allowed && socket.role !== 'DM') {
+      if (!extra && acting && weapon && allowed !== null && acting.action === 'Attack' && acting.attacks >= allowed && socket.role !== 'DM') {
         return refuseRequest(
           socket,
           ack,
@@ -963,6 +999,47 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (!weapon || action.attack?.kind !== 'melee') {
           return refuseRequest(socket, ack, 'An Opportunity Attack is one melee attack with a weapon or an Unarmed Strike');
         }
+      }
+      // An extra attack the weapon gives: Cleave after a hit with it, or the
+      // Light weapon's after the Attack action (part of it with Nick). Neither
+      // adds a positive ability modifier to the damage, save the Light one for
+      // the Two-Weapon Fighting style; neither counts against the Attack action.
+      const record = turnAttacksOf(campaignId);
+      let nicked = false;
+      if (extra) {
+        if (!extrasOf(action).includes(extra)) {
+          return refuseRequest(socket, ack, extra === 'cleave' ? `${action.name} has no Cleave` : `${action.name} is not a Light weapon`);
+        }
+        if (!acting || !record) return refuseRequest(socket, ack, 'An extra attack is made on the attacker’s own turn');
+        if (extra === 'cleave') {
+          if (record.cleaved.has(attackerId)) return refuseRequest(socket, ack, `${attackerToken.name} has cleaved this turn`);
+          const besideFirst = record.cleaveHits.some((hit) => {
+            if (hit.attackerId !== attackerId || hit.targetId === targetId) return false;
+            const first = tokens.find((t) => t.id === hit.targetId);
+            return (
+              first !== undefined &&
+              distanceFeet(standing(first), standing(targetToken), {
+                heights: readTileHeights(map.tileHeights),
+                feetPerSquare: map.feetPerSquare,
+                diagonalRule: map.diagonalRule === 'alternating' ? 'alternating' : 'flat',
+              }) <= 5
+            );
+          });
+          if (!besideFirst) {
+            return refuseRequest(socket, ack, `Cleave follows a hit with the weapon on a creature within 5 feet of ${targetToken.name}`);
+          }
+        } else {
+          if (record.lightExtra.has(attackerId)) return refuseRequest(socket, ack, `${attackerToken.name} has made its Light extra attack this turn`);
+          if (acting.action !== 'Attack') return refuseRequest(socket, ack, 'The Light extra attack follows the Attack action');
+          const prior = (record.lightWeapons.get(attackerId) ?? []).filter((used) => used.name !== action.name);
+          if (prior.length === 0) {
+            return refuseRequest(socket, ack, 'The Light extra attack is made with a different Light weapon than the Attack action used');
+          }
+          nicked = action.mastery === 'Nick' || prior.some((used) => used.nick);
+          if (!nicked && acting.bonusAction) return refuseRequest(socket, ack, `${attackerToken.name} has used its Bonus Action this turn`);
+        }
+        const twoWeapons = extra === 'light' && attackerSheet !== null && hasTwoWeaponFighting(readFeatures(attackerSheet));
+        if (!twoWeapons) action = withoutAbilityModifier(action, attackAbilityModifier(action, attackerToken, attackerSheet));
       }
       const target = combatant(targetToken, targetSheet, turnNow.dodging, isRaging(campaignId, targetId));
       // A raging barbarian casts no spells, and its Strength attacks deal its Rage Damage.
@@ -1046,11 +1123,26 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) useSneakAttack(campaignId, attackerId);
       if (attackerRaging && turnNow.currentTokenId === attackerId) keepRaging(campaignId, attackerId);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
+      // What the turn remembers for the extra attacks that follow.
+      if (record && !offer && turnNow.currentTokenId === attackerId) {
+        if (extra === 'cleave') record.cleaved.add(attackerId);
+        else if (extra === 'light') record.lightExtra.add(attackerId);
+        else if (weapon) {
+          if (result.outcome.hit && extrasOf(action).includes('cleave')) record.cleaveHits.push({ attackerId, targetId });
+          if (action.attack?.light) {
+            record.lightWeapons.set(attackerId, [...(record.lightWeapons.get(attackerId) ?? []), { name: action.name, nick: action.mastery === 'Nick' }]);
+          }
+        }
+      }
       if (offer) await spendReaction(io, campaignId, attackerId);
-      else await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
+      else if (extra === 'light' && !nicked) {
+        spendBonusAction(campaignId, attackerId);
+        await resendInitiativeState(io, campaignId);
+      } else if (!extra) await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
       // An attack by or on a token the players are not shown goes to the DM alone.
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
-      const summary = [result.summary, ...result.bonuses, ...(mastered ? [mastered] : [])].join('; ');
+      const extraLabel = extra === 'cleave' ? 'Cleave' : extra === 'light' ? (nicked ? 'Light extra attack, with Nick' : 'Light extra attack, a Bonus Action') : null;
+      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : [])].join('; ');
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
       answer(ack, { ...result, summary });

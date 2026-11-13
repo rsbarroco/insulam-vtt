@@ -38,6 +38,8 @@ export interface AttackProfile {
   heavy?: boolean;
   /** A Finesse weapon: the better of Strength and Dexterity, and one a Rogue's Sneak Attack can use. */
   finesse?: boolean;
+  /** A Light weapon: one extra attack with another Light weapon after the Attack action. */
+  light?: boolean;
 }
 
 export interface SaveProfile {
@@ -196,6 +198,7 @@ export function actionFromSheetAttack(written: SheetAttack): CombatAction {
     : { kind: 'melee', bonus: attack.attackBonus, reachFeet: hasProperty(attack, 'reach') ? 10 : range > 5 && range <= 10 ? range : 5, damage };
   if (hasProperty(attack, 'heavy')) profile.heavy = true;
   if (hasProperty(attack, 'finesse')) profile.finesse = true;
+  if (hasProperty(attack, 'light')) profile.light = true;
   const srd = findSrdWeapon(written.name);
   return {
     name: attack.name,

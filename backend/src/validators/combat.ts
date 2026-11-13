@@ -22,6 +22,8 @@ export const CombatAttackSchema = z
     slotLevel: z.number().int().min(1).max(9).optional(),
     /** The Opportunity Attack the target's movement offered this attacker: its reaction, not its action. */
     opportunity: z.literal(true).optional(),
+    /** An extra attack the weapon gives on the attacker's turn: Cleave after a hit, or the Light weapon's extra attack. */
+    extra: z.enum(['cleave', 'light']).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });

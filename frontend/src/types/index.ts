@@ -1682,7 +1682,10 @@ export interface CombatActionSummary {
     rangeFeet?: number;
     area?: { shape: 'sphere' | 'cone' | 'cube' | 'line' | 'cylinder' | 'emanation'; sizeFeet: number };
   } | null;
+  /** The extra attacks the weapon can be made as: Cleave after a hit, or the Light weapon's extra attack. */
+  extras?: CombatExtraAttack[];
 }
+export type CombatExtraAttack = 'cleave' | 'light';
 /** A feature the turn can offer, with its rule. */
 export interface CombatFeatureOption {
   name: string;
@@ -1714,6 +1717,8 @@ export interface CombatAttackEvent {
   slotLevel?: number;
   /** The Opportunity Attack the target's movement offered: the attacker's reaction, not its action. */
   opportunity?: true;
+  /** An extra attack the weapon gives on the attacker's turn. */
+  extra?: CombatExtraAttack;
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }

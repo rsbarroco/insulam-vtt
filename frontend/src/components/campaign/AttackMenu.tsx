@@ -7,7 +7,7 @@
 // ============================================
 
 import { useEffect, useState } from 'react';
-import type { AttackMode, CombatActionSummary } from '@/types';
+import type { AttackMode, CombatActionSummary, CombatExtraAttack } from '@/types';
 import type socketService from '@/services/socket';
 import Button from '@/components/ui/Button';
 
@@ -58,6 +58,50 @@ function saveText(save: NonNullable<CombatActionSummary['save']>): string {
   if (save.damage) parts.push(save.halfOnSuccess ? `${save.damage}, half on a save` : save.damage);
   if (save.area) parts.push(`${save.area.sizeFeet} ft ${save.area.shape}`);
   return parts.join(' · ');
+}
+
+const EXTRA_LABELS: Record<CombatExtraAttack, { label: string; title: string }> = {
+  cleave: {
+    label: 'Cleave',
+    title:
+      'After a hit with this weapon this turn: attack a creature within 5 feet of the first, without your ability modifier to the damage. Once a turn.',
+  },
+  light: {
+    label: 'Light extra attack',
+    title:
+      'After the Attack action with another Light weapon: one more attack, without your ability modifier to the damage. A Bonus Action, or part of the action with Nick.',
+  },
+};
+
+/** The extra attacks a weapon gives, under its row; the server says whether the turn allows one. */
+function ExtraAttacks({
+  action,
+  busy,
+  onMake,
+}: {
+  action: CombatActionSummary;
+  busy: boolean;
+  onMake: (extra: CombatExtraAttack) => void;
+}) {
+  if (!action.extras || action.extras.length === 0) return null;
+  return (
+    <span className="flex flex-wrap gap-1 px-2 pb-1">
+      {action.extras.map((extra) => (
+        <Button
+          key={extra}
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          title={EXTRA_LABELS[extra].title}
+          aria-label={`${action.name}: ${EXTRA_LABELS[extra].label}`}
+          onClick={() => onMake(extra)}
+        >
+          {EXTRA_LABELS[extra].label}
+        </Button>
+      ))}
+    </span>
+  );
 }
 
 const ROW =
@@ -162,7 +206,11 @@ export default function AttackMenu({
   };
 
   /** Make the attack or call for the save. `slotLevel` is the spell slot a levelled spell is cast with. */
-  const make = async (action: CombatActionSummary, slotLevel?: number) => {
+  const make = async (
+    action: CombatActionSummary,
+    slotLevel?: number,
+    extra?: CombatExtraAttack
+  ) => {
     const slot = slotLevel === undefined ? {} : { slotLevel };
     setBusy(true);
     if (action.attack) {
@@ -172,6 +220,7 @@ export default function AttackMenu({
         action: action.index,
         ...(mode !== 'normal' ? { mode } : {}),
         ...slot,
+        ...(extra ? { extra } : {}),
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -238,6 +287,11 @@ export default function AttackMenu({
                       action.save?.area ? caughtBy(action.save.area).map((c) => c.name) : null
                     }
                     onMake={(slot) => void make(action, slot)}
+                  />
+                  <ExtraAttacks
+                    action={action}
+                    busy={busy}
+                    onMake={(extra) => void make(action, undefined, extra)}
                   />
                 </div>
               </li>
