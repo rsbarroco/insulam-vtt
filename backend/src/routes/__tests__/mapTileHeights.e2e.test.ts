@@ -265,3 +265,53 @@ describe('resizing the map', () => {
     expect(await stored(mapId)).toEqual({ cols: COLS, rows: ROWS, heights: numbered() });
   });
 });
+
+describe('Difficult Terrain, which rides with the heights', () => {
+  const marks = (...squares: number[]) => flat().map((_, index) => (squares.includes(index) ? 1 : 0));
+
+  it('stores the squares the DM marks, on a flat board too', async () => {
+    const mapId = await newMap();
+
+    const res = await dmRest.put(url(mapId)).send({ heights: flat(), difficult: marks(1, 5) });
+
+    expect(res.status).toBe(200);
+    expect(res.body.tileHeights).toEqual({ cols: COLS, rows: ROWS, heights: flat(), difficult: marks(1, 5) });
+    expect(await stored(mapId)).toEqual({ cols: COLS, rows: ROWS, heights: flat(), difficult: marks(1, 5) });
+  });
+
+  it('keeps what is marked when heights are sent without it', async () => {
+    const mapId = await newMap();
+    await dmRest.put(url(mapId)).send({ heights: flat(), difficult: marks(2) }).expect(200);
+
+    await dmRest.put(url(mapId)).send({ heights: numbered() }).expect(200);
+
+    expect(await stored(mapId)).toEqual({ cols: COLS, rows: ROWS, heights: numbered(), difficult: marks(2) });
+  });
+
+  it('forgets it when every square is cleared, and the board with it when flat', async () => {
+    const mapId = await newMap();
+    await dmRest.put(url(mapId)).send({ heights: flat(), difficult: marks(2) }).expect(200);
+
+    const res = await dmRest.put(url(mapId)).send({ heights: flat(), difficult: marks() });
+
+    expect(res.body).toEqual({ tileHeights: null });
+    expect(await stored(mapId)).toBeNull();
+  });
+
+  it('refuses marks that are not one 0 or 1 for each square', async () => {
+    const mapId = await newMap();
+    expect((await dmRest.put(url(mapId)).send({ heights: flat(), difficult: [1, 0] })).status).toBe(400);
+    expect((await dmRest.put(url(mapId)).send({ heights: flat(), difficult: flat().map(() => 2) })).status).toBe(400);
+    expect(await stored(mapId)).toBeNull();
+  });
+
+  it('follows the squares when the map is resized', async () => {
+    const mapId = await newMap();
+    // Square 1 is (1, 0) and square 7 is (3, 1), which a narrower map cuts off.
+    await dmRest.put(url(mapId)).send({ heights: flat(), difficult: marks(1, 7) }).expect(200);
+
+    await dmRest.put(`/api/campaigns/${campaignId}/maps/${mapId}`).send({ width: 3, height: 3 }).expect(200);
+
+    expect(((await stored(mapId)) as { difficult?: number[] } | null)?.difficult).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0]);
+  });
+});

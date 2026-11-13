@@ -20,6 +20,7 @@ import {
   Mountain,
   RotateCcw,
   RotateCw,
+  Shrub,
   Undo2,
 } from 'lucide-react';
 import { useCampaign } from '@/contexts/CampaignContext';
@@ -99,6 +100,7 @@ const BRUSHES: ReadonlyArray<{ mode: BrushMode; icon: typeof ArrowUp; label: str
   { mode: 'raise', icon: ArrowUp, label: 'Raise squares' },
   { mode: 'lower', icon: ArrowDown, label: 'Lower squares' },
   { mode: 'level', icon: Mountain, label: 'Set squares to a height' },
+  { mode: 'difficult', icon: Shrub, label: 'Mark Difficult Terrain (start on a marked square to clear)' },
 ];
 
 /** Where a footprint goes so that the pointed cell is at its middle, kept on the board. */

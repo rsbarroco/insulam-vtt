@@ -1126,9 +1126,14 @@ class ApiClient {
   async setMapHeights(
     campaignId: string,
     mapId: string,
-    heights: number[]
+    heights: number[],
+    /** Difficult Terrain, a 0 or 1 for each square; left out, what is stored stays. */
+    difficult?: number[]
   ): Promise<{ tileHeights: CampaignMap['tileHeights'] }> {
-    const response = await this.client.put(`/api/campaigns/${campaignId}/maps/${mapId}/heights`, { heights });
+    const response = await this.client.put(`/api/campaigns/${campaignId}/maps/${mapId}/heights`, {
+      heights,
+      ...(difficult ? { difficult } : {}),
+    });
     return response.data;
   }
 

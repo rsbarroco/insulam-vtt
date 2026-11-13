@@ -954,7 +954,8 @@ In the tactical view you have a second row of buttons for the height of each squ
 
 - **Raise squares** and **Lower squares** change a square by one step. Click a square, or drag across several; each square a drag crosses changes once, however long the pointer rests on it. Drag over the same squares again to go a step further.
 - **Set squares to a height** gives every square you touch the height in the number box beside it, which is the quick way to lay a plateau or a floor.
-- **Undo height edit** (or **Ctrl+Z** while a brush is on) takes back the last stroke, up to 50 strokes. **Flatten the whole map** puts every square back to 0, and can be undone too.
+- **Mark Difficult Terrain** paints squares where every foot of movement costs a foot more: rubble, undergrowth, shallow water. Marked squares are tinted brown, the reach of a token shrinks across them, and the hint counts the extra feet. Start a stroke on a marked square to clear instead. A creature larger than a square is slowed when any square under it is marked, and a Prone creature crawling through pays for both.
+- **Undo height edit** (or **Ctrl+Z** while a brush is on) takes back the last stroke, up to 50 strokes. **Flatten the whole map** puts every square back to 0, and can be undone too; it leaves Difficult Terrain as marked.
 - While a brush is on, the left button paints, so drag with the **right button** to move the map. Click the brush again to put it away and go back to moving tokens.
 
 Each stroke is saved when you release the button and reaches everyone at once. Heights stay with the map: they follow its squares when you resize it, and travel with a campaign export.

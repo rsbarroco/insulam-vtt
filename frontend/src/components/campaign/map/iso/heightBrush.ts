@@ -7,14 +7,24 @@
 // Pure: no React, no canvas.
 // ============================================
 
-import { clampHeight, createHeightGrid, heightAt, withHeight, type HeightGrid } from './heightGrid';
+import {
+  clampHeight,
+  createHeightGrid,
+  heightAt,
+  isDifficult,
+  withDifficult,
+  withHeight,
+  type HeightGrid,
+} from './heightGrid';
 import type { Cell } from './projection';
 
 /** Raise or lower by one step, or set to a chosen height. */
-export type BrushMode = 'raise' | 'lower' | 'level';
+/** `difficult` marks squares as Difficult Terrain, or clears them when the stroke starts on a marked one. */
+export type BrushMode = 'raise' | 'lower' | 'level' | 'difficult';
 
 /** The height a cell has after one touch of the brush. */
 export function brushedHeight(current: number, mode: BrushMode, level: number): number {
+  if (mode === 'difficult') return current;
   if (mode === 'raise') return clampHeight(current + 1);
   if (mode === 'lower') return clampHeight(current - 1);
   return clampHeight(level);
@@ -40,6 +50,8 @@ export interface BrushStroke {
   /** The grid as it was when the stroke began, for undo. */
   readonly before: HeightGrid;
   readonly touched: ReadonlySet<string>;
+  /** For the Difficult Terrain brush: whether this stroke marks or clears, set by its first square. */
+  readonly marking?: boolean;
 }
 
 export function beginStroke(before: HeightGrid): BrushStroke {
@@ -61,7 +73,14 @@ export function strokeCell(
   if (stroke.touched.has(key)) return { stroke, grid };
   const touched = new Set(stroke.touched);
   touched.add(key);
-  return { stroke: { before: stroke.before, touched }, grid: applyBrush(grid, cell, mode, level) };
+  if (mode === 'difficult') {
+    const marking = stroke.marking ?? !isDifficult(grid, cell.x, cell.y);
+    return {
+      stroke: { before: stroke.before, touched, marking },
+      grid: withDifficult(grid, cell.x, cell.y, marking),
+    };
+  }
+  return { stroke: { ...stroke, touched }, grid: applyBrush(grid, cell, mode, level) };
 }
 
 /** The grid to edit for a board: its stored heights, or a flat one of its size. */
@@ -75,5 +94,6 @@ export function editableGrid(stored: HeightGrid | null, cols: number, rows: numb
 export function sameHeights(a: HeightGrid, b: HeightGrid): boolean {
   if (a === b) return true;
   if (a.cols !== b.cols || a.rows !== b.rows) return false;
-  return a.heights.every((height, index) => height === b.heights[index]);
+  if (!a.heights.every((height, index) => height === b.heights[index])) return false;
+  return a.heights.every((_, index) => (a.difficult?.[index] ?? 0) === (b.difficult?.[index] ?? 0));
 }

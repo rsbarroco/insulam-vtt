@@ -39,7 +39,7 @@ import { uploadLimiter } from './assets';
 import { openPicture, NotAPictureError } from '../utils/sharpInput';
 import { pictureLimitProblem } from '../utils/pictureLimits';
 import logger from '../utils/logger';
-import { heightsSchemaFor, isFlat, readTileHeights, resizeTileHeights, type TileHeights } from '../utils/tileHeights';
+import { difficultSchemaFor, heightsSchemaFor, isFlat, readTileHeights, resizeTileHeights, type TileHeights } from '../utils/tileHeights';
 import { errorMessage } from '../utils/errors';
 import { getState as getCombatState, setState as setCombatState, removeCombatants } from '../websocket/initiativeState';
 import { sendInitiativeState, resendInitiative } from '../websocket/handlers/initiative';
@@ -2503,7 +2503,7 @@ router.put('/:id/heights', campaignDM, async (req: AuthenticatedRequest, res: Re
     if (!map) return;
 
     const outcome = await withMapsLocked([id], async (tx): Promise<LockedEdit<TileHeights | null>> => {
-      const fresh = await tx.map.findUnique({ where: { id }, select: GEOMETRY });
+      const fresh = await tx.map.findUnique({ where: { id }, select: { ...GEOMETRY, tileHeights: true } });
       if (!fresh) return MAP_GONE;
       // One stored number per square, as fog is, and under the same ceiling.
       if (!fogFits(fresh)) {
@@ -2514,7 +2514,19 @@ router.put('/:id/heights', campaignDM, async (req: AuthenticatedRequest, res: Re
       if (!parsed.success) {
         return { status: 400, error: 'Validation Error', message: parsed.error.issues[0]?.message ?? 'Invalid heights' };
       }
-      const next = isFlat(parsed.data) ? null : { cols: fresh.width, rows: fresh.height, heights: parsed.data };
+      // Difficult Terrain rides with the heights. Left out of the body, what is stored stays.
+      let difficult = readTileHeights(fresh.tileHeights)?.difficult;
+      if (req.body?.difficult !== undefined) {
+        const marks = difficultSchemaFor(fresh).safeParse(req.body.difficult);
+        if (!marks.success) {
+          return { status: 400, error: 'Validation Error', message: marks.error.issues[0]?.message ?? 'Invalid difficult terrain' };
+        }
+        difficult = marks.data.includes(1) ? marks.data : undefined;
+      }
+      const next: TileHeights | null =
+        isFlat(parsed.data) && !difficult
+          ? null
+          : { cols: fresh.width, rows: fresh.height, heights: parsed.data, ...(difficult ? { difficult } : {}) };
       await tx.map.update({ where: { id }, data: { tileHeights: next ? toJson(next) : Prisma.DbNull } });
       return { done: next };
     });

@@ -22,6 +22,11 @@ export interface HeightGrid {
   readonly rows: number;
   /** `cols * rows` whole numbers from 0 to MAX_TILE_HEIGHT. */
   readonly heights: readonly number[];
+  /**
+   * Difficult Terrain, one 0 or 1 per cell in the same order: every foot of
+   * movement into a marked cell costs a foot more. Absent when no cell is.
+   */
+  readonly difficult?: readonly number[];
 }
 
 /** A flat board of the given size. */
@@ -60,7 +65,21 @@ export function withHeight(grid: HeightGrid, x: number, y: number, height: numbe
   if (grid.heights[index] === next) return grid;
   const heights = grid.heights.slice();
   heights[index] = next;
-  return { cols: grid.cols, rows: grid.rows, heights };
+  return { ...grid, heights };
+}
+
+/** Whether a cell is Difficult Terrain. False without a grid and outside it. */
+export function isDifficult(grid: HeightGrid | null | undefined, x: number, y: number): boolean {
+  if (!grid?.difficult || !inBounds(grid, x, y)) return false;
+  return grid.difficult[y * grid.cols + x] === 1;
+}
+
+/** A copy of the grid with one cell marked Difficult Terrain, or cleared. The same grid when nothing changes. */
+export function withDifficult(grid: HeightGrid, x: number, y: number, on: boolean): HeightGrid {
+  if (!inBounds(grid, x, y) || isDifficult(grid, x, y) === on) return grid;
+  const difficult = grid.difficult ? grid.difficult.slice() : new Array<number>(grid.cols * grid.rows).fill(0);
+  difficult[y * grid.cols + x] = on ? 1 : 0;
+  return { ...grid, difficult };
 }
 
 /** The tallest cell on the board. 0 without a grid. */
@@ -80,6 +99,11 @@ export function isHeightGrid(value: unknown): value is HeightGrid {
   if (typeof cols !== 'number' || typeof rows !== 'number') return false;
   if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) return false;
   if (!Array.isArray(heights) || heights.length !== cols * rows) return false;
+  const { difficult } = value as Record<string, unknown>;
+  if (difficult !== undefined) {
+    if (!Array.isArray(difficult) || difficult.length !== cols * rows) return false;
+    if (!difficult.every((mark) => mark === 0 || mark === 1)) return false;
+  }
   return heights.every(
     (height) =>
       typeof height === 'number' &&

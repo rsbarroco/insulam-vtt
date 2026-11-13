@@ -88,7 +88,10 @@ export function useHeightBrush({
       let failed = false;
       let saved: HeightGrid | null | undefined;
       try {
-        const answer = await api.setMapHeights(target.campaignId, target.mapId, [...grid.heights]);
+        // Difficult Terrain goes with the heights once any square has been marked.
+        const answer = grid.difficult
+          ? await api.setMapHeights(target.campaignId, target.mapId, [...grid.heights], [...grid.difficult])
+          : await api.setMapHeights(target.campaignId, target.mapId, [...grid.heights]);
         saved = isHeightGrid(answer.tileHeights) ? answer.tileHeights : null;
       } catch (error) {
         failed = true;
@@ -153,8 +156,12 @@ export function useHeightBrush({
 
   /** Every cell back to height 0. */
   const flattenAll = useCallback(
-    () => replaceAll(createHeightGrid(cols, rows)),
-    [replaceAll, cols, rows]
+    () => {
+      // Heights only: what is marked Difficult Terrain stays marked.
+      const { difficult } = current();
+      replaceAll({ ...createHeightGrid(cols, rows), ...(difficult ? { difficult } : {}) });
+    },
+    [replaceAll, current, cols, rows]
   );
 
   const undo = useCallback(() => {
