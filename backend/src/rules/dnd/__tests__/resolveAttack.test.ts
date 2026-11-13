@@ -183,3 +183,24 @@ describe('what cannot be resolved', () => {
     expect(refusal(resolveAttack(request({ target: creature('Crate', 3, { armorClass: null }) }), dice()))).toBe('Crate has no Armor Class to roll against');
   });
 });
+
+describe('a Heavy weapon', () => {
+  const maul: CombatAction = { ...sword, name: 'Maul', attack: { ...sword.attack!, heavy: true } };
+  const heavyBow: CombatAction = { ...bow, name: 'Longbow', attack: { ...bow.attack!, heavy: true } };
+
+  it('has Disadvantage in the hands of a creature under Strength 13', () => {
+    const result = ok(resolveAttack(request({ action: maul, attacker: creature('Kid', 2, { scores: { str: 12, dex: 16 } }) }), dice(18, 3, 4)));
+    expect(result.reasons).toEqual(['Disadvantage: a Heavy weapon wants Strength 13']);
+    expect(result.outcome.roll.dice).toEqual([18, 3]);
+  });
+
+  it('asks Dexterity for a ranged one', () => {
+    const result = ok(resolveAttack(request({ action: heavyBow, target: creature('Ogre', 6), attacker: creature('Kid', 2, { scores: { str: 18, dex: 10 } }) }), dice(18, 3)));
+    expect(result.reasons).toEqual(['Disadvantage: a Heavy weapon wants Dexterity 13']);
+  });
+
+  it('is rolled as usual with 13 or more, or when no sheet gives the scores', () => {
+    expect(ok(resolveAttack(request({ action: maul, attacker: creature('Knight', 2, { scores: { str: 13, dex: 8 } }) }), dice(12, 3))).reasons).toEqual([]);
+    expect(ok(resolveAttack(request({ action: maul }), dice(12, 3))).reasons).toEqual([]);
+  });
+});

@@ -12,6 +12,7 @@
 // its text and nothing else, and is the table's to resolve.
 // ============================================
 
+import { findSrdWeapon } from '../../utils/srdWeapons';
 import type { Ability } from './conditions';
 import { DAMAGE_TYPES, type DamageRoll, type DamageType, type Defences } from './damage';
 
@@ -33,6 +34,8 @@ export interface AttackProfile {
   /** A ranged attack's normal range, and its long range if it has one. */
   rangeFeet?: { normal: number; long: number | null };
   damage: DamageComponent[];
+  /** A Heavy weapon: Disadvantage for a wielder whose Strength (melee) or Dexterity (ranged) is under 13. */
+  heavy?: boolean;
 }
 
 export interface SaveProfile {
@@ -161,9 +164,15 @@ function propertyRange(attack: SheetAttack): { normal: number; long: number | nu
 /**
  * A sheet's attack as an action. It is ranged when it uses ammunition, or
  * has a range past 10 feet and is not thrown; otherwise melee, reaching 10
- * feet with the Reach property and 5 without.
+ * feet with the Reach property and 5 without. An attack named after a weapon
+ * of the reference document, with no properties written, takes the weapon's.
  */
-export function actionFromSheetAttack(attack: SheetAttack): CombatAction {
+export function actionFromSheetAttack(written: SheetAttack): CombatAction {
+  // A weapon of the reference document named with no properties written has its own.
+  const weapon = (written.properties ?? []).length === 0 ? findSrdWeapon(written.name) : null;
+  const attack: SheetAttack = weapon
+    ? { ...written, properties: weapon.properties, range: written.range || (weapon.kind === 'ranged' ? weapon.range?.normal : undefined) }
+    : written;
   const damage: DamageComponent[] = [];
   const add = (rollText?: string, typeText?: string) => {
     const roll = parseDamageRoll(rollText);
@@ -177,6 +186,7 @@ export function actionFromSheetAttack(attack: SheetAttack): CombatAction {
   const profile: AttackProfile = ranged
     ? { kind: 'ranged', bonus: attack.attackBonus, rangeFeet: propertyRange(attack) ?? { normal: range || 5, long: null }, damage }
     : { kind: 'melee', bonus: attack.attackBonus, reachFeet: hasProperty(attack, 'reach') ? 10 : range > 5 && range <= 10 ? range : 5, damage };
+  if (hasProperty(attack, 'heavy')) profile.heavy = true;
   return { name: attack.name, cost: 'action', source: 'sheet', attack: profile };
 }
 

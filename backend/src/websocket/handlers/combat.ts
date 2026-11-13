@@ -131,6 +131,12 @@ function proficiencyBonusOf(token: Token, sheet: Record<string, unknown> | null)
   return proficiencyBonusForChallenge(typeof rating === 'string' || typeof rating === 'number' ? challengeNumber(String(rating)) || 0 : 0);
 }
 
+/** An ability score from a sheet's stats, or null. */
+function scoreOf(sheet: Record<string, unknown>, ability: string): number | null {
+  const score = (sheet.stats as Record<string, { score?: unknown } | undefined> | undefined)?.[ability]?.score;
+  return typeof score === 'number' ? score : null;
+}
+
 /** A token as the rules see it. */
 function combatant(token: Token, sheet: Record<string, unknown> | null, dodging: readonly string[] = []): Combatant {
   const block = (token.statBlock ?? null) as { ac?: unknown } | null;
@@ -144,6 +150,7 @@ function combatant(token: Token, sheet: Record<string, unknown> | null, dodging:
     hp: sheet ? extractCharacterHp(DND, sheet) : (token.hp ?? null),
     conditions: dodging.includes(token.id) ? [...(token.conditions ?? []), DODGING] : (token.conditions ?? []),
     exhaustion,
+    scores: sheet ? { str: scoreOf(sheet, 'strength'), dex: scoreOf(sheet, 'dexterity') } : undefined,
     defences: sheet ? undefined : defencesFromStatBlock((token.statBlock ?? {}) as Parameters<typeof defencesFromStatBlock>[0]),
   };
 }

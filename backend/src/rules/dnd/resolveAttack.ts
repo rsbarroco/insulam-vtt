@@ -28,6 +28,8 @@ export interface Combatant {
   conditions: readonly string[];
   /** Exhaustion level, when the sheet tracks one. */
   exhaustion?: number;
+  /** Strength and Dexterity scores, when a sheet gives them: a Heavy weapon asks 13. */
+  scores?: { str: number | null; dex: number | null };
   defences?: Defences;
 }
 
@@ -103,6 +105,10 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   const modifiers = attackModifiers({ attacker: attackerState, target: targetState, distanceFeet: distance, ranged });
   const reasons = [...modifiers.reasons];
   if (longRange) reasons.push('Disadvantage: the target is at long range');
+  if (profile.heavy && attacker.scores) {
+    const score = ranged ? attacker.scores.dex : attacker.scores.str;
+    if (score !== null && score < 13) reasons.push(`Disadvantage: a Heavy weapon wants ${ranged ? 'Dexterity' : 'Strength'} 13`);
+  }
   if (request.mode === 'advantage') reasons.push('Advantage: granted by the table');
   if (request.mode === 'disadvantage') reasons.push('Disadvantage: imposed by the table');
   const mode = rollMode(
