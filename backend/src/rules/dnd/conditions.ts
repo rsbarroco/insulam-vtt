@@ -45,6 +45,8 @@ export interface ConditionState {
   exhaustion: number;
   /** It took the Dodge action and its next turn has not started. Not a condition, but carried like one. */
   dodging: boolean;
+  /** A barbarian's Rage is on: Advantage on Strength checks and saving throws. Carried like a condition. */
+  raging: boolean;
 }
 
 const ALIASES: Readonly<Record<string, Condition>> = { exhausted: 'exhaustion' };
@@ -57,9 +59,11 @@ const ALIASES: Readonly<Record<string, Condition>> = { exhausted: 'exhaustion' }
 export function readConditions(names: readonly string[], exhaustion?: number): ConditionState {
   const has = new Set<Condition>();
   let dodging = false;
+  let raging = false;
   for (const name of names) {
     const key = name.trim().toLowerCase();
     if (key === DODGING) dodging = true;
+    if (key === RAGING) raging = true;
     const condition = ALIASES[key] ?? (CONDITIONS as readonly string[]).find((known) => known === key);
     if (condition) has.add(condition as Condition);
   }
@@ -72,11 +76,14 @@ export function readConditions(names: readonly string[], exhaustion?: number): C
   const clamped = Math.max(0, Math.min(MAX_EXHAUSTION, Math.floor(level)));
   if (clamped > 0) has.add('exhaustion');
   else has.delete('exhaustion');
-  return { has, exhaustion: clamped, dodging };
+  return { has, exhaustion: clamped, dodging, raging };
 }
 
 /** The name a dodging creature carries among its conditions. */
 export const DODGING = 'dodging';
+
+/** The name a raging barbarian carries among its conditions. */
+export const RAGING = 'raging';
 
 /**
  * Whether a creature that took the Dodge action still has its benefits: it
@@ -200,7 +207,10 @@ export function saveModifiers(state: ConditionState, ability: Ability): SaveModi
   const physical = ability === 'str' || ability === 'dex';
   const helpless = (['paralyzed', 'petrified', 'stunned', 'unconscious'] as const).some((c) => state.has.has(c));
   return {
-    mode: rollMode(ability === 'dex' && stillDodging(state), ability === 'dex' && state.has.has('restrained')),
+    mode: rollMode(
+      (ability === 'dex' && stillDodging(state)) || (ability === 'str' && state.raging),
+      ability === 'dex' && state.has.has('restrained')
+    ),
     penalty: d20Penalty(state),
     autoFail: physical && helpless,
   };

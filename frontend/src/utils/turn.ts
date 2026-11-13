@@ -74,6 +74,7 @@ export function markLabels(marks: CombatState['marks'], tokenId: string): string
   if (marks.some((mark) => mark.kind === 'sap' && mark.targetId === tokenId)) labels.push('Sapped');
   if (marks.some((mark) => mark.kind === 'slow' && mark.targetId === tokenId)) labels.push('Slowed');
   if (marks.some((mark) => mark.kind === 'vex' && mark.targetId === tokenId)) labels.push('Vexed');
+  if (marks.some((mark) => mark.kind === 'rage' && mark.targetId === tokenId)) labels.push('Raging');
   return labels;
 }
 

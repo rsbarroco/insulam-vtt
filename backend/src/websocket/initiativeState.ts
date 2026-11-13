@@ -75,10 +75,12 @@ export interface CombatState {
  * Speed is 10 feet less, until the attacker's next turn starts. Vex: the
  * attacker's next attack roll against the target has Advantage, until the end
  * of the attacker's next turn (`turnEndsLeft` counts the attacker's turns
- * still to end before it goes).
+ * still to end before it goes). Rage: the barbarian (attacker and target
+ * both) is raging until the end of its next turn, kept going by each attack
+ * it makes on its turn.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex';
+  kind: 'sap' | 'slow' | 'vex' | 'rage';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -114,7 +116,9 @@ export function advanceTurn(state: CombatState): void {
   // The turn that ends counts down a Vex its combatant made.
   const ending = state.currentTokenId;
   state.marks = state.marks
-    .map((mark) => (mark.kind === 'vex' && mark.attackerId === ending ? { ...mark, turnEndsLeft: mark.turnEndsLeft - 1 } : mark))
+    .map((mark) =>
+      (mark.kind === 'vex' || mark.kind === 'rage') && mark.attackerId === ending ? { ...mark, turnEndsLeft: mark.turnEndsLeft - 1 } : mark
+    )
     .filter((mark) => mark.turnEndsLeft > 0);
   const nextIndex = state.combatants.findIndex((c) => c.tokenId === state.currentTokenId) + 1;
   if (nextIndex >= state.combatants.length) {
@@ -128,7 +132,9 @@ export function advanceTurn(state: CombatState): void {
   state.dodging = state.dodging.filter((tokenId) => tokenId !== state.currentTokenId);
   state.opportunities = [];
   // Sap and Slow last until the start of the attacker's next turn.
-  state.marks = state.marks.filter((mark) => mark.kind === 'vex' || mark.attackerId !== state.currentTokenId);
+  state.marks = state.marks.filter(
+    (mark) => mark.kind === 'vex' || mark.kind === 'rage' || mark.attackerId !== state.currentTokenId
+  );
 }
 
 const campaignStates = new Map<string, CombatState>();

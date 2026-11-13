@@ -491,3 +491,27 @@ describe('class features with uses', () => {
     await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Action Surge'));
   });
 });
+
+describe('a barbarian', () => {
+  beforeEach(() => {
+    h.useFeature.mockReset().mockResolvedValue({ ok: true, summary: 'Hero enters a Rage', left: 2 });
+  });
+
+  it('enters a Rage with its uses, and can end it once raging', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({ ok: true, actions: [], attacksPerAction: 1, features: [], resources: [{ name: 'Rage', max: 3, used: 0 }] });
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Rage (3/3)' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Rage'));
+  });
+
+  it('offers End Rage while raging', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({ ok: true, actions: [], attacksPerAction: 1, features: [], resources: [{ name: 'Rage', max: 3, used: 1 }] });
+    fight({ marks: [{ kind: 'rage', attackerId: 'hero', targetId: 'hero', turnEndsLeft: 2 }] });
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'End Rage' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'End Rage'));
+  });
+});

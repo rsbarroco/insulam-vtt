@@ -57,6 +57,8 @@ export function passiveScore(bonus: number): number {
 export interface CheckModifiers {
   /** The creature's conditions give Disadvantage. */
   disadvantage: boolean;
+  /** Its Rage gives Advantage on a Strength check. */
+  advantage: boolean;
   /** A flat change to the roll, from Exhaustion. */
   penalty: number;
   /** Why, for the log. */
@@ -64,11 +66,15 @@ export interface CheckModifiers {
 }
 
 /** How a creature's own conditions change an ability check it makes. */
-export function checkModifiers(state: ConditionState): CheckModifiers {
+export function checkModifiers(state: ConditionState, ability?: Ability): CheckModifiers {
   const reasons: string[] = [];
   if (state.has.has('poisoned')) reasons.push('Disadvantage: Poisoned');
   if (state.has.has('frightened')) reasons.push('Disadvantage: Frightened');
-  return { disadvantage: reasons.length > 0, penalty: d20Penalty(state), reasons };
+  const disadvantage = reasons.length > 0;
+  // A Rage gives Advantage on Strength checks.
+  const advantage = ability === 'str' && state.raging;
+  if (advantage) reasons.push('Advantage: Rage');
+  return { disadvantage, advantage, penalty: d20Penalty(state), reasons };
 }
 
 export interface CheckRequest {
@@ -82,6 +88,8 @@ export interface CheckRequest {
   /** Advantage or Disadvantage the table grants beyond what the conditions give. */
   mode?: RollMode;
   conditions: ConditionState;
+  /** The ability the check uses, when the conditions care which. */
+  ability?: Ability;
 }
 
 export interface CheckResult {
@@ -95,12 +103,12 @@ export interface CheckResult {
 }
 
 export function resolveCheck(request: CheckRequest, roll: RollDie = rollDie): CheckResult {
-  const modifiers = checkModifiers(request.conditions);
+  const modifiers = checkModifiers(request.conditions, request.ability);
   const reasons = [...modifiers.reasons];
   if (request.mode === 'advantage') reasons.push('Advantage: granted by the table');
   if (request.mode === 'disadvantage') reasons.push('Disadvantage: imposed by the table');
   const mode = rollMode(
-    request.mode === 'advantage',
+    request.mode === 'advantage' || modifiers.advantage,
     modifiers.disadvantage || request.mode === 'disadvantage'
   );
   const rolled = rollD20(request.bonus + modifiers.penalty, mode, roll);

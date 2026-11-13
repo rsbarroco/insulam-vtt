@@ -1642,7 +1642,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex';
+  kind: 'sap' | 'slow' | 'vex' | 'rage';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1749,7 +1749,7 @@ export interface CombatResource {
 }
 
 /** `combat.feature`: a class feature the server applies when it is used. */
-export type CombatFeatureName = 'Second Wind' | 'Action Surge';
+export type CombatFeatureName = 'Second Wind' | 'Action Surge' | 'Rage' | 'End Rage';
 export type CombatFeatureAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
 
 /** `combat.stand`: a Prone token got up. */

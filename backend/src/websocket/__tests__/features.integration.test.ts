@@ -221,3 +221,58 @@ describe('rests give the uses back', () => {
     ]);
   });
 });
+
+describe('Rage', () => {
+  const barbarian = () =>
+    prisma.character.update({
+      where: { id: heroCharacterId },
+      data: {
+        data: toJson({
+          ...heroSheet(),
+          class: 'Barbarian',
+          level: 3,
+          stats: { strength: { score: 16, modifier: 3 }, dexterity: { score: 12, modifier: 1 } },
+          hp: { current: 30, maximum: 30, temporary: 0 },
+        }),
+      },
+    });
+  const rage = () => ask(player, 'combat.feature', { tokenId: HERO, feature: 'Rage' });
+
+  it('spends a use and the Bonus Action, and marks the barbarian raging', async () => {
+    await barbarian();
+    fight();
+    const answer = await rage();
+    expect(answer.summary).toMatch(/^Hero enters a Rage: .* \+2 damage on Strength attacks, .* \(2 uses left\)$/);
+    expect(getState(campaignId).marks).toEqual([{ kind: 'rage', attackerId: HERO, targetId: HERO, turnEndsLeft: 2 }]);
+    expect(getState(campaignId).turn?.bonusAction).toBe(true);
+    expect((await sheetOfHero()).featureUses).toEqual({ Rage: 1 });
+    expect((await rage()).error).toBe('Hero is already raging');
+  });
+
+  it('adds its Rage Damage to a Strength attack, and halves Slashing damage taken', async () => {
+    await barbarian();
+    fight();
+    await rage();
+    // Longsword: a hit, 1d8+3 with a 4, and +2 from the Rage.
+    rolls = [15, 4];
+    expect(await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: 0 })).toMatchObject({ hit: true, dealt: 9 });
+
+    // The ogre's greatclub: 2d8+4 with 3 and 3 is 10 Bludgeoning, halved.
+    rolls = [15, 3, 3];
+    expect(await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: 0 })).toMatchObject({ hit: true, dealt: 5 });
+  });
+
+  it('casts no spells while raging, and ends when asked', async () => {
+    await barbarian();
+    fight();
+    await rage();
+    expect((await ask(dm, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: 1 })).error).toBe('Hero cannot cast spells while raging');
+    expect((await ask(player, 'combat.feature', { tokenId: HERO, feature: 'End Rage' })).summary).toBe("Hero's Rage ends");
+    expect(getState(campaignId).marks).toEqual([]);
+  });
+
+  it('is kept only during combat', async () => {
+    await barbarian();
+    expect((await rage()).error).toBe('A Rage is kept during combat');
+  });
+});

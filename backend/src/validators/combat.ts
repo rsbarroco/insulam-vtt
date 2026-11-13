@@ -75,7 +75,7 @@ export const CombatRestSchema = z
   .strict();
 
 /** `combat.feature`: a token's character uses a class feature with a number of uses. */
-export const CombatFeatureSchema = z.object({ tokenId, feature: z.enum(['Second Wind', 'Action Surge']) }).strict();
+export const CombatFeatureSchema = z.object({ tokenId, feature: z.enum(['Second Wind', 'Action Surge', 'Rage', 'End Rage']) }).strict();
 
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();
