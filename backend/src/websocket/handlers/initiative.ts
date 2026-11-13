@@ -29,6 +29,7 @@ import {
   freshTurn,
   someoneActing,
   projectCombatState,
+  type SentCombatState,
   getVersion,
   startSend,
   latestSend,
@@ -36,7 +37,6 @@ import {
   markPlayerRolled,
   type CombatantEntry,
   type CombatantSource,
-  type CombatState,
 } from '../initiativeState';
 import { bestEffort, campaignSockets, getSocketInstance, stillInCampaign } from '../utils';
 import { stateRequestAllowed, withinCeiling } from '../shared';
@@ -44,7 +44,7 @@ import { TurnEndSchema, TurnUpdateSchema } from '../../validators/turn';
 
 /** What a send needs of a socket; a connected one and a fetched one both have it. */
 type Recipient = Pick<AuthenticatedFields, 'userId' | 'role'> & {
-  emit(event: 'initiative.state', state: CombatState): unknown;
+  emit(event: 'initiative.state', state: SentCombatState): unknown;
   emit(event: 'dice.rolled' | 'dice.rolled.secret', roll: Record<string, unknown>): unknown;
 };
 
@@ -646,6 +646,7 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       state.turn = freshTurn();
       state.reactionsSpent = [];
       state.dodging = [];
+      state.opportunities = [];
       setCombatState(socket.campaignId, state);
       await broadcastInitiativeState(socket.campaignId);
       logger.info('initiative.start', { campaignId: socket.campaignId, first: state.combatants[0].name });

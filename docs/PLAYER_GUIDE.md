@@ -415,6 +415,7 @@ During combat a bar under the map shows the turn of whoever is acting: the movem
 - **Features** lists what your character can do with a Bonus Action or a Reaction, with the rule of each; **Use** marks the bonus action or reaction as spent.
 - At 0 hit points, on your turn, the bar shows **Death save**: the VTT rolls it and marks the result on your sheet. A 20 puts you back up with 1 hit point.
 - Pick your **action** from the list. **Dash** adds your speed to your movement for the turn. **Dodge** makes you dodge until your next turn starts: attacks the VTT rolls against you have Disadvantage and your Dexterity saving throws have Advantage, the bar and the initiative tracker say **Dodging**, and you lose it while you are Incapacitated or your Speed is 0. Picking another action instead takes the Dodge back.
+- **Opportunity Attacks.** If you move out of a hostile creature's reach on your turn, the VTT offers that creature an Opportunity Attack; taking **Disengage** as your action first means your movement offers none. When a hostile creature walks out of your reach on its turn, a button appears on the bar, **Opportunity Attack: you on it**: press it to make one melee attack with your reaction (if you carry more than one melee weapon the bar asks which). The offer lasts until that creature's turn ends.
 - Tick **Bonus action used** and **Reaction used** as you spend them.
 - Press **End turn** when you are done.
 

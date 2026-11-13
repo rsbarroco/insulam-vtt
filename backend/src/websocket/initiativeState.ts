@@ -57,6 +57,25 @@ export interface CombatState {
    * Advantage, until its next turn starts.
    */
   dodging: string[];
+  /**
+   * The Opportunity Attacks the acting combatant's movement has offered this
+   * turn: who may attack whom, and where the target stood when it left the
+   * attacker's reach, which is where the attack finds it. Gone when the
+   * attack is made, the attacker's reaction is otherwise spent, or the turn
+   * passes.
+   */
+  opportunities: OpportunityOffer[];
+}
+
+/** The combat state as a member is sent it: an offered attack without where its target stood. */
+export type SentCombatState = Omit<CombatState, 'opportunities'> & {
+  opportunities: Array<Pick<OpportunityOffer, 'attackerId' | 'targetId'>>;
+};
+
+export interface OpportunityOffer {
+  attackerId: string;
+  targetId: string;
+  from: { x: number; y: number };
 }
 
 /** Whether a fight is under way with a combatant acting. */
@@ -85,6 +104,7 @@ export function advanceTurn(state: CombatState): void {
   state.turn = freshTurn();
   state.reactionsSpent = state.reactionsSpent.filter((tokenId) => tokenId !== state.currentTokenId);
   state.dodging = state.dodging.filter((tokenId) => tokenId !== state.currentTokenId);
+  state.opportunities = [];
 }
 
 const campaignStates = new Map<string, CombatState>();
@@ -139,6 +159,7 @@ function defaultState(): CombatState {
     turn: null,
     reactionsSpent: [],
     dodging: [],
+    opportunities: [],
   };
 }
 
@@ -147,8 +168,8 @@ export function getState(campaignId: string): CombatState {
 }
 
 /** A combat state as it may be handed in: the turn fields may be left out. */
-export type CombatStateInput = Omit<CombatState, 'turn' | 'reactionsSpent' | 'dodging'> &
-  Partial<Pick<CombatState, 'turn' | 'reactionsSpent' | 'dodging'>>;
+export type CombatStateInput = Omit<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities'> &
+  Partial<Pick<CombatState, 'turn' | 'reactionsSpent' | 'dodging' | 'opportunities'>>;
 
 export function setState(campaignId: string, input: CombatStateInput): void {
   const listed = new Set(input.combatants.map((c) => c.tokenId));
@@ -160,6 +181,16 @@ export function setState(campaignId: string, input: CombatStateInput): void {
     turn: input.active && input.currentTokenId ? { ...freshTurn(), ...(input.turn ?? {}) } : null,
     reactionsSpent: (input.reactionsSpent ?? []).filter((tokenId) => listed.has(tokenId)),
     dodging: input.active ? (input.dodging ?? []).filter((tokenId) => listed.has(tokenId)) : [],
+    // Only for the one acting, and only from combatants with their reaction left.
+    opportunities:
+      input.active && input.currentTokenId
+        ? (input.opportunities ?? []).filter(
+            (offer) =>
+              offer.targetId === input.currentTokenId &&
+              listed.has(offer.attackerId) &&
+              !(input.reactionsSpent ?? []).includes(offer.attackerId)
+          )
+        : [],
   };
   campaignStates.set(campaignId, state);
   bump(campaignId);
@@ -265,6 +296,7 @@ export function withoutCombatants(state: CombatState, gone: (entry: CombatantEnt
     dodging: state.dodging.filter(
       (tokenId) => kept.some((c) => c.tokenId === tokenId) && !(passedOn && tokenId === currentTokenId)
     ),
+    opportunities: passedOn ? [] : state.opportunities.filter((offer) => kept.some((c) => c.tokenId === offer.attackerId)),
   };
 }
 
@@ -308,7 +340,7 @@ export function projectCombatState(
   state: CombatState,
   tokens: ReadonlyMap<string, CombatantSource>,
   isDM: boolean
-): CombatState {
+): SentCombatState {
   const combatants: CombatantEntry[] = [];
   for (const entry of state.combatants) {
     const token = tokens.get(entry.tokenId);
@@ -337,5 +369,9 @@ export function projectCombatState(
     turn: currentTokenId ? state.turn : null,
     reactionsSpent: state.reactionsSpent.filter((tokenId) => listed.has(tokenId)),
     dodging: state.dodging.filter((tokenId) => listed.has(tokenId)),
+    // Where the target stood is the server's to keep.
+    opportunities: state.opportunities
+      .filter((offer) => listed.has(offer.attackerId) && listed.has(offer.targetId))
+      .map(({ attackerId, targetId }) => ({ attackerId, targetId })),
   };
 }

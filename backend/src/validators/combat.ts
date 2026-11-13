@@ -20,6 +20,8 @@ export const CombatAttackSchema = z
     mode: z.enum(['normal', 'advantage', 'disadvantage']).optional(),
     /** The level of the spell slot a spell is cast with; the spell's own when left out. */
     slotLevel: z.number().int().min(1).max(9).optional(),
+    /** The Opportunity Attack the target's movement offered this attacker: its reaction, not its action. */
+    opportunity: z.literal(true).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });

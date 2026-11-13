@@ -19,6 +19,7 @@ import { readTokens, toJson } from '../../utils/prisma-json';
 import { withMapsLocked, clampTokenPosition } from '../../utils/mapTokens';
 import { canControlToken, canMoveTokensNow, canReadMap, PAUSED_MOVE_REFUSAL } from '../../services/permissions';
 import { bestEffort, campaignSockets, stillInCampaign } from '../utils';
+import { offerOpportunityAttacks } from './combat';
 
 /** How one member is sent a dragged token. */
 interface FrameRecipient {
@@ -577,6 +578,7 @@ export function registerTokenHandlers(io: Server, socket: AuthenticatedSocket): 
 
       // Update token position, in the list as it is under the map's lock: a
       // DM's add or delete landing during the drag used to be written away.
+      const cameFrom = { ...token.position };
       token.position = { x, y };
       const updatedTokens = await withMapsLocked([mapId], async (tx) => {
         const fresh = await tx.map.findUniqueOrThrow({ where: { id: mapId }, select: { tokens: true } });
@@ -662,6 +664,13 @@ export function registerTokenHandlers(io: Server, socket: AuthenticatedSocket): 
         // The sender included, as confirmation that the write went through.
         await emitMoveToVisibleSockets(
           'token.moved', token, mapId, map.campaign.currentMapId, { tokenId, mapId, x, y }, true
+        );
+      }
+
+      // Moving out of a hostile creature's reach on its own turn offers that creature an Opportunity Attack.
+      if (mapId === map.campaign.currentMapId && (cameFrom.x !== x || cameFrom.y !== y)) {
+        await bestEffort('opportunity attacks after a move', () =>
+          offerOpportunityAttacks(io, campaignId, map, updatedTokens, tokenId, cameFrom)
         );
       }
 

@@ -1634,6 +1634,14 @@ export interface CombatState {
   reactionsSpent: string[];
   /** tokenIds that took the Dodge action and whose next turn has not started. */
   dodging: string[];
+  /** The Opportunity Attacks the acting combatant's movement has offered this turn. */
+  opportunities: OpportunityOffer[];
+}
+
+/** An Opportunity Attack on offer: who may attack whom. Where the target stood is the server's to keep. */
+export interface OpportunityOffer {
+  attackerId: string;
+  targetId: string;
 }
 
 /** `turn.update`: any of the turn fields, and optionally one combatant's reaction. */
@@ -1684,7 +1692,15 @@ export type CombatActionsAck =
 
 export type AttackMode = 'normal' | 'advantage' | 'disadvantage';
 /** `combat.attack`: one attack from one token against another. */
-export interface CombatAttackEvent { attackerId: string; targetId: string; action: number; mode?: AttackMode; slotLevel?: number; }
+export interface CombatAttackEvent {
+  attackerId: string;
+  targetId: string;
+  action: number;
+  mode?: AttackMode;
+  slotLevel?: number;
+  /** The Opportunity Attack the target's movement offered: the attacker's reaction, not its action. */
+  opportunity?: true;
+}
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
   | { ok: false; error: string };
