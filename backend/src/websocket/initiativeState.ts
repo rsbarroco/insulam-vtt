@@ -86,10 +86,12 @@ export interface CombatState {
  * takes it off the token then. Recharge: the creature (both ids) has spent
  * the action `action`, until a d6 at the start of one of its turns rolls high
  * enough. Legendary: one Legendary Action the creature (both ids) has taken
- * this round; all of them go at the start of its turn.
+ * this round; all of them go at the start of its turn. Concentration: the
+ * caster (both ids) concentrates on the spell `action`, until it ends it, casts
+ * another, fails a save when damaged or drops to 0 Hit Points.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -153,6 +155,7 @@ export function advanceTurn(state: CombatState): void {
       countsEnds(mark) ||
       (mark.kind === 'condition' && mark.ends === 'save') ||
       mark.kind === 'recharge' ||
+      mark.kind === 'concentration' ||
       mark.attackerId !== state.currentTokenId
   );
 }

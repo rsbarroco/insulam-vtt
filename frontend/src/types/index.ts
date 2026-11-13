@@ -1642,7 +1642,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1717,6 +1717,9 @@ export type CombatActionsAck =
       passivePerception?: number | null;
       /** Class features with a number of uses: Second Wind, Action Surge, Rage. */
       resources?: CombatResource[];
+      /** The spell it concentrates on, and the concentration spells its sheet has ready. */
+      concentration?: string | null;
+      concentrationSpells?: string[];
     }
   | { ok: false; error: string };
 
@@ -1790,6 +1793,9 @@ export type CombatStandAck = { ok: true } | { ok: false; error: string };
 
 /** `combat.help`: the helper distracted the creature for its allies' next attack. */
 export type CombatHelpAck = { ok: true; summary: string } | { ok: false; error: string };
+
+/** `combat.concentrate`: concentration started on a spell, or ended. */
+export type CombatConcentrateAck = { ok: true; summary: string } | { ok: false; error: string };
 
 /** `combat.ready`: the attack is readied for its trigger. */
 export type CombatReadyAck = { ok: true; summary: string } | { ok: false; error: string };

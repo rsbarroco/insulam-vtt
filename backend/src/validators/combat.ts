@@ -119,6 +119,12 @@ export const CombatReadySchema = z
   })
   .strict();
 
+/** `combat.concentrate`: a token's caster starts concentrating on a spell it has, or ends its concentration. */
+export const CombatConcentrateSchema = z
+  .object({ tokenId, spell: z.string().trim().min(1).max(100).optional(), end: z.literal(true).optional() })
+  .strict()
+  .refine((value) => (value.spell === undefined) !== (value.end === undefined), { message: 'Give a spell to concentrate on, or end' });
+
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();
 

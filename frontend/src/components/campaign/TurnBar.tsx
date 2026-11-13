@@ -32,6 +32,7 @@ import {
 import Button from '@/components/ui/Button';
 import CheckRoller from './CheckRoller';
 import LayOnHands from './LayOnHands';
+import ConcentrationControl from './ConcentrationControl';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
 /** The class features the server counts and the table applies: a button each, while uses are left. */
@@ -73,6 +74,7 @@ export default function TurnBar() {
     features: CombatFeatureOption[];
     passivePerception: number | null;
     resources: CombatResource[];
+    concentrationSpells: string[];
   } | null>(null);
   // Asked again after a feature is used, so its uses left are the sheet's.
   const [listed, setListed] = useState(0);
@@ -101,6 +103,7 @@ export default function TurnBar() {
               features: answer.features,
               passivePerception: answer.passivePerception ?? null,
               resources: answer.resources ?? [],
+              concentrationSpells: answer.concentrationSpells ?? [],
             }
           : null
       );
@@ -376,6 +379,16 @@ export default function TurnBar() {
           </span>
         );
       })}
+
+      {canAct && (
+        <ConcentrationControl
+          key={actingId}
+          concentrating={combat.marks.find((mark) => mark.kind === 'concentration' && mark.attackerId === actingId)?.action ?? null}
+          spells={known?.concentrationSpells ?? []}
+          concentrate={(change) => socket.concentrate(actingId, change)}
+          onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
+        />
+      )}
 
       {canAct && (
         <CheckRoller

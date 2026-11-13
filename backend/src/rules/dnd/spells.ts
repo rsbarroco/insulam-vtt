@@ -244,6 +244,16 @@ export function spellActionsFromSheet(data: SheetSpellcasting | null | undefined
   return actions;
 }
 
+/** The concentration spells a sheet has ready: its cantrips and prepared spells that need Concentration, by name. */
+export function concentrationSpellsOf(data: SheetSpellcasting | null | undefined): string[] {
+  const casting = data?.spellcasting;
+  const names = [
+    ...(casting?.cantrips ?? []),
+    ...(casting?.spells ?? []).filter((entry) => entry.prepared !== false).map((entry) => entry.name),
+  ];
+  return [...new Set(names.map((name) => findSpell(name)).filter((spell) => spell?.concentration).map((spell) => spell!.name))];
+}
+
 /** The spell slots a sheet has left, by level. Levels with none left are absent. */
 export function slotsLeft(data: SheetSpellcasting | null | undefined): Record<number, number> {
   const left: Record<number, number> = {};
