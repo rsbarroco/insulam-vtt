@@ -18,6 +18,7 @@ function renderMenu() {
     listCombatActions: vi.fn().mockResolvedValue({ ok: true, actions: [greataxe] }),
     resolveAttack: vi.fn().mockResolvedValue({ ok: true, summary: 'hit; Cleave', hit: true }),
     resolveSave: vi.fn(),
+    help: vi.fn().mockResolvedValue({ ok: true, summary: 'Hero helps against Ogre' }),
   };
   const onResolved = vi.fn();
   render(
@@ -61,5 +62,12 @@ describe('AttackMenu extra attacks', () => {
         action: 0,
       })
     );
+  });
+
+  it('takes the Help action against the creature', async () => {
+    const { socket, onResolved } = renderMenu();
+    fireEvent.click(await screen.findByRole('button', { name: 'Help against it' }));
+    await waitFor(() => expect(socket.help).toHaveBeenCalledWith('hero', 'ogre'));
+    expect(onResolved).toHaveBeenCalledWith({ ok: true, summary: 'Hero helps against Ogre', landed: true });
   });
 });

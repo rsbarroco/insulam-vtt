@@ -54,6 +54,12 @@ describe('advanceTurn', () => {
     expect(state.marks).toEqual([{ kind: 'slow', attackerId: 'c', targetId: 'a', turnEndsLeft: 1 }]);
   });
 
+  it('ends a Help when the helper’s next turn begins', () => {
+    const state = fight({ marks: [{ kind: 'help', attackerId: 'b', targetId: 'c', turnEndsLeft: 1 }] });
+    advanceTurn(state); // b's turn begins
+    expect(state.marks).toEqual([]);
+  });
+
   it('keeps a Vex to the end of its maker’s next turn', () => {
     const state = fight({ marks: [{ kind: 'vex', attackerId: 'a', targetId: 'b', turnEndsLeft: 2 }] });
     advanceTurn(state); // a's turn ends: one left

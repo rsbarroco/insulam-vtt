@@ -77,10 +77,12 @@ export interface CombatState {
  * of the attacker's next turn (`turnEndsLeft` counts the attacker's turns
  * still to end before it goes). Rage: the barbarian (attacker and target
  * both) is raging until the end of its next turn, kept going by each attack
- * it makes on its turn.
+ * it makes on its turn. Help: the next attack roll an ally of the helper
+ * (`attackerId`) makes against the target has Advantage, until the helper's
+ * next turn starts.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -131,7 +133,7 @@ export function advanceTurn(state: CombatState): void {
   state.reactionsSpent = state.reactionsSpent.filter((tokenId) => tokenId !== state.currentTokenId);
   state.dodging = state.dodging.filter((tokenId) => tokenId !== state.currentTokenId);
   state.opportunities = [];
-  // Sap and Slow last until the start of the attacker's next turn.
+  // Sap, Slow and Help last until the start of the attacker's next turn.
   state.marks = state.marks.filter(
     (mark) => mark.kind === 'vex' || mark.kind === 'rage' || mark.attackerId !== state.currentTokenId
   );

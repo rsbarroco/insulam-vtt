@@ -102,6 +102,9 @@ export const CombatFeatureSchema = z
   })
   .strict();
 
+/** `combat.help`: the helper, and the enemy within 5 feet it distracts. */
+export const CombatHelpSchema = z.object({ helperId: tokenId, targetId: tokenId }).strict();
+
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();
 
