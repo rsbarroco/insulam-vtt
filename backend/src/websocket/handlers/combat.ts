@@ -44,6 +44,7 @@ import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/
 import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
+import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
 /** The one system whose rules the engine knows. */
@@ -165,7 +166,13 @@ function combatant(token: Token, sheet: Record<string, unknown> | null, dodging:
   const sheetAc = sheet && typeof sheet.armorClass === 'number' ? sheet.armorClass : null;
   const blockAc = block && typeof block.ac === 'number' ? block.ac : null;
   const exhaustion = sheet && typeof sheet.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined;
-  const own = sheet ? undefined : defencesFromStatBlock((token.statBlock ?? {}) as Parameters<typeof defencesFromStatBlock>[0]);
+  // A character's species gives its resistances; a stat block writes its own.
+  const resisted = sheet ? speciesResistances(sheet) : [];
+  const own = sheet
+    ? resisted.length > 0
+      ? { resistances: resisted }
+      : undefined
+    : defencesFromStatBlock((token.statBlock ?? {}) as Parameters<typeof defencesFromStatBlock>[0]);
   return {
     name: token.name,
     standing: standing(token),
@@ -175,6 +182,7 @@ function combatant(token: Token, sheet: Record<string, unknown> | null, dodging:
     exhaustion,
     scores: sheet ? { str: scoreOf(sheet, 'strength'), dex: scoreOf(sheet, 'dexterity') } : undefined,
     defences: raging ? withRageResistance(own) : own,
+    ...(sheet && hasLuck(sheet) ? { lucky: true } : {}),
   };
 }
 
@@ -202,13 +210,18 @@ function breakdownOf(result: AttackResult) {
 /** A player is told the same of a token that is hidden as of one that is not there. */
 const hiddenFromPlayers = (token: Token) => token.visible === false || token.obscured === true;
 
-/** Take damage from each target's hit points, on its sheet or on its token, and tell the table. */
+/**
+ * Take damage from each target's hit points, on its sheet or on its token, and
+ * tell the table. A character whose species has Relentless Endurance left drops
+ * to 1 instead of 0 when not killed outright; the lines that say so come back.
+ */
 async function applyDealt(
   io: Server,
   campaignId: string,
   mapId: string,
   hits: ReadonlyArray<{ token: Token; sheet: Record<string, unknown> | null; dealt: number; hp: HitPoints | null; critical?: boolean }>
-): Promise<void> {
+): Promise<string[]> {
+  const notes: string[] = [];
   const onTokens = new Map<string, HitPoints>();
   for (const hit of hits) {
     if (hit.dealt <= 0) continue;
@@ -220,15 +233,27 @@ async function applyDealt(
         if (!fresh) return null;
         const change = applyHpDelta(DND, fresh.data, -hit.dealt);
         if ('error' in change) return null;
-        // Damage at 0 Hit Points is a failed death save; dropping to 0 starts them afresh.
         const sheet = (fresh.data ?? {}) as Record<string, unknown>;
-        const before = extractCharacterHp(DND, sheet)?.current ?? 0;
+        const held = extractCharacterHp(DND, sheet);
+        const before = held?.current ?? 0;
+        // Relentless Endurance: down to 0 but not killed outright, the Orc stays at 1, once until a Long Rest.
+        const relentless = resourcesOf(sheet).find((entry) => entry.name === 'Relentless Endurance');
+        const endured =
+          held && relentless && relentless.used < relentless.max ? endure(held, hit.dealt, change.hp.current) : null;
+        if (endured !== null) {
+          const spent = spendResource(sheet, 'Relentless Endurance');
+          const kept = { ...(spent.ok ? spent.sheet : sheet), hp: { ...(change.data.hp as object), current: endured } };
+          const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(kept) } });
+          return { hp: { ...change.hp, current: endured }, sheetChanged: updated, endured: true };
+        }
+        // Damage at 0 Hit Points is a failed death save; dropping to 0 starts them afresh.
         const saves = deathSavesAfterDamage(readDeathSaves(sheet.deathSaves), before, change.hp.current, hit.critical === true);
         const data = saves ? { ...change.data, deathSaves: saves } : change.data;
         const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(data) } });
-        return { hp: change.hp, sheetChanged: saves ? updated : null };
+        return { hp: change.hp, sheetChanged: saves ? updated : null, endured: false };
       });
       if (applied) io.to(campaignId).emit('character.hp.updated', { characterId, hp: applied.hp });
+      if (applied?.endured) notes.push(`${hit.token.name} endures (Relentless Endurance): 1 Hit Point`);
       if (applied?.sheetChanged) {
         const changed = applied.sheetChanged;
         await bestEffort('sheet after a failed death save', () =>
@@ -239,7 +264,7 @@ async function applyDealt(
       onTokens.set(hit.token.id, hit.hp);
     }
   }
-  if (onTokens.size === 0) return;
+  if (onTokens.size === 0) return notes;
   const updated = await withMapsLocked([mapId], async (tx) => {
     const fresh = await tx.map.findUnique({ where: { id: mapId } });
     if (!fresh) return null;
@@ -256,6 +281,7 @@ async function applyDealt(
   if (updated) {
     await bestEffort('map after damage', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
   }
+  return notes;
 }
 
 /** Put a condition on a token of the map, if it does not carry it already, and tell the table. */
@@ -1140,7 +1166,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
 
-      await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
+      const endured = await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
       if (vexed || sapped || helped) useMarks(campaignId, [vexed, sapped, helped]);
       if (ready) {
         const now = getCombatState(campaignId);
@@ -1178,7 +1204,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
               ? 'Light extra attack, with Nick'
               : 'Light extra attack, a Bonus Action'
             : null;
-      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : [])].join('; ');
+      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...endured].join('; ');
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
       answer(ack, { ...result, summary });
@@ -1212,7 +1238,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const faller = combatant(token, sheet);
       const result = resolveFall({ name: faller.name, hp: faller.hp, defences: faller.defences }, feet);
 
-      await applyDealt(io, campaignId, map.id, [{ token, sheet, dealt: result.dealt, hp: result.hp }]);
+      const endured = await applyDealt(io, campaignId, map.id, [{ token, sheet, dealt: result.dealt, hp: result.hp }]);
+      const summary = [result.summary, ...endured].join('; ');
       if (result.prone) await giveCondition(io, campaignId, map.id, tokenId, 'Prone');
       const dice = result.rolled.dice;
       const expression = `${dice.length}d6`;
@@ -1231,11 +1258,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           },
         },
         token.name,
-        result.summary,
+        summary,
         hiddenFromPlayers(token)
       );
 
-      ack?.({ ok: true, summary: result.summary, feet, dealt: result.dealt, prone: result.prone });
+      ack?.({ ok: true, summary, feet, dealt: result.dealt, prone: result.prone });
       logger.debug('combat.fall', { campaignId, tokenId, feet, dealt: result.dealt });
     } catch (error) {
       logger.error('combat.fall failed', { err: error });
@@ -1275,7 +1302,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ? `${ABILITY_CHECK_NAMES[SKILL_CHECKS[skill].ability]} (${SKILL_CHECKS[skill].name})`
         : ABILITY_CHECK_NAMES[ability!];
       const used = skill ? SKILL_CHECKS[skill].ability : ability!;
-      const result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used });
+      const result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet) });
 
       const hidden = hide === true && result.success === true;
       if (hidden) await giveCondition(io, campaignId, map.id, tokenId, 'Invisible');
@@ -1773,14 +1800,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
 
-      await applyDealt(
+      const endured = await applyDealt(
         io,
         campaignId,
         map.id,
         result.targets.map((target, index) => ({ token: targetTokens[index], sheet: targetSheets[index], dealt: target.dealt, hp: target.hp }))
       );
       // What a failed save against an Unarmed Strike leaves the target with.
-      let summary = result.summary;
+      let summary = [result.summary, ...endured].join('; ');
       if (action.unarmed && !result.targets[0].outcome.success) {
         const [only] = targetTokens;
         if (action.unarmed === 'grapple') await giveCondition(io, campaignId, map.id, only.id, 'Grappled');
@@ -1855,7 +1882,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (!isDying(hp.current, saves)) {
           return { refusal: hp.current > 0 ? `${token.name} is not at 0 Hit Points` : `${token.name} has no more death saves to make` };
         }
-        const outcome = deathSavingThrow(saves);
+        const outcome = deathSavingThrow(saves, hasLuck(sheet) ? lucky(rollDie) : rollDie);
         const revived = outcome.result === 'revived';
         const next = { ...sheet, deathSaves: outcome.saves, ...(revived ? { hp: { ...(sheet.hp as object), current: 1 } } : {}) };
         const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(next) } });

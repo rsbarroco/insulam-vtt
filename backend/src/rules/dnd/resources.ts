@@ -35,6 +35,7 @@
 // ============================================
 
 import { columnAt } from './classes';
+import { hasRelentlessEndurance } from './species';
 
 export type ResourceName =
   | 'Second Wind'
@@ -46,7 +47,8 @@ export type ResourceName =
   | 'Focus Points'
   | 'Sorcery Points'
   | 'Favored Enemy'
-  | 'Lay on Hands';
+  | 'Lay on Hands'
+  | 'Relentless Endurance';
 
 /** The features spent a point at a time, several at once: the rest are spent one use at a time. */
 export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points', 'Lay on Hands'];
@@ -122,6 +124,8 @@ export function resourcesOf(sheet: Sheet): Resource[] {
   if (has(classes, 'Druid')) add('Wild Shape', count('Druid', 'Wild Shape', level), 'one');
   if (has(classes, 'Monk')) add('Focus Points', count('Monk', 'Focus Points', level), 'all');
   if (has(classes, 'Sorcerer')) add('Sorcery Points', count('Sorcerer', 'Sorcery Points', level), 'none');
+  // A species trait used once until a Long Rest.
+  if (hasRelentlessEndurance(sheet)) add('Relentless Endurance', 1, 'none');
   if (has(classes, 'Ranger')) add('Favored Enemy', count('Ranger', 'Favored Enemy', level), 'none');
   return out;
 }

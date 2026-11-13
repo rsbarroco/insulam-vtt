@@ -10,6 +10,7 @@
 // stores what comes back.
 // ============================================
 
+import { lucky } from './species';
 import { coverBetween, distanceFeet, type Cover } from '../../utils/boardSight';
 import type { CombatAction } from './actions';
 import { canAct, readConditions, saveModifiers, type Ability } from './conditions';
@@ -99,7 +100,7 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
     const cover = profile.ability === 'dex' && covers[index] !== 'total' ? coverBonus(covers[index]) : 0;
     const outcome = savingThrow(
       { bonus: target.saveBonus! + modifiers.penalty + cover, dc: profile.dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
-      roll
+      target.lucky ? lucky(roll) : roll
     );
     const dealt = damage.reduce((sum, entry) => {
       const amount = outcome.success ? (profile.halfOnSuccess ? halfDamage(entry.rolled.total) : 0) : entry.rolled.total;

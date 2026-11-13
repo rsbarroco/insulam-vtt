@@ -146,4 +146,14 @@ describe('POST /api/campaigns/:campaignId/maps/:id/tokens with a characterId', (
     expect(res.status).toBe(201);
     expect(res.body.token.controlledBy).toBeNull();
   });
+
+  // A character's token sees in the dark by its species' Darkvision, in
+  // squares of the map, unless the request gives a sight radius.
+  it("sees by its species' Darkvision unless a sight radius is given", async () => {
+    const dwarf = await prisma.character.create({ data: { userId: playerId, campaignId, name: 'Thra', data: { race: 'Dwarf' } } });
+    expect((await create({ characterId: dwarf.id })).body.token.sightRadius).toBe(24);
+    expect((await create({ characterId: dwarf.id, sightRadius: 4 })).body.token.sightRadius).toBe(4);
+    expect((await create({ characterId })).body.token.sightRadius).toBe(0);
+    await prisma.character.delete({ where: { id: dwarf.id } });
+  });
 });

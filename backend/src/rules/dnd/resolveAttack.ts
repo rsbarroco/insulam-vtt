@@ -15,6 +15,7 @@ import { coverBetween, distanceFeet, type BoardHeights, type Cover, type Standin
 import type { CombatAction, DamageComponent } from './actions';
 import { attackModifiers, canAct, readConditions } from './conditions';
 import { attackRoll, rollDie, rollMode, type AttackOutcome, type RollDie, type RollMode } from './d20';
+import { lucky } from './species';
 import { adjustedDamage, applyDamage, rollDamage, type DamageType, type Defences, type HitPoints, type RolledDamage } from './damage';
 
 export interface Combatant {
@@ -31,6 +32,8 @@ export interface Combatant {
   /** Strength and Dexterity scores, when a sheet gives them: a Heavy weapon asks 13. */
   scores?: { str: number | null; dex: number | null };
   defences?: Defences;
+  /** A Halfling's Luck: a 1 on its d20 is rolled again. */
+  lucky?: boolean;
 }
 
 export interface AttackRequest {
@@ -143,7 +146,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
       mode,
       criticalOnHit: modifiers.criticalOnHit,
     },
-    roll
+    attacker.lucky ? lucky(roll) : roll
   );
 
   const damage: AttackResult['damage'] = [];
