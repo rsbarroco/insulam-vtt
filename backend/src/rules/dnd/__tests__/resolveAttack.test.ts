@@ -204,3 +204,23 @@ describe('a Heavy weapon', () => {
     expect(ok(resolveAttack(request({ action: maul }), dice(12, 3))).reasons).toEqual([]);
   });
 });
+
+describe('damage a feature adds', () => {
+  const sneak = { label: 'Sneak Attack (2d6)', damage: { roll: { count: 2, sides: 6, bonus: 0 }, type: 'slashing' as const } };
+
+  it('is asked with the roll’s mode and rolled on a hit, doubled on a Critical Hit', () => {
+    const modes: string[] = [];
+    const hit = ok(resolveAttack(request({ mode: 'advantage', bonusDamage: (mode) => (modes.push(mode), sneak) }), dice(3, 12, 6, 2, 3)));
+    expect(modes).toEqual(['advantage']);
+    expect(hit.bonuses).toEqual(['Sneak Attack (2d6)']);
+    expect(hit.dealt).toBe(14);
+
+    const critical = ok(resolveAttack(request({ bonusDamage: () => sneak }), dice(20, 6, 5, 1, 1, 1, 1)));
+    expect(critical.dealt).toBe(18);
+  });
+
+  it('is nothing on a miss, or when the feature gives none', () => {
+    expect(ok(resolveAttack(request({ bonusDamage: () => sneak }), dice(2))).bonuses).toEqual([]);
+    expect(ok(resolveAttack(request({ bonusDamage: () => null }), dice(12, 6))).dealt).toBe(9);
+  });
+});

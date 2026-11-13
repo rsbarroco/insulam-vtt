@@ -12,7 +12,7 @@
 // ============================================
 
 import { coverBetween, distanceFeet, type BoardHeights, type Cover, type Standing } from '../../utils/boardSight';
-import type { CombatAction } from './actions';
+import type { CombatAction, DamageComponent } from './actions';
 import { attackModifiers, canAct, readConditions } from './conditions';
 import { attackRoll, rollDie, rollMode, type AttackOutcome, type RollDie, type RollMode } from './d20';
 import { adjustedDamage, applyDamage, rollDamage, type DamageType, type Defences, type HitPoints, type RolledDamage } from './damage';
@@ -50,6 +50,11 @@ export interface AttackRequest {
   unseen?: { attacker?: boolean; target?: boolean };
   /** Reasons the caller found, written as the engine writes its own: "Advantage: Vex". */
   extraReasons?: readonly string[];
+  /**
+   * Damage a feature adds to a hit, once the roll's Advantage or Disadvantage
+   * is known (a Rogue's Sneak Attack asks it); null when it adds none.
+   */
+  bonusDamage?: (mode: RollMode) => { label: string; damage: DamageComponent } | null;
 }
 
 export interface AttackRefusal {
@@ -66,6 +71,8 @@ export interface AttackResult {
   outcome: AttackOutcome;
   /** One entry per damage line of the action, as rolled; empty on a miss. */
   damage: Array<{ type: DamageType | null; rolled: RolledDamage }>;
+  /** The features that added damage to the hit, by name: "Sneak Attack". */
+  bonuses: string[];
   /** Damage after the target's defences. */
   dealt: number;
   /** The target's hit points afterwards, or null when it tracks none. */
@@ -140,6 +147,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   );
 
   const damage: AttackResult['damage'] = [];
+  const bonuses: string[] = [];
   let dealt = 0;
   let hp = target.hp;
   let dropped = false;
@@ -147,6 +155,11 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   if (outcome.hit) {
     for (const component of profile.damage) {
       damage.push({ type: component.type, rolled: rollDamage(component.roll, outcome.critical, roll) });
+    }
+    const bonus = request.bonusDamage?.(mode) ?? null;
+    if (bonus) {
+      bonuses.push(bonus.label);
+      damage.push({ type: bonus.damage.type, rolled: rollDamage(bonus.damage.roll, outcome.critical, roll) });
     }
     // Each line meets the target's defences on its own; damage of no named
     // type meets none.
@@ -174,6 +187,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     reasons,
     outcome,
     damage,
+    bonuses,
     dealt,
     hp,
     dropped,

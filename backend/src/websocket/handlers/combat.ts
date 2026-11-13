@@ -42,7 +42,8 @@ import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
 import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
-import type { Standing } from '../../utils/boardSight';
+import { distanceFeet, type Standing } from '../../utils/boardSight';
+import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 
 /** The one system whose rules the engine knows. */
 const DND = 'DND_5E';
@@ -467,6 +468,29 @@ function spendBonusAction(campaignId: string, tokenId: string): void {
   }
 }
 
+/** The turn in each campaign whose Sneak Attacks have been dealt, and by whom: once on each turn. */
+const sneakAttacks = new Map<string, { turn: string; tokens: Set<string> }>();
+
+/** The turn a Sneak Attack now would be dealt on; null outside combat, where nothing counts turns. */
+function sneakTurnOf(campaignId: string): string | null {
+  const combat = getCombatState(campaignId);
+  return combat.active ? `${combat.round}:${combat.currentTokenId ?? ''}` : null;
+}
+
+function sneakAttackUsed(campaignId: string, tokenId: string): boolean {
+  const turn = sneakTurnOf(campaignId);
+  const used = sneakAttacks.get(campaignId);
+  return turn !== null && used?.turn === turn && used.tokens.has(tokenId);
+}
+
+function useSneakAttack(campaignId: string, tokenId: string): void {
+  const turn = sneakTurnOf(campaignId);
+  if (turn === null) return;
+  const used = sneakAttacks.get(campaignId);
+  if (used?.turn === turn) used.tokens.add(tokenId);
+  else sneakAttacks.set(campaignId, { turn, tokens: new Set([tokenId]) });
+}
+
 /** The turn each campaign's last Action Surge was used in: once a turn. */
 const actionSurges = new Map<string, { tokenId: string; round: number }>();
 
@@ -766,7 +790,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), applies the damage to the target's hit points and records the roll in the dice log. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -841,6 +865,34 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ...(sapped ? ['Disadvantage: Sapped'] : []),
       ];
 
+      // A Rogue's Sneak Attack, once on each turn: with Advantage, or with an
+      // ally of the Rogue beside the target and no Disadvantage.
+      const sneakDice = sneakAttackUsed(campaignId, attackerId) ? 0 : sneakAttackDice(attackerSheet);
+      const attackerSide = sideOf({ type: attackerToken.type ?? 'npc', disposition: attackerToken.disposition ?? null });
+      const boardOf = {
+        heights: readTileHeights(map.tileHeights),
+        feetPerSquare: map.feetPerSquare,
+        diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+      };
+      const targetStanding = standing(offer ? { ...targetToken, position: offer.from } : targetToken);
+      const allyBesideTarget =
+        sneakDice > 0 &&
+        attackerSide !== null &&
+        tokens.some(
+          (t) =>
+            t.id !== attackerId &&
+            t.id !== targetId &&
+            t.layer === attackerToken.layer &&
+            !(t.hp && t.hp.current <= 0) &&
+            sideOf({ type: t.type ?? 'npc', disposition: t.disposition ?? null }) === attackerSide &&
+            canAct(readConditions(t.conditions ?? [])) &&
+            distanceFeet(standing(t), targetStanding, boardOf) <= 5
+        );
+      const sneakAttack = (rolled: 'normal' | 'advantage' | 'disadvantage') => {
+        const damage = sneakAttackDamage(sneakDice, action, rolled, allyBesideTarget);
+        return damage ? { label: `Sneak Attack (${sneakDice}d6)`, damage } : null;
+      };
+
       // On a lit map, darkness decides who sees whom, as the views draw it.
       const lit = map.lightingEnabled
         ? {
@@ -852,6 +904,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const result = resolveAttack({
         unseen: lit,
         extraReasons,
+        bonusDamage: sneakDice > 0 ? sneakAttack : undefined,
         attacker: combatant(attackerToken, attackerSheet, [], attackerRaging),
         target: offer ? { ...target, standing: standing({ ...targetToken, position: offer.from }) } : target,
         action,
@@ -873,13 +926,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
       if (vexed || sapped) useMarks(campaignId, [vexed, sapped]);
+      if (result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) useSneakAttack(campaignId, attackerId);
       if (attackerRaging && turnNow.currentTokenId === attackerId) keepRaging(campaignId, attackerId);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
       if (offer) await spendReaction(io, campaignId, attackerId);
       else await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
       // An attack by or on a token the players are not shown goes to the DM alone.
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
-      const summary = mastered ? `${result.summary}; ${mastered}` : result.summary;
+      const summary = [result.summary, ...result.bonuses, ...(mastered ? [mastered] : [])].join('; ');
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
       answer(ack, { ...result, summary });
