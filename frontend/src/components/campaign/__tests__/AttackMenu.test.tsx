@@ -266,13 +266,11 @@ describe('AttackMenu extra attacks', () => {
       }),
       resolveAttack: vi.fn(),
       resolveSave: vi.fn(),
-      heal: vi
-        .fn()
-        .mockResolvedValue({
-          ok: true,
-          summary: 'Cure Wounds (level 2): Ally regains 14 Hit Points',
-          healed: 14,
-        }),
+      heal: vi.fn().mockResolvedValue({
+        ok: true,
+        summary: 'Cure Wounds (level 2): Ally regains 14 Hit Points',
+        healed: 14,
+      }),
       help: vi.fn(),
       ready: vi.fn(),
     };
@@ -305,5 +303,68 @@ describe('AttackMenu extra attacks', () => {
       summary: 'Cure Wounds (level 2): Ally regains 14 Hit Points',
       landed: true,
     });
+  });
+
+  it('aims an area at an empty square, on the creatures it catches', async () => {
+    const fireball = {
+      index: 0,
+      name: 'Fireball',
+      cost: 'action',
+      attack: null,
+      spell: { level: 3, slotLevels: [3] },
+      save: {
+        ability: 'dex',
+        dc: 14,
+        halfOnSuccess: true,
+        damage: '8d6 fire',
+        rangeFeet: 150,
+        area: { shape: 'sphere', sizeFeet: 20 },
+      },
+    };
+    const bolt = {
+      index: 1,
+      name: 'Fire Bolt',
+      cost: 'action',
+      attack: { kind: 'ranged', bonus: 6, damage: '1d10 fire' },
+      spell: { level: 0, slotLevels: [] },
+      save: null,
+    };
+    const socket = {
+      listCombatActions: vi.fn().mockResolvedValue({ ok: true, actions: [fireball, bolt] }),
+      resolveAttack: vi.fn(),
+      resolveSave: vi
+        .fn()
+        .mockResolvedValue({ ok: true, summary: 'Fireball', targets: [{ saved: false }] }),
+      help: vi.fn(),
+      ready: vi.fn(),
+    };
+    render(
+      <AttackMenu
+        socket={socket as unknown as typeof socketService}
+        attacker={{ id: 'mage', name: 'Mage' }}
+        target={{ id: '', name: 'the square 6, 2' }}
+        point={{ x: 5, y: 1 }}
+        situation={null}
+        style={{}}
+        caughtBy={() => [{ id: 'ogre', name: 'Ogre' }]}
+        onAim={() => {}}
+        onResolved={() => {}}
+        onClose={() => {}}
+      />
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Cast Fireball with a level 3 slot' })
+    );
+    await waitFor(() =>
+      expect(socket.resolveSave).toHaveBeenCalledWith({
+        sourceId: 'mage',
+        targetIds: ['ogre'],
+        action: 0,
+        slotLevel: 3,
+        point: { x: 5, y: 1 },
+      })
+    );
+    expect(screen.queryByText('Fire Bolt')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Help against it' })).toBeNull();
   });
 });

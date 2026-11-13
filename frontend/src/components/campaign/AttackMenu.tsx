@@ -27,6 +27,8 @@ interface AttackMenuProps {
     answer: { ok: true; summary: string; landed: boolean } | { ok: false; error: string }
   ) => void;
   onClose: () => void;
+  /** An empty square the area is aimed at, rather than a creature: only area effects are offered. */
+  point?: { x: number; y: number };
 }
 
 type Area = NonNullable<NonNullable<CombatActionSummary['save']>['area']>;
@@ -183,6 +185,7 @@ export default function AttackMenu({
   onAim,
   onResolved,
   onClose,
+  point,
 }: AttackMenuProps) {
   const [actions, setActions] = useState<CombatActionSummary[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -202,11 +205,13 @@ export default function AttackMenu({
     };
   }, [socket, attacker.id]);
 
-  const attacks = (actions ?? []).filter(
-    (action) => action.attack !== null || action.save !== null || action.heal !== undefined
+  const attacks = (actions ?? []).filter((action) =>
+    point
+      ? action.save?.area !== undefined && action.save !== null
+      : action.attack !== null || action.save !== null || action.heal !== undefined
   );
   const anyAttackRoll = attacks.some((action) => action.attack !== null);
-  const multiattacks = (actions ?? []).filter((action) => (action.multiattack ?? []).length > 0);
+  const multiattacks = point ? [] : (actions ?? []).filter((action) => (action.multiattack ?? []).length > 0);
   const [picks, setPicks] = useState<Record<string, number>>({});
   const nameOf = (index: number) => actions?.find((action) => action.index === index)?.name ?? `#${index}`;
 
@@ -245,7 +250,7 @@ export default function AttackMenu({
   const targetsOf = (action: CombatActionSummary): string[] => {
     const area = action.save?.area;
     const caught = area ? caughtBy(area).map((creature) => creature.id) : [];
-    return caught.length > 0 ? caught : [target.id];
+    return caught.length > 0 || point ? caught : [target.id];
   };
 
   /** Make the attack or call for the save. `slotLevel` is the spell slot a levelled spell is cast with. */
@@ -275,11 +280,18 @@ export default function AttackMenu({
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
       return;
     }
+    const targetIds = targetsOf(action);
+    if (targetIds.length === 0) {
+      setBusy(false);
+      onResolved({ ok: false, error: `Nobody stands in the ${action.name}` });
+      return;
+    }
     const answer = await socket.resolveSave({
       sourceId: attacker.id,
-      targetIds: targetsOf(action),
+      targetIds,
       action: action.index,
       ...slot,
+      ...(point ? { point } : {}),
     });
     setBusy(false);
     onResolved(
@@ -329,8 +341,9 @@ export default function AttackMenu({
       {!problem && actions === null && <p className="text-sm text-ink-muted">Loading attacks…</p>}
       {actions !== null && attacks.length === 0 && (
         <p className="text-sm text-ink-muted">
-          {attacker.name} has no attack or saving-throw effect the VTT can roll. Add attacks to its
-          character sheet, or actions to its stat block.
+          {point
+            ? `${attacker.name} has no area effect the VTT can aim at a square.`
+            : `${attacker.name} has no attack or saving-throw effect the VTT can roll. Add attacks to its character sheet, or actions to its stat block.`}
         </p>
       )}
 
@@ -448,16 +461,18 @@ export default function AttackMenu({
       )}
 
       <div className="flex justify-between gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={busy}
-          title={`The Help action: distract ${target.name} (within 5 feet) so an ally's next attack roll against it has Advantage, until your next turn.`}
-          onClick={() => void help()}
-        >
-          Help against it
-        </Button>
+        {!point && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            title={`The Help action: distract ${target.name} (within 5 feet) so an ally's next attack roll against it has Advantage, until your next turn.`}
+            onClick={() => void help()}
+          >
+            Help against it
+          </Button>
+        )}
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>
           Cancel
         </Button>

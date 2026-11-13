@@ -2210,7 +2210,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.save', ack)) return;
       const parsed = CombatSaveSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { sourceId, targetIds, action: actionIndex, slotLevel } = parsed.data;
+      const { sourceId, targetIds, action: actionIndex, slotLevel, point } = parsed.data;
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -2242,6 +2242,18 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
       let action = cast.action;
       if (!action.save) return refuseRequest(socket, ack, `${action.name} calls for no saving throw the VTT can make`);
+      // An area aimed at an empty square: the square must be within the action's range.
+      if (point) {
+        if (!action.area) return refuseRequest(socket, ack, `${action.name} has no area to aim at a square`);
+        const away = distanceFeet(standing(sourceToken), { cell: point, size: { width: 1, height: 1 } }, {
+          heights: readTileHeights(map.tileHeights),
+          feetPerSquare: map.feetPerSquare,
+          diagonalRule: map.diagonalRule === 'alternating' ? 'alternating' : 'flat',
+        });
+        if (action.rangeFeet !== undefined && action.rangeFeet > 0 && away > action.rangeFeet) {
+          return refuseRequest(socket, ack, `That square is ${away} ft away, beyond the range of ${action.name} (${action.rangeFeet} ft)`);
+        }
+      }
 
       const targetSheets = await Promise.all(targetTokens.map((token) => sheetOf(token, campaignId)));
       // A grapple or a shove is against one creature no more than a size larger, which saves with the better of its Strength and Dexterity.
