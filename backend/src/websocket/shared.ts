@@ -271,6 +271,7 @@ export const SOCKET_CEILINGS = {
   'combat.ready': turnEvents,
   'combat.concentrate': turnEvents,
   'combat.heal': turnEvents,
+  'combat.undo': turnEvents,
   'combat.check': turnEvents,
   'combat.rest': turnEvents,
   'combat.feature': turnEvents,

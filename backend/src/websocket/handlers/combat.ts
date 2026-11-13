@@ -24,7 +24,7 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing, turnSerial, type WeaponMark } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema, CombatConcentrateSchema, CombatHealSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema, CombatConcentrateSchema, CombatHealSchema, CombatUndoSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, legendaryUses, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, concentrationSpellsOf, findSpell, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
@@ -47,6 +47,7 @@ import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack'
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
 import { onTurnEnd, onTurnStart } from '../turnHooks';
+import { commitUndo, prepareUndo, restoreSnapshot, takeLastUndo, undoCount } from '../combatUndo';
 import { multiattackSteps, type MultiattackStep } from '../../rules/dnd/multiattack';
 import { conditionsOnFailure, conditionsOnHit, fits, sizeOfSquares, turnLimit, type ConditionRider } from '../../rules/dnd/actionConditions';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
@@ -1486,6 +1487,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         mode,
       });
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      const undo = await prepareUndo(campaignId, map.id, [attackerToken.characterId, targetToken.characterId]);
       // The slot goes before the damage: a cast that finds it gone changes nothing.
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, attackerToken.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
@@ -1547,6 +1549,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...riders, ...endured].join('; ');
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
+      commitUndo(campaignId, undo, summary);
       answer(ack, { ...result, summary });
       logger.debug('combat.attack', { campaignId, attackerId, targetId, hit: result.outcome.hit, dealt: result.dealt });
     } catch (error) {
@@ -1577,6 +1580,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const sheet = await sheetOf(token, campaignId);
       const faller = combatant(token, sheet);
       const result = resolveFall({ name: faller.name, hp: faller.hp, defences: faller.defences }, feet);
+      const undo = await prepareUndo(campaignId, map.id, [token.characterId]);
 
       const endured = await applyDealt(io, campaignId, map.id, [{ token, sheet, dealt: result.dealt, hp: result.hp }]);
       const summary = [result.summary, ...endured].join('; ');
@@ -1602,6 +1606,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         hiddenFromPlayers(token)
       );
 
+      commitUndo(campaignId, undo, summary);
       ack?.({ ok: true, summary, feet, dealt: result.dealt, prone: result.prone });
       logger.debug('combat.fall', { campaignId, tokenId, feet, dealt: result.dealt });
     } catch (error) {
@@ -1839,6 +1844,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         }
       }
 
+      const undo = await prepareUndo(campaignId, map.id, [characterId]);
       const used = await prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
         const fresh = await tx.character.findUnique({ where: { id: characterId } });
@@ -1913,6 +1919,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
       await resendInitiativeState(io, campaignId);
 
+      commitUndo(campaignId, undo, summary);
       ack?.({ ok: true, summary, left });
       logger.debug('combat.feature', { campaignId, tokenId, feature });
     } catch (error) {
@@ -2158,6 +2165,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return refuseRequest(socket, ack, `${caster.name} has used its Bonus Action this turn`);
       }
 
+      const undo = await prepareUndo(campaignId, map.id, [caster.characterId, target.characterId]);
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, caster.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
@@ -2191,11 +2199,46 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         summary,
         hiddenFromPlayers(caster) || hiddenFromPlayers(target)
       );
+      commitUndo(campaignId, undo, summary);
       ack?.({ ok: true, summary, healed: rolled.total });
       logger.debug('combat.heal', { campaignId, casterId, targetId, healed: rolled.total });
     } catch (error) {
       logger.error('combat.heal failed', { err: error });
       refuseRequest(socket, ack, 'Failed to cast the healing spell');
+    }
+  });
+
+  /**
+   * COMBAT.UNDO — The DM undoes the last combat action the server resolved (an attack, a save, a heal, a fall or a class feature; five are kept): the Hit Points and conditions of the map's tokens, the sheets of the characters it touched and the combat state go back to what they were before it. Its roll stays in the dice log. The DM only.
+   */
+  socket.on('combat.undo', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.undo', ack)) return;
+      if (socket.role !== 'DM') return refuseRequest(socket, ack, 'Only the DM can undo');
+      const parsed = CombatUndoSchema.safeParse(data ?? {});
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const last = takeLastUndo(campaignId);
+      if (!last) return refuseRequest(socket, ack, 'There is no combat action to undo');
+
+      const { map, characters } = await restoreSnapshot(campaignId, last);
+      if (map) await bestEffort('map after an undo', () => broadcastMapData(io, campaignId, map as unknown as Parameters<typeof broadcastMapData>[2]));
+      for (const character of characters) {
+        const hp = extractCharacterHp(DND, (character.data ?? {}) as Record<string, unknown>);
+        if (hp) io.to(campaignId).emit('character.hp.updated', { characterId: character.id, hp });
+        await bestEffort('sheet after an undo', () =>
+          emitCharacterUpdated(campaignId, character, { characterId: character.id, userId: character.userId, tokensChanged: false })
+        );
+      }
+      await resendInitiativeState(io, campaignId);
+      const summary = `Undone: ${last.summary}`;
+      ack?.({ ok: true, summary, left: undoCount(campaignId) });
+      logger.debug('combat.undo', { campaignId });
+    } catch (error) {
+      logger.error('combat.undo failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to undo');
     }
   });
 
@@ -2286,6 +2329,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         },
       });
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      const undo = await prepareUndo(campaignId, map.id, [sourceToken.characterId, ...targetTokens.map((t) => t.characterId)]);
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, sourceToken.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
@@ -2332,6 +2376,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       else await spendAction(io, campaignId, sourceId, action.source === 'spell' ? 'Magic' : action.name);
       const secret = hiddenFromPlayers(sourceToken) || targetTokens.some(hiddenFromPlayers);
       await logRoll(io, socket, campaignId, saveBreakdown(result, action), sourceToken.name, summary, secret);
+      commitUndo(campaignId, undo, summary);
 
       if (ack) {
         ack({
