@@ -554,3 +554,30 @@ describe('the features the server counts', () => {
     expect(await screen.findByRole('button', { name: 'Bardic Inspiration (3/3)' })).toBeDisabled();
   });
 });
+
+describe('a paladin', () => {
+  beforeEach(() => {
+    h.useFeature.mockReset().mockResolvedValue({ ok: true, summary: 'Hero uses Lay on Hands: Ogre regains 7 Hit Points (8 left)', left: 8 });
+  });
+
+  it('lays on hands: the creature and the Hit Points go to the server', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [],
+      resources: [{ name: 'Lay on Hands', max: 15, used: 0 }],
+    });
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Lay on Hands (15/15)' }));
+    fireEvent.change(screen.getByLabelText('Creature touched'), { target: { value: 'ogre' } });
+    fireEvent.change(screen.getByLabelText('Hit Points to restore'), { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Heal' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Lay on Hands', 7, { targetId: 'ogre' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lay on Hands (15/15)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cure Poisoned' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Lay on Hands', 7, { targetId: 'ogre', cure: 'Poisoned' }));
+  });
+});

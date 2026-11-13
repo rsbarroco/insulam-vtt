@@ -117,7 +117,10 @@ describe('the other classes’ features with uses', () => {
   it('reads Channel Divinity, Wild Shape, Focus, Sorcery Points and Favored Enemy from the tables', () => {
     expect(names({ class: 'Cleric', level: 1 })).toEqual([]);
     expect(names({ class: 'Cleric', level: 6 })).toEqual([['Channel Divinity', 3, 'one']]);
-    expect(names({ class: 'Paladin / Cleric', level: 3 })).toEqual([['Channel Divinity', 2, 'one']]);
+    expect(names({ class: 'Paladin / Cleric', level: 3 })).toEqual([
+      ['Channel Divinity', 2, 'one'],
+      ['Lay on Hands', 15, 'none'],
+    ]);
     expect(names({ class: 'Druid', level: 2 })).toEqual([['Wild Shape', 2, 'one']]);
     expect(names({ class: 'Monk', level: 5 })).toEqual([['Focus Points', 5, 'all']]);
     expect(names({ class: 'Sorcerer', level: 4 })).toEqual([['Sorcery Points', 4, 'none']]);

@@ -1759,7 +1759,8 @@ export type CombatFeatureName =
   | 'Wild Shape'
   | 'Focus Points'
   | 'Sorcery Points'
-  | 'Favored Enemy';
+  | 'Favored Enemy'
+  | 'Lay on Hands';
 export type CombatFeatureAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
 
 /** `combat.stand`: a Prone token got up. */

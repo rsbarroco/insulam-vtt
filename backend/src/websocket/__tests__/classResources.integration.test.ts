@@ -307,3 +307,61 @@ describe('class features the table applies', () => {
     expect((await sheetOfHero()).featureUses).toEqual({});
   });
 });
+
+describe('Lay on Hands', () => {
+  const paladin = async (featureUses: Record<string, number> = {}) => {
+    await prisma.character.update({
+      where: { id: heroCharacterId },
+      data: {
+        data: toJson({ ...heroSheet(), class: 'Paladin', level: 3, hp: { current: 10, maximum: 30, temporary: 0 }, featureUses }),
+      },
+    });
+  };
+  const ogreAt = (changes: Record<string, unknown>) =>
+    prisma.map.update({
+      where: { id: mapId },
+      data: { tokens: toJson(freshTokens().map((t) => (t.id === OGRE ? { ...t, ...changes } : t))) },
+    });
+  const lay = (payload: Record<string, unknown>) =>
+    ask(player, 'combat.feature', { tokenId: HERO, feature: 'Lay on Hands', ...payload });
+  const tokenHp = async (id: string) =>
+    ((await prisma.map.findUniqueOrThrow({ where: { id: mapId } })).tokens as Array<{ id: string; hp?: { current: number }; conditions?: string[] }>).find((t) => t.id === id);
+
+  it('heals the paladin itself from its pool, and spends the Bonus Action', async () => {
+    await paladin();
+    fight();
+    expect(await lay({ amount: 8 })).toEqual({ ok: true, left: 7, summary: 'Hero uses Lay on Hands: Hero regains 8 Hit Points (7 left)' });
+    expect(await sheetOfHero()).toMatchObject({ featureUses: { 'Lay on Hands': 8 } });
+    expect(((await sheetOfHero()) as unknown as { hp: { current: number } }).hp.current).toBe(18);
+    expect(getState(campaignId).turn?.bonusAction).toBe(true);
+  });
+
+  it('heals a creature within 5 feet no more than it is missing', async () => {
+    await paladin();
+    await ogreAt({ hp: { current: 55, max: 59, temp: 0 } });
+    expect((await lay({ targetId: OGRE, amount: 10 })).summary).toBe('Hero uses Lay on Hands: Ogre regains 4 Hit Points (11 left)');
+    expect((await tokenHp(OGRE))?.hp?.current).toBe(59);
+    expect((await lay({ targetId: OGRE, amount: 1 })).error).toBe('Ogre is at its Hit Point maximum');
+  });
+
+  it('refuses a creature out of reach, and a pool that is spent', async () => {
+    await paladin({ 'Lay on Hands': 15 });
+    expect((await lay({ targetId: FAR, amount: 1 })).error).toBe('Far Ogre is beyond the reach of a touch');
+    expect((await lay({ amount: 1 })).error).toBe('Hero: No uses of Lay on Hands left until a rest');
+  });
+
+  it('spends 5 points to end the Poisoned condition', async () => {
+    await paladin();
+    await ogreAt({ conditions: ['Poisoned'] });
+    expect((await lay({ targetId: OGRE, cure: 'Poisoned' })).summary).toBe('Hero uses Lay on Hands: Ogre is no longer Poisoned (10 left)');
+    expect((await tokenHp(OGRE))?.conditions).toEqual([]);
+    expect((await lay({ targetId: OGRE, cure: 'Poisoned' })).error).toBe('Ogre is not Poisoned');
+  });
+
+  it('takes a target only for Lay on Hands', async () => {
+    await paladin();
+    expect((await ask(player, 'combat.feature', { tokenId: HERO, feature: 'Channel Divinity', targetId: OGRE })).error).toBe(
+      'Only Lay on Hands takes a target'
+    );
+  });
+});
