@@ -23,11 +23,11 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatDeathSaveSchema, CombatFallSchema, CombatSaveSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatDeathSaveSchema, CombatFallSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
-import { canAct, DODGING, readConditions, type Ability } from '../../rules/dnd/conditions';
+import { canAct, DODGING, effectiveSpeed, readConditions, type Ability } from '../../rules/dnd/conditions';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import { resolveFall } from '../../rules/dnd/falling';
 import type { HitPoints } from '../../rules/dnd/damage';
@@ -224,6 +224,23 @@ async function giveCondition(io: Server, campaignId: string, mapId: string, toke
     const carried = token?.conditions ?? [];
     if (!token || carried.some((name) => name.toLowerCase() === condition.toLowerCase())) return null;
     token.conditions = [...carried, condition];
+    return tx.map.update({ where: { id: mapId }, data: { tokens: toJson(list) } });
+  });
+  if (updated) {
+    await bestEffort('map after a condition', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
+  }
+}
+
+/** Take a condition off a token of the map, and tell the table. */
+async function takeCondition(io: Server, campaignId: string, mapId: string, tokenId: string, condition: string): Promise<void> {
+  const updated = await withMapsLocked([mapId], async (tx) => {
+    const fresh = await tx.map.findUnique({ where: { id: mapId } });
+    if (!fresh) return null;
+    const list = readTokens(fresh.tokens);
+    const token = list.find((t) => t.id === tokenId);
+    const kept = (token?.conditions ?? []).filter((name) => name.toLowerCase() !== condition.toLowerCase());
+    if (!token || kept.length === (token.conditions ?? []).length) return null;
+    token.conditions = kept;
     return tx.map.update({ where: { id: mapId }, data: { tokens: toJson(list) } });
   });
   if (updated) {
@@ -642,6 +659,38 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.fall failed', { err: error });
       refuseRequest(socket, ack, 'Failed to resolve the fall');
+    }
+  });
+
+  /**
+   * COMBAT.STAND — A Prone token on the current map stands up: the server takes the Prone condition off it and tells the table. Refused while its Speed is 0 (Grappled, Paralyzed, Petrified, Restrained or Unconscious). What standing costs of its movement, half its Speed, is the sender's to record with `turn.update`. The DM, or the player who controls the token.
+   */
+  socket.on('combat.stand', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.stand', ack)) return;
+      const parsed = CombatStandSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const { tokenId } = parsed.data;
+
+      const map = await currentMap(campaignId);
+      if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
+      const token = readTokens(map.tokens).find((t) => t.id === tokenId);
+      if (!token || !canControlToken(socket.role, token.controlledBy, socket.userId)) {
+        return refuseRequest(socket, ack, 'You can only act for your own token');
+      }
+      const state = readConditions(token.conditions ?? []);
+      if (!state.has.has('prone')) return refuseRequest(socket, ack, `${token.name} is not Prone`);
+      if (effectiveSpeed(30, state) === 0) return refuseRequest(socket, ack, `${token.name} cannot stand up while its Speed is 0`);
+
+      await takeCondition(io, campaignId, map.id, tokenId, 'Prone');
+      ack?.({ ok: true });
+      logger.debug('combat.stand', { campaignId, tokenId });
+    } catch (error) {
+      logger.error('combat.stand failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to stand the token up');
     }
   });
 

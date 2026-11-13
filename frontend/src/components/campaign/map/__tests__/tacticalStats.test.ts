@@ -4,7 +4,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  isProne,
+  movingSpeed,
   readSpeedOverride,
+  speedWithConditions,
+  standUpCost,
   reachObstacles,
   speedPatch,
   TACTICAL_LIMITS,
@@ -151,5 +155,41 @@ describe('reachObstacles', () => {
     // The footprint at (1,0) covers (2,0), where the foe stands.
     expect(blocked({ x: 1, y: 0 })).toBe(true);
     expect(blocked({ x: 0, y: 1 })).toBe(false);
+  });
+});
+
+describe('a speed with the token’s conditions', () => {
+  const having = (...conditions: string[]) => ({ conditions });
+
+  it.each(['Grappled', 'Paralyzed', 'Petrified', 'Restrained', 'Unconscious'])('is 0 while %s', (name) => {
+    expect(speedWithConditions(30, having(name))).toBe(0);
+  });
+
+  it('is 5 feet less for Exhaustion, under either name', () => {
+    expect(speedWithConditions(30, having('Exhausted'))).toBe(25);
+    expect(speedWithConditions(30, having('exhaustion'))).toBe(25);
+    expect(speedWithConditions(0, having('Exhausted'))).toBe(0);
+  });
+
+  it('is whole for conditions that do not touch it', () => {
+    expect(speedWithConditions(30, having('Prone', 'Poisoned', 'Blinded'))).toBe(30);
+    expect(speedWithConditions(30, { conditions: undefined as unknown as string[] })).toBe(30);
+  });
+
+  it('gives a token no speed where it had none', () => {
+    expect(movingSpeed({ metadata: {}, conditions: ['Grappled'] } as never)).toBeNull();
+    expect(movingSpeed({ metadata: { tactical: { speed: 30 } }, conditions: ['Grappled'] } as never)).toBe(0);
+  });
+});
+
+describe('Prone', () => {
+  it('is carried by name, and comes with being Unconscious', () => {
+    expect(isProne({ conditions: ['prone'] })).toBe(true);
+    expect(isProne({ conditions: ['Unconscious'] })).toBe(true);
+    expect(isProne({ conditions: ['Poisoned'] })).toBe(false);
+  });
+
+  it('costs half the Speed to stand up from, rounded down', () => {
+    expect([30, 25, 5, 0].map(standUpCost)).toEqual([15, 12, 2, 0]);
   });
 });

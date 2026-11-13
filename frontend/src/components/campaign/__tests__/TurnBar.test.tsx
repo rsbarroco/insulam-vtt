@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   emitTurnEnd: vi.fn(),
   rollDeathSave: vi.fn(),
   resolveAttack: vi.fn(),
+  standUp: vi.fn(),
   listCombatActions: vi.fn(),
   showToast: vi.fn(),
 }));
@@ -28,6 +29,7 @@ const socket = {
   emitTurnEnd: (...args: unknown[]) => h.emitTurnEnd(...args),
   rollDeathSave: (...args: unknown[]) => h.rollDeathSave(...args),
   resolveAttack: (...args: unknown[]) => h.resolveAttack(...args),
+  standUp: (...args: unknown[]) => h.standUp(...args),
   listCombatActions: (...args: unknown[]) => h.listCombatActions(...args),
 };
 vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({ socket }) }));
@@ -358,5 +360,78 @@ describe('an Opportunity Attack', () => {
     await waitFor(() =>
       expect(h.showToast).toHaveBeenCalledWith('Ogre has no Opportunity Attack to make against Hero', 'error')
     );
+  });
+});
+
+describe('a Prone combatant', () => {
+  const proneHero = { ...HERO, conditions: ['Prone'] } as Token;
+  const withProneHero = (turn: Partial<TurnState> = {}) => {
+    fight({ turn: { ...fresh, ...turn } });
+    useGameStore.getState().setTokens([proneHero, OGRE]);
+  };
+
+  beforeEach(() => {
+    h.emitTurnUpdate.mockReset();
+    h.standUp.mockReset().mockResolvedValue({ ok: true });
+    h.listCombatActions.mockResolvedValue({ ok: true, actions: [], attacksPerAction: null, features: [] });
+  });
+
+  it('stands up for half its Speed', async () => {
+    as('PLAYER', 'player-1');
+    withProneHero({ movementSpent: 5 });
+    render(<TurnBar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stand up (15 ft)' }));
+
+    await waitFor(() => expect(h.emitTurnUpdate).toHaveBeenCalledWith({ movementSpent: 20 }));
+    expect(h.standUp).toHaveBeenCalledWith('hero');
+  });
+
+  it('cannot stand with less than half its Speed left', () => {
+    as('PLAYER', 'player-1');
+    withProneHero({ movementSpent: 20 });
+    render(<TurnBar />);
+    expect(screen.getByRole('button', { name: 'Stand up (15 ft)' })).toBeDisabled();
+  });
+
+  it('spends nothing when the server refuses', async () => {
+    as('PLAYER', 'player-1');
+    h.standUp.mockResolvedValue({ ok: false, error: 'Hero cannot stand up while its Speed is 0' });
+    withProneHero();
+    render(<TurnBar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stand up (15 ft)' }));
+
+    await waitFor(() => expect(h.showToast).toHaveBeenCalledWith('Hero cannot stand up while its Speed is 0', 'error'));
+    expect(h.emitTurnUpdate).not.toHaveBeenCalled();
+  });
+
+  it('stands a token with no speed set at no cost', async () => {
+    as('DM', 'dm-1');
+    fight();
+    useGameStore.getState().setTokens([{ ...HERO, metadata: {}, conditions: ['Prone'] } as Token, OGRE]);
+    render(<TurnBar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stand up' }));
+
+    await waitFor(() => expect(h.standUp).toHaveBeenCalledWith('hero'));
+    expect(h.emitTurnUpdate).not.toHaveBeenCalled();
+  });
+
+  it('is not offered a way up on its feet', () => {
+    as('PLAYER', 'player-1');
+    fight();
+    render(<TurnBar />);
+    expect(screen.queryByRole('button', { name: /^Stand up/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('a combatant whose conditions stop it', () => {
+  it('has no movement while Grappled', () => {
+    as('DM', 'dm-1');
+    fight();
+    useGameStore.getState().setTokens([{ ...HERO, conditions: ['Grappled'] } as Token, OGRE]);
+    render(<TurnBar />);
+    expect(screen.getByText('0 of 0 ft left')).toBeInTheDocument();
   });
 });

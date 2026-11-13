@@ -14,6 +14,8 @@
 //   • A larger drop is climbed down at the same price, unless it is 10 feet
 //     or more: that one is jumped, costs nothing extra, and is a fall.
 //
+// A Prone creature crawls: each foot of the way costs a foot more.
+//
 // A creature walks through others on its own side and round the rest, and
 // stops on no occupied square. One larger than a square moves as a block
 // and stands on the tallest ground it covers.
@@ -33,6 +35,8 @@ export interface ReachUnit {
   readonly size: { readonly width: number; readonly height: number };
   /** Feet it can move. */
   readonly speed: number;
+  /** It is Prone and crawls: every foot of movement costs a foot more. */
+  readonly crawling?: boolean;
 }
 
 export interface ReachBoard {
@@ -180,7 +184,7 @@ export function computeReach(unit: ReachUnit, board: ReachBoard): Reach {
           ? 2 * square
           : square;
       const height = heightCost(groundUnder(to, unit.size, board.heights) - ground, square);
-      const feet = state.feet + across + height.extraFeet;
+      const feet = state.feet + across * (unit.crawling ? 2 : 1) + height.extraFeet;
       if (feet > speed) continue;
       queue.push({
         cell: to,

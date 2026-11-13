@@ -55,6 +55,35 @@ export function tokenSpeed(
   return printed !== null ? { feet: printed, source: 'statBlock' } : null;
 }
 
+/** The feet the token can move in a turn as it is now, conditions counted, or null when it has no speed. */
+export function movingSpeed(token: Pick<Token, 'metadata' | 'statBlock' | 'conditions'>): number | null {
+  const speed = tokenSpeed(token);
+  return speed === null ? null : speedWithConditions(speed.feet, token);
+}
+
+const carries = (token: Pick<Token, 'conditions'>, ...names: string[]) =>
+  (token.conditions ?? []).some((carried) => names.includes(carried.trim().toLowerCase()));
+
+/** A Prone creature crawls, or stands up for half its Speed. */
+export function isProne(token: Pick<Token, 'conditions'>): boolean {
+  return carries(token, 'prone', 'unconscious');
+}
+
+/**
+ * A speed as the token's conditions leave it, by the D&D rules: 0 while
+ * Grappled, Paralyzed, Petrified, Restrained or Unconscious, and 5 feet less
+ * for Exhaustion (a token carries the condition, not its level, so one level).
+ */
+export function speedWithConditions(feet: number, token: Pick<Token, 'conditions'>): number {
+  if (carries(token, 'grappled', 'paralyzed', 'petrified', 'restrained', 'unconscious')) return 0;
+  return Math.max(0, feet - (carries(token, 'exhausted', 'exhaustion') ? 5 : 0));
+}
+
+/** What standing up from Prone costs a creature of this Speed: half of it, rounded down. */
+export function standUpCost(speed: number): number {
+  return Math.floor(speed / 2);
+}
+
 /** The metadata patch that stores a speed on the token, or clears it. */
 export function speedPatch(speed: number | null): { tactical: { speed: number } | null } {
   return { tactical: speed === null ? null : { speed } };

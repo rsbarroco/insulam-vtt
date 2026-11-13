@@ -29,7 +29,7 @@ import {
   STANDARD_ACTIONS,
 } from '@/utils/turn';
 import Button from '@/components/ui/Button';
-import { tokenSpeed } from './map/iso/tacticalStats';
+import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
 export default function TurnBar() {
   const { userRole } = useCampaign();
@@ -141,7 +141,17 @@ export default function TurnBar() {
     setWeapons({ attackerId, targetId, actions: melee });
   };
 
-  const speed = acting ? (tokenSpeed(acting)?.feet ?? null) : null;
+  const speed = acting ? movingSpeed(acting) : null;
+  // Prone: it crawls, or gets up for half its Speed.
+  const prone = acting !== null && isProne(acting);
+  const standCost = speed === null ? 0 : standUpCost(speed);
+  // A token with no speed set counts no movement, so standing costs it none.
+  const canStand = speed === null || (speed > 0 && movementLeft(speed, turn) >= standCost);
+  const standUp = async () => {
+    const answer = await socket.standUp(actingId);
+    if (!answer.ok) return showToast(answer.error, 'error');
+    if (speed !== null) socket.emitTurnUpdate({ movementSpent: turn.movementSpent + standCost });
+  };
   const movement =
     speed === null
       ? `${formatFeet(turn.movementSpent)} ft moved`
@@ -182,6 +192,21 @@ export default function TurnBar() {
               )}
             </select>
           </label>
+          {prone && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!canStand}
+              title={
+                canStand
+                  ? 'Prone: every foot crawled costs a foot more. Standing up costs half its Speed.'
+                  : 'Standing up costs half its Speed, which it does not have left'
+              }
+              onClick={() => void standUp()}
+            >
+              {speed === null ? 'Stand up' : `Stand up (${standCost} ft)`}
+            </Button>
+          )}
           {combat.dodging.includes(actingId) && (
             <span title="Until its next turn starts, unless it is Incapacitated or its Speed is 0">
               Dodging: attacks against it have Disadvantage

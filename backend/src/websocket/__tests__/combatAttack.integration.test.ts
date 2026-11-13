@@ -499,3 +499,30 @@ describe('combat.fall', () => {
     expect((await ogre())?.hp?.current).toBe(59);
   });
 });
+
+describe('combat.stand', () => {
+  const ogre = async () => readTokens((await prisma.map.findUniqueOrThrow({ where: { id: mapId } })).tokens).find((t) => t.id === OGRE);
+  const withOgre = (conditions: string[]) =>
+    prisma.map.update({
+      where: { id: mapId },
+      data: { tokens: toJson(freshTokens().map((t) => (t.id === OGRE ? { ...t, conditions } : t))) },
+    });
+
+  it('takes Prone off the token and leaves its other conditions', async () => {
+    await withOgre(['Poisoned', 'Prone']);
+    expect(await ask(dm, 'combat.stand', { tokenId: OGRE })).toEqual({ ok: true });
+    expect((await ogre())?.conditions).toEqual(['Poisoned']);
+  });
+
+  it('refuses a creature that is not Prone, and one whose Speed is 0', async () => {
+    expect((await ask(dm, 'combat.stand', { tokenId: OGRE })).error).toBe('Ogre is not Prone');
+    await withOgre(['Prone', 'Grappled']);
+    expect((await ask(dm, 'combat.stand', { tokenId: OGRE })).error).toBe('Ogre cannot stand up while its Speed is 0');
+    expect((await ogre())?.conditions).toEqual(['Prone', 'Grappled']);
+  });
+
+  it('refuses a player another creature', async () => {
+    await withOgre(['Prone']);
+    expect((await ask(player, 'combat.stand', { tokenId: OGRE })).error).toBe('You can only act for your own token');
+  });
+});

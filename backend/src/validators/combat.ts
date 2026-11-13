@@ -42,5 +42,8 @@ export const CombatSaveSchema = z
 /** `combat.fall`: a token that has fallen, and how far in feet. */
 export const CombatFallSchema = z.object({ tokenId, feet: z.number().int().min(10).max(5000) }).strict();
 
+/** `combat.stand`: the Prone token that gets up. */
+export const CombatStandSchema = z.object({ tokenId }).strict();
+
 /** `combat.deathSave`: the token whose character rolls a death saving throw. */
 export const CombatDeathSaveSchema = z.object({ tokenId }).strict();
