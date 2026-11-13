@@ -56,7 +56,7 @@ import { isTypingInto } from './map/typingTarget';
 import { heightAt, isHeightGrid, MAX_TILE_HEIGHT } from './map/iso/heightGrid';
 import { useHeightBrush } from './map/iso/useHeightBrush';
 import { coverBetween, coverLabel, distanceFeet } from './map/iso/sight';
-import { cellKey, computeReach, fallDamageDice, pathTo } from './map/iso/reach';
+import { cellKey, computeReach, FALL_FEET, fallDamageDice, pathTo } from './map/iso/reach';
 import {
   reachObstacles,
   speedPatch,
@@ -636,6 +636,14 @@ export default function TacticalMapCanvas() {
       const walked = actingTurn && reach ? reach.stops.get(cellKey(target)) : undefined;
       if (walked && walked.feet > 0 && canEmit()) {
         socket!.emitTurnUpdate({ movementSpent: actingTurn!.movementSpent + walked.feet });
+      }
+      // A drop of 10 feet or more on the way is a fall: the server rolls its
+      // damage and lands the creature Prone.
+      const fell = reach?.stops.get(cellKey(target))?.fallFeet ?? 0;
+      if (fell >= FALL_FEET && canEmit()) {
+        void socket!.resolveFall(held.id, fell).then((answer) =>
+          showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'info' : 'error')
+        );
       }
       setHeld(null);
       return;

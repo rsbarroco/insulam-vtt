@@ -23,12 +23,13 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatDeathSaveSchema, CombatSaveSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatDeathSaveSchema, CombatFallSchema, CombatSaveSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import { canAct, DODGING, readConditions, type Ability } from '../../rules/dnd/conditions';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
+import { resolveFall } from '../../rules/dnd/falling';
 import type { HitPoints } from '../../rules/dnd/damage';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
@@ -210,6 +211,23 @@ async function applyDealt(
   });
   if (updated) {
     await bestEffort('map after damage', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
+  }
+}
+
+/** Put a condition on a token of the map, if it does not carry it already, and tell the table. */
+async function giveCondition(io: Server, campaignId: string, mapId: string, tokenId: string, condition: string): Promise<void> {
+  const updated = await withMapsLocked([mapId], async (tx) => {
+    const fresh = await tx.map.findUnique({ where: { id: mapId } });
+    if (!fresh) return null;
+    const list = readTokens(fresh.tokens);
+    const token = list.find((t) => t.id === tokenId);
+    const carried = token?.conditions ?? [];
+    if (!token || carried.some((name) => name.toLowerCase() === condition.toLowerCase())) return null;
+    token.conditions = [...carried, condition];
+    return tx.map.update({ where: { id: mapId }, data: { tokens: toJson(list) } });
+  });
+  if (updated) {
+    await bestEffort('map after a condition', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
   }
 }
 
@@ -570,6 +588,60 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.attack failed', { err: error });
       refuseRequest(socket, ack, 'Failed to resolve the attack');
+    }
+  });
+
+  /**
+   * COMBAT.FALL — A token on the current map has fallen `feet` feet: the server rolls 1d6 Bludgeoning damage for every 10 feet, at most 20d6, takes it from the token's hit points through its defences, gives it the Prone condition unless it took no damage, and records the roll in the dice log. The DM, or the player who controls the token.
+   */
+  socket.on('combat.fall', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.fall', ack)) return;
+      const parsed = CombatFallSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const { tokenId, feet } = parsed.data;
+
+      const map = await currentMap(campaignId);
+      if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
+      const token = readTokens(map.tokens).find((t) => t.id === tokenId);
+      if (!token || !canControlToken(socket.role, token.controlledBy, socket.userId)) {
+        return refuseRequest(socket, ack, 'You can only act for your own token');
+      }
+      const sheet = await sheetOf(token, campaignId);
+      const faller = combatant(token, sheet);
+      const result = resolveFall({ name: faller.name, hp: faller.hp, defences: faller.defences }, feet);
+
+      await applyDealt(io, campaignId, map.id, [{ token, sheet, dealt: result.dealt, hp: result.hp }]);
+      if (result.prone) await giveCondition(io, campaignId, map.id, tokenId, 'Prone');
+      const dice = result.rolled.dice;
+      const expression = `${dice.length}d6`;
+      await logRoll(
+        io,
+        socket,
+        campaignId,
+        {
+          expression,
+          total: result.rolled.total,
+          breakdown: {
+            expression,
+            rolls: [{ type: 'dice' as const, notation: expression, count: dice.length, sides: 6, results: dice, kept: dice, total: result.rolled.total }],
+            total: result.rolled.total,
+            formula: `[${dice.join(', ')}] = ${result.rolled.total}`,
+          },
+        },
+        token.name,
+        result.summary,
+        hiddenFromPlayers(token)
+      );
+
+      ack?.({ ok: true, summary: result.summary, feet, dealt: result.dealt, prone: result.prone });
+      logger.debug('combat.fall', { campaignId, tokenId, feet, dealt: result.dealt });
+    } catch (error) {
+      logger.error('combat.fall failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to resolve the fall');
     }
   });
 

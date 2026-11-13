@@ -39,5 +39,8 @@ export const CombatSaveSchema = z
   .strict()
   .refine((save) => new Set(save.targetIds).size === save.targetIds.length, { message: 'A target is named twice' });
 
+/** `combat.fall`: a token that has fallen, and how far in feet. */
+export const CombatFallSchema = z.object({ tokenId, feet: z.number().int().min(10).max(5000) }).strict();
+
 /** `combat.deathSave`: the token whose character rolls a death saving throw. */
 export const CombatDeathSaveSchema = z.object({ tokenId }).strict();

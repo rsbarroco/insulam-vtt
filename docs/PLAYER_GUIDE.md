@@ -319,7 +319,7 @@ When your DM is using a map without fog of war or dynamic lighting, a **Tactical
 - **Zoom** with the mouse wheel, **drag** to pan, and use the frame button to fit the whole map back on screen.
 - **Move your token** exactly as in the top-down view: click it to pick it up, click a square to put it down, or press **Esc** to put it back.
 - The bottom-left corner shows the square under your pointer and its height.
-- If a token has a speed, pointing at it or picking it up tints the squares it can reach this turn in blue, and the hint counts the feet to the square you are pointing at and warns of a fall. You can still put your token down outside them, on a square tinted amber; your DM decides whether that stands.
+- If a token has a speed, pointing at it or picking it up tints the squares it can reach this turn in blue, and the hint counts the feet to the square you are pointing at and warns of a fall. Stepping off a drop of 10 feet or more is a fall: the VTT rolls the damage (1d6 for every 10 feet), takes it from your hit points and leaves you **Prone**. You can still put your token down outside them, on a square tinted amber; your DM decides whether that stands.
 
 - Carry your token over another one, without putting it down, to measure: a line joins the two and the hint gives the distance from where your token stands and the cover the other has, such as "30 ft to Ogre, half cover (+2 AC)". **Esc** puts your token back.
 
