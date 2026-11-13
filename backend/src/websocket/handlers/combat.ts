@@ -46,6 +46,7 @@ import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
+import { conditionsOnFailure, conditionsOnHit, fits, sizeOfSquares, type ConditionRider } from '../../rules/dnd/actionConditions';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
 /** The one system whose rules the engine knows. */
@@ -597,6 +598,20 @@ async function healToken(io: Server, campaignId: string, mapId: string, token: T
   if (updated) {
     await bestEffort('map after healing', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
   }
+}
+
+/**
+ * Give a creature the conditions an action's text gives it, those its size
+ * allows, and say so for the log: "Ogre has the Grappled condition".
+ */
+async function applyRiders(io: Server, campaignId: string, mapId: string, target: Token, riders: ConditionRider[]): Promise<string[]> {
+  const size = sizeOfSquares(Math.max(target.size?.width ?? 1, target.size?.height ?? 1));
+  const lines: string[] = [];
+  for (const rider of riders.filter((entry) => fits(entry, size))) {
+    await giveCondition(io, campaignId, mapId, target.id, rider.condition);
+    lines.push(`${target.name} has the ${rider.condition} condition${rider.until ? ` until the ${rider.until}` : ''}`);
+  }
+  return lines;
 }
 
 /** The log line for a class feature the server counts and the table applies. */
@@ -1205,6 +1220,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (result.bonuses.includes('Savage Attacker')) useSavage(campaignId, attackerId);
       if (attackerRaging && turnNow.currentTokenId === attackerId) keepRaging(campaignId, attackerId);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
+      // A stat block's hit can leave a condition: a grapple, a poison, a fall.
+      const riders =
+        action.source === 'statBlock' && result.outcome.hit && !result.dropped
+          ? await applyRiders(io, campaignId, map.id, targetToken, conditionsOnHit(action.text ?? ''))
+          : [];
       // What the turn remembers for the extra attacks that follow.
       if (record && !offer && turnNow.currentTokenId === attackerId) {
         if (extra === 'cleave') record.cleaved.add(attackerId);
@@ -1232,7 +1252,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
               ? 'Light extra attack, with Nick'
               : 'Light extra attack, a Bonus Action'
             : null;
-      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...endured].join('; ');
+      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...riders, ...endured].join('; ');
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
       answer(ack, { ...result, summary });
@@ -1834,8 +1854,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         map.id,
         result.targets.map((target, index) => ({ token: targetTokens[index], sheet: targetSheets[index], dealt: target.dealt, hp: target.hp }))
       );
+      // A stat block's effect can leave a condition on each creature that fails.
+      const riders: string[] = [];
+      if (action.source === 'statBlock') {
+        const written = conditionsOnFailure(action.text ?? '');
+        for (const [index, target] of result.targets.entries()) {
+          if (!target.outcome.success && !target.dropped) riders.push(...(await applyRiders(io, campaignId, map.id, targetTokens[index], written)));
+        }
+      }
       // What a failed save against an Unarmed Strike leaves the target with.
-      let summary = [result.summary, ...endured].join('; ');
+      let summary = [result.summary, ...riders, ...endured].join('; ');
       if (action.unarmed && !result.targets[0].outcome.success) {
         const [only] = targetTokens;
         if (action.unarmed === 'grapple') await giveCondition(io, campaignId, map.id, only.id, 'Grappled');
