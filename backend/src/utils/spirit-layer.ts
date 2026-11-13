@@ -580,6 +580,36 @@ export function playerSightOnLitMap(
 }
 
 /**
+ * Whether one creature can see another on a lit map, by the rule the views
+ * draw: line of sight past the walls, then light, Global Illumination, the
+ * viewer's darkvision (its sight radius) and its own square. A creature in
+ * darkness its viewer cannot see into is unseen; dim light still lets it be
+ * seen. Asked of the two sides of an attack.
+ */
+export function creatureSees(
+  viewer: Pick<Token, 'position' | 'size' | 'sightRadius'>,
+  target: Pick<Token, 'position' | 'size'>,
+  map: { wallSegments: unknown; lights: unknown; width: number; height: number; gridSize: number; globalIllumination: boolean }
+): boolean {
+  const wallSegs = (Array.isArray(map.wallSegments) ? map.wallSegments : []) as unknown as WallSegment[];
+  const lightSources = (Array.isArray(map.lights) ? map.lights : []) as unknown as LightSource[];
+  const mapWidthPx = map.width * map.gridSize;
+  const mapHeightPx = map.height * map.gridSize;
+  const { x: cx, y: cy } = tokenCentre(viewer, map.gridSize, map.height);
+  const w = viewer.size?.width ?? 1;
+  const h = viewer.size?.height ?? 1;
+  const looking: Viewer = {
+    cx,
+    cy,
+    sight: computeVisibility({ x: cx, y: cy }, wallSegs, mapWidthPx, mapHeightPx, 0),
+    darkvisionPx: (viewer.sightRadius ?? 0) * map.gridSize,
+    selfPx: (Math.max(w, h) / 2) * map.gridSize,
+  };
+  const lits = litsFor(map.wallSegments, map.lights, wallSegs, lightSources.filter((l) => l.enabled), mapWidthPx, mapHeightPx, map.gridSize);
+  return isSeen(tokenCentre(target, map.gridSize, map.height), [looking], lits, map.globalIllumination, (p, poly) => isPointVisible(p, poly));
+}
+
+/**
  * A wall as a member is sent it. Every wall reaches every member who may read
  * the map, since their browser works out its own sight from them, but a
  * door's lock is the DM's to reveal: anyone else is sent a locked door as a

@@ -46,6 +46,8 @@ export interface AttackRequest {
   };
   /** Advantage or Disadvantage the table grants beyond what the engine can see. */
   mode?: RollMode;
+  /** Who cannot see whom, for a reason the conditions do not give: darkness on a lit map. */
+  unseen?: { attacker?: boolean; target?: boolean };
   /** Reasons the caller found, written as the engine writes its own: "Advantage: Vex". */
   extraReasons?: readonly string[];
 }
@@ -104,7 +106,14 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     if (distance > reach) return refuse(`${target.name} is ${distance} ft away, beyond the reach of ${reach} ft`);
   }
 
-  const modifiers = attackModifiers({ attacker: attackerState, target: targetState, distanceFeet: distance, ranged });
+  const modifiers = attackModifiers({
+    attacker: attackerState,
+    target: targetState,
+    distanceFeet: distance,
+    ranged,
+    unseenAttacker: request.unseen?.attacker,
+    unseenTarget: request.unseen?.target,
+  });
   const reasons = [...modifiers.reasons];
   if (longRange) reasons.push('Disadvantage: the target is at long range');
   if (profile.heavy && attacker.scores) {
