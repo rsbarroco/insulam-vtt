@@ -35,6 +35,10 @@ export interface Combatant {
   defences?: Defences;
   /** A Halfling's Luck: a 1 on its d20 is rolled again. */
   lucky?: boolean;
+  /** A Barbarian's Danger Sense: Advantage on Dexterity saving throws unless Incapacitated. */
+  dangerSense?: boolean;
+  /** A Rogue's or Monk's Evasion: no damage on a successful Dexterity save for half, half on a failed one, unless Incapacitated. */
+  evasion?: boolean;
 }
 
 export interface AttackRequest {

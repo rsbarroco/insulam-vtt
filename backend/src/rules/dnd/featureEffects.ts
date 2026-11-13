@@ -43,6 +43,12 @@ export function readFeatures(data: { featuresAndTraits?: unknown } | null | unde
   });
 }
 
+/** Whether the sheet lists a feature of this name ("Evasion (Rogue 7)" is Evasion). */
+export function hasFeature(features: ReadonlyArray<{ name: string }>, name: string): boolean {
+  const wanted = name.toLowerCase();
+  return features.some((feature) => featureName(feature.name).toLowerCase() === wanted);
+}
+
 const EXTRA_ATTACKS: Readonly<Record<string, number>> = {
   'Extra Attack': 1,
   'Two Extra Attacks': 2,

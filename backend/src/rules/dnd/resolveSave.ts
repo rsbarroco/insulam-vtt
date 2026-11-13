@@ -39,6 +39,8 @@ export interface TargetSaveResult {
   hp: HitPoints | null;
   dropped: boolean;
   instantDeath: boolean;
+  /** Evasion changed the damage it took. */
+  evaded?: boolean;
 }
 
 export interface SaveResult {
@@ -96,14 +98,23 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
   const damage = profile.damage.map((component) => ({ type: component.type, rolled: rollDamage(component.roll, false, roll) }));
 
   const results = targets.map((target, index): TargetSaveResult => {
-    const modifiers = saveModifiers(readConditions(target.conditions, target.exhaustion), profile.ability);
+    const state = readConditions(target.conditions, target.exhaustion);
+    const modifiers = saveModifiers(state, profile.ability, { dangerSense: target.dangerSense });
     const cover = profile.ability === 'dex' && covers[index] !== 'total' ? coverBonus(covers[index]) : 0;
     const outcome = savingThrow(
       { bonus: target.saveBonus! + modifiers.penalty + cover, dc: profile.dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
       target.lucky ? lucky(roll) : roll
     );
+    // Evasion: a Dexterity save for half damage gives none on a success and half on a failure.
+    const evades = target.evasion === true && profile.ability === 'dex' && profile.halfOnSuccess === true && canAct(state);
     const dealt = damage.reduce((sum, entry) => {
-      const amount = outcome.success ? (profile.halfOnSuccess ? halfDamage(entry.rolled.total) : 0) : entry.rolled.total;
+      const amount = outcome.success
+        ? profile.halfOnSuccess && !evades
+          ? halfDamage(entry.rolled.total)
+          : 0
+        : evades
+          ? halfDamage(entry.rolled.total)
+          : entry.rolled.total;
       return sum + (entry.type === null ? amount : adjustedDamage({ amount, type: entry.type }, target.defences ?? {}));
     }, 0);
     let hp = target.hp;
@@ -116,14 +127,14 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
       dropped = applied.dropped;
       instantDeath = applied.instantDeath;
     }
-    return { name: target.name, outcome, dealt, hp, dropped, instantDeath };
+    return { name: target.name, outcome, dealt, hp, dropped, instantDeath, ...(evades && damage.length > 0 ? { evaded: true } : {}) };
   });
 
   const rolled = damage.map((entry) => `${entry.rolled.total}${entry.type ? ` ${entry.type}` : ''}`).join(' + ');
   const each = results.map((result) => {
     const rolledSave = result.outcome.roll ? ` (${result.outcome.roll.total})` : ' (no roll)';
     const verdict = result.outcome.success ? 'saves' : 'fails';
-    const harm = damage.length > 0 ? `, ${result.dealt} damage` : '';
+    const harm = damage.length > 0 ? `, ${result.dealt} damage${result.evaded ? ' (Evasion)' : ''}` : '';
     const fate = result.instantDeath ? ', killed outright' : result.dropped ? ', drops to 0' : '';
     return `${result.name} ${verdict}${rolledSave}${harm}${fate}`;
   });

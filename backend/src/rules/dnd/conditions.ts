@@ -202,13 +202,16 @@ export interface SaveModifiers {
   autoFail: boolean;
 }
 
-/** How a creature's own conditions change a saving throw it makes. */
-export function saveModifiers(state: ConditionState, ability: Ability): SaveModifiers {
+/**
+ * How a creature's own conditions change a saving throw it makes, and a
+ * Barbarian's Danger Sense: Advantage on Dexterity saves unless Incapacitated.
+ */
+export function saveModifiers(state: ConditionState, ability: Ability, own: { dangerSense?: boolean } = {}): SaveModifiers {
   const physical = ability === 'str' || ability === 'dex';
   const helpless = (['paralyzed', 'petrified', 'stunned', 'unconscious'] as const).some((c) => state.has.has(c));
   return {
     mode: rollMode(
-      (ability === 'dex' && stillDodging(state)) || (ability === 'str' && state.raging),
+      (ability === 'dex' && (stillDodging(state) || (own.dangerSense === true && canAct(state)))) || (ability === 'str' && state.raging),
       ability === 'dex' && state.has.has('restrained')
     ),
     penalty: d20Penalty(state),
