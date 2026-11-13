@@ -109,6 +109,13 @@ export function restoreResources(
   return { sheet: { ...sheet, featureUses: uses }, regained };
 }
 
+/** The damage a Rage adds to a Strength attack, from the Barbarian table's Rage Damage column; 0 without the class. */
+export function rageDamage(sheet: Sheet): number {
+  const { classes, level } = classesOf(sheet);
+  if (!has(classes, 'Barbarian')) return 0;
+  return Number((columnAt('Barbarian', 'Rage Damage', level) ?? '0').replace('+', '')) || 0;
+}
+
 /** The Hit Points Second Wind restores, before the die: the character's Fighter level. */
 export function secondWindBonus(sheet: Sheet): number {
   return classesOf(sheet).level;

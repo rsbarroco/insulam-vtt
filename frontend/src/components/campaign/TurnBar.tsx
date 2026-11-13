@@ -139,6 +139,8 @@ export default function TurnBar() {
     return feature.cost === 'bonusAction' ? turn.bonusAction : combat.reactionsSpent.includes(actingId);
   };
   const surge = resource('Action Surge');
+  const rage = resource('Rage');
+  const raging = combat.marks.some((mark) => mark.kind === 'rage' && mark.attackerId === actingId);
 
   // The Opportunity Attacks this viewer may take: the attacker is theirs.
   const offers = combat.opportunities.flatMap((offer) => {
@@ -320,6 +322,23 @@ export default function TurnBar() {
           onResult={showToast}
         />
       )}
+
+      {rage &&
+        (raging ? (
+          <Button variant="secondary" size="sm" onClick={() => void applyOnServer('End Rage')}>
+            End Rage
+          </Button>
+        ) : (
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={rage.used >= rage.max || turn.bonusAction}
+            title="A Bonus Action: Resistance to Bludgeoning, Piercing and Slashing damage, Rage Damage on Strength attacks, Advantage on Strength checks and saves. No spells."
+            onClick={() => void applyOnServer('Rage')}
+          >
+            Rage ({rage.max - rage.used}/{rage.max})
+          </Button>
+        ))}
 
       {surge && (
         <Button

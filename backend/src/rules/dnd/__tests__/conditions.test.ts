@@ -157,6 +157,11 @@ describe('the Dodge action', () => {
 });
 
 describe('saveModifiers', () => {
+  it('gives a raging creature Advantage on Strength saves', () => {
+    expect(saveModifiers(having('Raging'), 'str').mode).toBe('advantage');
+    expect(saveModifiers(having('Raging'), 'dex').mode).toBe('normal');
+  });
+
   it.each(['Paralyzed', 'Petrified', 'Stunned', 'Unconscious'])('fails Strength and Dexterity saves for a %s creature', (name) => {
     expect(saveModifiers(having(name), 'str').autoFail).toBe(true);
     expect(saveModifiers(having(name), 'dex').autoFail).toBe(true);

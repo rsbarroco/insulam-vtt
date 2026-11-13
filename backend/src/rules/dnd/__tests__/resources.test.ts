@@ -3,8 +3,7 @@ import {
   resourcesOf,
   restoreResources,
   secondWindBonus,
-  spendResource,
-} from '../resources';
+  spendResource, rageDamage } from '../resources';
 
 const fighter = (level: number, featureUses?: Record<string, number>) => ({
   class: 'Fighter',
@@ -94,5 +93,12 @@ describe('restoreResources', () => {
 describe('secondWindBonus', () => {
   it('is the Fighter level', () => {
     expect(secondWindBonus(fighter(7))).toBe(7);
+  });
+});
+
+describe('rageDamage', () => {
+  it('follows the Barbarian table: +2, +3 from level 9, +4 from 16', () => {
+    expect([1, 8, 9, 16].map((level) => rageDamage({ class: 'Barbarian', level }))).toEqual([2, 2, 3, 4]);
+    expect(rageDamage({ class: 'Fighter', level: 9 })).toBe(0);
   });
 });

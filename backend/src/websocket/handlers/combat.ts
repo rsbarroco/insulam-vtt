@@ -28,12 +28,12 @@ import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeath
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
-import { canAct, DODGING, effectiveSpeed, readConditions, saveModifiers, type Ability } from '../../rules/dnd/conditions';
+import { canAct, DODGING, effectiveSpeed, RAGING, readConditions, saveModifiers, type Ability } from '../../rules/dnd/conditions';
 import { rollDie, savingThrow } from '../../rules/dnd/d20';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import { resolveFall } from '../../rules/dnd/falling';
 import { longRest, spendHitDie } from '../../rules/dnd/rests';
-import { resourcesOf, restoreResources, secondWindBonus, spendResource } from '../../rules/dnd/resources';
+import { rageDamage, resourcesOf, restoreResources, secondWindBonus, spendResource } from '../../rules/dnd/resources';
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
@@ -141,21 +141,35 @@ function scoreOf(sheet: Record<string, unknown>, ability: string): number | null
   return typeof score === 'number' ? score : null;
 }
 
+/** A Rage's Resistance to Bludgeoning, Piercing and Slashing damage, on top of what the creature has. */
+function withRageResistance(defences: Defences | undefined): Defences {
+  const resistances = new Set<DamageType>([...(defences?.resistances ?? []), ...RAGE_RESISTANCES]);
+  return { ...(defences ?? {}), resistances: [...resistances] };
+}
+
 /** A token as the rules see it. */
-function combatant(token: Token, sheet: Record<string, unknown> | null, dodging: readonly string[] = []): Combatant {
+/** Whether a token's barbarian is raging, by the combat state's marks. */
+function isRaging(campaignId: string, tokenId: string): boolean {
+  return getCombatState(campaignId).marks.some((mark) => mark.kind === 'rage' && mark.attackerId === tokenId);
+}
+
+const RAGE_RESISTANCES = ['bludgeoning', 'piercing', 'slashing'] as const;
+
+function combatant(token: Token, sheet: Record<string, unknown> | null, dodging: readonly string[] = [], raging = false): Combatant {
   const block = (token.statBlock ?? null) as { ac?: unknown } | null;
   const sheetAc = sheet && typeof sheet.armorClass === 'number' ? sheet.armorClass : null;
   const blockAc = block && typeof block.ac === 'number' ? block.ac : null;
   const exhaustion = sheet && typeof sheet.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined;
+  const own = sheet ? undefined : defencesFromStatBlock((token.statBlock ?? {}) as Parameters<typeof defencesFromStatBlock>[0]);
   return {
     name: token.name,
     standing: standing(token),
     armorClass: sheet ? sheetAc : blockAc,
     hp: sheet ? extractCharacterHp(DND, sheet) : (token.hp ?? null),
-    conditions: dodging.includes(token.id) ? [...(token.conditions ?? []), DODGING] : (token.conditions ?? []),
+    conditions: [...(token.conditions ?? []), ...(dodging.includes(token.id) ? [DODGING] : []), ...(raging ? [RAGING] : [])],
     exhaustion,
     scores: sheet ? { str: scoreOf(sheet, 'strength'), dex: scoreOf(sheet, 'dexterity') } : undefined,
-    defences: sheet ? undefined : defencesFromStatBlock((token.statBlock ?? {}) as Parameters<typeof defencesFromStatBlock>[0]),
+    defences: raging ? withRageResistance(own) : own,
   };
 }
 
@@ -354,7 +368,7 @@ async function applyMastery(
  * kind replaces the attacker's old one on the same target. The table hears of
  * it with the next send of the combat state.
  */
-function addMark(campaignId: string, mark: { kind: 'sap' | 'slow' | 'vex'; attackerId: string; targetId: string }): void {
+function addMark(campaignId: string, mark: { kind: 'sap' | 'slow' | 'vex' | 'rage'; attackerId: string; targetId: string }): void {
   const combat = getCombatState(campaignId);
   if (!combat.active) return;
   const own = combat.currentTokenId === mark.attackerId;
@@ -362,8 +376,26 @@ function addMark(campaignId: string, mark: { kind: 'sap' | 'slow' | 'vex'; attac
     (kept) =>
       !(kept.kind === mark.kind && kept.targetId === mark.targetId && (mark.kind === 'slow' || kept.attackerId === mark.attackerId))
   );
-  combat.marks = [...others, { ...mark, turnEndsLeft: mark.kind === 'vex' && own ? 2 : 1 }];
+  combat.marks = [...others, { ...mark, turnEndsLeft: (mark.kind === 'vex' || mark.kind === 'rage') && own ? 2 : 1 }];
   setCombatState(campaignId, combat);
+}
+
+/** An attack on the barbarian's own turn keeps its Rage going to the end of its next turn. */
+function keepRaging(campaignId: string, tokenId: string): void {
+  const combat = getCombatState(campaignId);
+  combat.marks = combat.marks.map((mark) => (mark.kind === 'rage' && mark.attackerId === tokenId ? { ...mark, turnEndsLeft: 2 } : mark));
+  setCombatState(campaignId, combat);
+}
+
+/** Whether an attack uses Strength: an Unarmed Strike, or a melee weapon attack that is not made with Dexterity. */
+function usesStrength(action: CombatAction, token: Token, sheet: Record<string, unknown>): boolean {
+  if (action.unarmed === 'damage') return true;
+  if (action.attack?.kind !== 'melee' || action.source === 'spell') return false;
+  if (!action.weapon) return true;
+  const str = abilityModifierOf(token, sheet, 'str') ?? 0;
+  const dex = abilityModifierOf(token, sheet, 'dex') ?? 0;
+  // A Finesse weapon uses the better of the two: a Strength attack when Strength is that one.
+  return weaponModifier(action.weapon, { str, dex }) === str;
 }
 
 /** The marks an attack roll used: they go. */
@@ -424,6 +456,15 @@ async function spendAction(io: Server, campaignId: string, tokenId: string, name
     }
   }
   await resendInitiativeState(io, campaignId);
+}
+
+/** On its own turn, the combatant's Bonus Action is spent. */
+function spendBonusAction(campaignId: string, tokenId: string): void {
+  const now = getCombatState(campaignId);
+  if (someoneActing(now) && now.currentTokenId === tokenId && now.turn) {
+    now.turn = { ...now.turn, bonusAction: true };
+    setCombatState(campaignId, now);
+  }
 }
 
 /** The turn each campaign's last Action Surge was used in: once a turn. */
@@ -754,7 +795,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!listed) return refuseRequest(socket, ack, 'That action is not one the attacker has');
       const cast = castWithSlot(attackerSheet as SheetSpellcasting | null, listed, slotLevel);
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
-      const action = cast.action;
+      let action = cast.action;
 
       // On its own turn a character makes as many attacks with the Attack
       // action as its features give it. A spell is the Magic action, and a
@@ -782,7 +823,15 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           return refuseRequest(socket, ack, 'An Opportunity Attack is one melee attack with a weapon or an Unarmed Strike');
         }
       }
-      const target = combatant(targetToken, targetSheet, turnNow.dodging);
+      const target = combatant(targetToken, targetSheet, turnNow.dodging, isRaging(campaignId, targetId));
+      // A raging barbarian casts no spells, and its Strength attacks deal its Rage Damage.
+      const attackerRaging = isRaging(campaignId, attackerId);
+      if (attackerRaging && action.source === 'spell') return refuseRequest(socket, ack, `${attackerToken.name} cannot cast spells while raging`);
+      const rageBonus = attackerRaging && attackerSheet && usesStrength(action, attackerToken, attackerSheet) ? rageDamage(attackerSheet) : 0;
+      if (rageBonus > 0 && action.attack) {
+        const type = action.attack.damage[0]?.type ?? 'bludgeoning';
+        action = { ...action, attack: { ...action.attack, damage: [...action.attack.damage, { roll: { count: 0, sides: 1, bonus: rageBonus }, type }] } };
+      }
 
       // A Vex the attacker holds on this target, and a Sap on the attacker, are used by this roll.
       const vexed = turnNow.marks.find((mark) => mark.kind === 'vex' && mark.attackerId === attackerId && mark.targetId === targetId);
@@ -803,7 +852,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const result = resolveAttack({
         unseen: lit,
         extraReasons,
-        attacker: combatant(attackerToken, attackerSheet),
+        attacker: combatant(attackerToken, attackerSheet, [], attackerRaging),
         target: offer ? { ...target, standing: standing({ ...targetToken, position: offer.from }) } : target,
         action,
         board: {
@@ -824,6 +873,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
       if (vexed || sapped) useMarks(campaignId, [vexed, sapped]);
+      if (attackerRaging && turnNow.currentTokenId === attackerId) keepRaging(campaignId, attackerId);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
       if (offer) await spendReaction(io, campaignId, attackerId);
       else await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
@@ -916,7 +966,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return refuseRequest(socket, ack, 'You can only act for your own token');
       }
       const sheet = await sheetOf(token, campaignId);
-      const creature = combatant(token, sheet);
+      const creature = combatant(token, sheet, [], isRaging(campaignId, tokenId));
       const state = readConditions(creature.conditions, creature.exhaustion);
       if (hide && !canAct(state)) return refuseRequest(socket, ack, `${token.name} is Incapacitated and cannot take the Hide action`);
 
@@ -925,7 +975,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const label = skill
         ? `${ABILITY_CHECK_NAMES[SKILL_CHECKS[skill].ability]} (${SKILL_CHECKS[skill].name})`
         : ABILITY_CHECK_NAMES[ability!];
-      const result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state });
+      const used = skill ? SKILL_CHECKS[skill].ability : ability!;
+      const result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used });
 
       const hidden = hide === true && result.success === true;
       if (hidden) await giveCondition(io, campaignId, map.id, tokenId, 'Invisible');
@@ -1081,7 +1132,21 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const combat = getCombatState(campaignId);
       const ownTurn = someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn !== null;
-      if (feature === 'Second Wind' && ownTurn && combat.turn!.bonusAction) {
+      if (feature === 'End Rage') {
+        if (!isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is not raging`);
+        const now = getCombatState(campaignId);
+        now.marks = now.marks.filter((mark) => !(mark.kind === 'rage' && mark.attackerId === tokenId));
+        setCombatState(campaignId, now);
+        await resendInitiativeState(io, campaignId);
+        const summary = `${token.name}'s Rage ends`;
+        ack?.({ ok: true, summary, left: 0 });
+        return;
+      }
+      if (feature === 'Rage') {
+        if (!combat.active) return refuseRequest(socket, ack, 'A Rage is kept during combat');
+        if (isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is already raging`);
+      }
+      if ((feature === 'Second Wind' || feature === 'Rage') && ownTurn && combat.turn!.bonusAction) {
         return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
       }
       if (feature === 'Action Surge') {
@@ -1123,13 +1188,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (healed) {
         io.to(campaignId).emit('character.hp.updated', { characterId, hp: healed.hp });
         summary = `${token.name} uses Second Wind: regains ${healed.rolled + healed.bonus} Hit Points (${usesLeft})`;
-        if (ownTurn) {
-          const now = getCombatState(campaignId);
-          if (someoneActing(now) && now.currentTokenId === tokenId && now.turn) {
-            now.turn = { ...now.turn, bonusAction: true };
-            setCombatState(campaignId, now);
-          }
-        }
+        if (ownTurn) spendBonusAction(campaignId, tokenId);
         const expression = `1d10+${healed.bonus}`;
         await logRoll(
           io,
@@ -1152,6 +1211,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           summary,
           hiddenFromPlayers(token)
         );
+      } else if (feature === 'Rage') {
+        addMark(campaignId, { kind: 'rage', attackerId: tokenId, targetId: tokenId });
+        if (ownTurn) spendBonusAction(campaignId, tokenId);
+        summary = `${token.name} enters a Rage: Resistance to Bludgeoning, Piercing and Slashing damage, +${rageDamage(updated.data as Record<string, unknown>)} damage on Strength attacks, Advantage on Strength checks and saves (${usesLeft})`;
       } else {
         // One more action: the one taken is given back, and the turn remembers the surge.
         const now = getCombatState(campaignId);
@@ -1258,7 +1321,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const result = resolveSave({
         source: combatant(sourceToken, sourceSheet),
         targets: targetTokens.map((token, index) => ({
-          ...combatant(token, targetSheets[index], getCombatState(campaignId).dodging),
+          ...combatant(token, targetSheets[index], getCombatState(campaignId).dodging, isRaging(campaignId, token.id)),
           saveBonus: saveBonusOf(token, targetSheets[index], ability),
         })),
         action,

@@ -63,6 +63,7 @@ describe('resolveCheck', () => {
 describe('checkModifiers', () => {
   it('leaves a creature with other conditions to roll normally', () => {
     expect(checkModifiers(having('Prone', 'Grappled'))).toEqual({
+      advantage: false,
       disadvantage: false,
       penalty: 0,
       reasons: [],
@@ -80,5 +81,16 @@ describe('the skills', () => {
   it('have a passive score of 10 plus the bonus', () => {
     expect(passiveScore(3)).toBe(13);
     expect(passiveScore(-1)).toBe(9);
+  });
+});
+
+describe('a raging creature', () => {
+  it('makes Strength checks with Advantage, and others as usual', () => {
+    const raging = having('Raging');
+    expect(resolveCheck(check({ label: 'Strength (Athletics)', ability: 'str', conditions: raging }), dice(3, 15))).toMatchObject({
+      total: 20,
+      reasons: ['Advantage: Rage'],
+    });
+    expect(resolveCheck(check({ ability: 'dex', conditions: raging }), dice(3)).reasons).toEqual([]);
   });
 });
