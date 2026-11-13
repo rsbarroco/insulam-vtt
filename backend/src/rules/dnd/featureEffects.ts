@@ -70,7 +70,7 @@ const BONUS = new RegExp(`\\b${VERB} (?:a|your|its) Bonus Action\\b`);
 const REACTION = new RegExp(`\\b${VERB} (?:a|your|its) Reaction\\b`);
 
 /** Reactions the server resolves, listed by their name when a sheet gives no text for them. */
-const REACTIONS_BY_NAME = new Set(['uncanny dodge']);
+const REACTIONS_BY_NAME = new Set(['uncanny dodge', 'deflect attacks']);
 
 /** The features used with a Bonus Action or a Reaction, in the sheet's order. A feature that offers both is listed twice. */
 export function featureOptions(features: readonly SheetFeature[]): FeatureOption[] {

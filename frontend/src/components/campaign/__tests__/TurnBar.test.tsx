@@ -539,6 +539,21 @@ describe('a rogue', () => {
     render(<TurnBar />);
     expect(await screen.findByRole('button', { name: 'Let Uncanny Dodge go' })).toBeInTheDocument();
   });
+
+  it('holds a Monk’s Deflect Attacks ready the same way', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [{ name: 'Deflect Attacks', cost: 'reaction', text: '' }],
+    });
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Hold Deflect Attacks' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Deflect Attacks'));
+    expect(screen.queryByRole('button', { name: 'Hold Uncanny Dodge' })).toBeNull();
+  });
 });
 
 describe('the features the server counts', () => {

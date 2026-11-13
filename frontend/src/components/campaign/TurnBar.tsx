@@ -184,9 +184,23 @@ export default function TurnBar() {
       }),
   ];
   const raging = combat.marks.some((mark) => mark.kind === 'rage' && mark.attackerId === actingId);
-  const holdingDodge = combat.marks.some(
-    (mark) => mark.kind === 'uncanny' && mark.attackerId === actingId
-  );
+  const holding = (kind: 'uncanny' | 'deflect') =>
+    combat.marks.some((mark) => mark.kind === kind && mark.attackerId === actingId);
+  // The reactions held ready for the next hit: a Rogue's Uncanny Dodge, a Monk's Deflect Attacks.
+  const heldReactions = [
+    {
+      feature: 'Uncanny Dodge' as const,
+      kind: 'uncanny' as const,
+      title:
+        'Uncanny Dodge: hold your reaction to halve the damage of the next hit from an attacker you can see',
+    },
+    {
+      feature: 'Deflect Attacks' as const,
+      kind: 'deflect' as const,
+      title:
+        'Deflect Attacks: hold your reaction to take 1d10 + Dexterity modifier + Monk level off the next Bludgeoning, Piercing or Slashing hit',
+    },
+  ];
 
   // The Opportunity Attacks this viewer may take: the attacker is theirs.
   const offers = combat.opportunities.flatMap((offer) => {
@@ -398,22 +412,26 @@ export default function TurnBar() {
         />
       )}
 
-      {canAct && features.some((feature) => feature.name === 'Uncanny Dodge') && (
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          aria-pressed={holdingDodge}
-          title="Uncanny Dodge: hold your reaction to halve the damage of the next hit from an attacker you can see"
-          onClick={() =>
-            void socket.useFeature(actingId, 'Uncanny Dodge').then((answer) => {
-              showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
-            })
-          }
-        >
-          {holdingDodge ? 'Let Uncanny Dodge go' : 'Hold Uncanny Dodge'}
-        </Button>
-      )}
+      {canAct &&
+        heldReactions
+          .filter(({ feature }) => features.some((option) => option.name === feature))
+          .map(({ feature, kind, title }) => (
+            <Button
+              key={feature}
+              type="button"
+              variant="secondary"
+              size="sm"
+              aria-pressed={holding(kind)}
+              title={title}
+              onClick={() =>
+                void socket.useFeature(actingId, feature).then((answer) => {
+                  showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
+                })
+              }
+            >
+              {holding(kind) ? `Let ${feature} go` : `Hold ${feature}`}
+            </Button>
+          ))}
 
       {canAct && (
         <ConcentrationControl
