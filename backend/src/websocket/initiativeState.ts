@@ -90,9 +90,11 @@ export interface WeaponMark {
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
-  /** For a `condition` mark: the condition, and whether it ends as that turn starts or ends. */
+  /** For a `condition` mark: the condition, and whether it ends as that turn starts or ends, or on a repeated save. */
   condition?: string;
-  ends?: 'start' | 'end';
+  ends?: 'start' | 'end' | 'save';
+  /** For `ends: 'save'`: the save the target repeats at the end of each of its turns. */
+  save?: { ability: string; dc: number };
 }
 
 /** The combat state as a member is sent it: an offered attack without where its target stood. */
@@ -140,8 +142,9 @@ export function advanceTurn(state: CombatState): void {
   state.dodging = state.dodging.filter((tokenId) => tokenId !== state.currentTokenId);
   state.opportunities = [];
   // Sap, Slow, Help and a readied attack last until the start of the attacker's next turn.
+  // A condition saved against again lasts until a save ends it.
   state.marks = state.marks.filter(
-    (mark) => countsEnds(mark) || mark.attackerId !== state.currentTokenId
+    (mark) => countsEnds(mark) || (mark.kind === 'condition' && mark.ends === 'save') || mark.attackerId !== state.currentTokenId
   );
 }
 

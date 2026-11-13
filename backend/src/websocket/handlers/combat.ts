@@ -46,6 +46,7 @@ import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
+import { onTurnEnd } from '../turnHooks';
 import { conditionsOnFailure, conditionsOnHit, fits, sizeOfSquares, turnLimit, type ConditionRider } from '../../rules/dnd/actionConditions';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
@@ -610,7 +611,8 @@ async function applyRiders(
   mapId: string,
   source: Token,
   target: Token,
-  riders: ConditionRider[]
+  riders: ConditionRider[],
+  repeat?: { ability: Ability; dc: number }
 ): Promise<string[]> {
   const size = sizeOfSquares(Math.max(target.size?.width ?? 1, target.size?.height ?? 1));
   const lines: string[] = [];
@@ -619,7 +621,14 @@ async function applyRiders(
     // A condition tied to a turn is kept as a mark, and taken off when that turn starts or ends.
     const limit = turnLimit(rider);
     const combat = getCombatState(campaignId);
-    if (limit && combat.active) {
+    if (!limit && rider.repeats && repeat && combat.active) {
+      // Saved against again at the end of each of the target's turns.
+      combat.marks = [
+        ...combat.marks.filter((mark) => !(mark.kind === 'condition' && mark.targetId === target.id && mark.condition === rider.condition)),
+        { kind: 'condition', attackerId: target.id, targetId: target.id, condition: rider.condition, ends: 'save', save: repeat, turnEndsLeft: 1 },
+      ];
+      setCombatState(campaignId, combat);
+    } else if (limit && combat.active) {
       const whose = limit.whose === 'source' ? source.id : target.id;
       const others = combat.marks.filter(
         (mark) => !(mark.kind === 'condition' && mark.targetId === target.id && mark.condition === rider.condition)
@@ -972,6 +981,67 @@ function saveBreakdown(result: SaveResult, action: CombatAction): LoggedRoll {
     },
   };
 }
+
+/**
+ * At the end of a creature's turn, the saves it repeats against conditions
+ * that say so: rolled by the server, logged, and on a success the condition
+ * comes off its token.
+ */
+async function repeatSavesAtTurnEnd(io: Server, socket: AuthenticatedSocket, campaignId: string, tokenId: string): Promise<void> {
+  const combat = getCombatState(campaignId);
+  const due = combat.marks.filter((mark) => mark.kind === 'condition' && mark.ends === 'save' && mark.targetId === tokenId && mark.save);
+  if (due.length === 0) return;
+  const mapId = combat.combatants.find((entry) => entry.tokenId === tokenId)?.mapId;
+  const map = mapId ? await prisma.map.findUnique({ where: { id: mapId } }) : null;
+  const token = map ? readTokens(map.tokens).find((t) => t.id === tokenId) : undefined;
+  if (!map || !token) return;
+  const sheet = await sheetOf(token, campaignId);
+  for (const mark of due) {
+    const ability = mark.save!.ability as Ability;
+    const dc = mark.save!.dc;
+    const modifiers = saveModifiers(readConditions(token.conditions ?? [], typeof sheet?.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined), ability);
+    const outcome = savingThrow(
+      { bonus: (saveBonusOf(token, sheet, ability) ?? 0) + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
+      hasLuck(sheet) ? lucky(rollDie) : rollDie
+    );
+    const label = `${ABILITY_FULL[ability][0].toUpperCase()}${ABILITY_FULL[ability].slice(1)}`;
+    const summary = `${token.name} repeats the ${label} save against ${mark.condition}: ${outcome.roll ? `${outcome.roll.total} vs DC ${dc}` : `fails (DC ${dc})`}${outcome.success ? `, success: no longer ${mark.condition}` : ', failure'}`;
+    if (outcome.success) {
+      await takeCondition(io, campaignId, map.id, tokenId, mark.condition!);
+      const now = getCombatState(campaignId);
+      now.marks = now.marks.filter((kept) => !(kept.kind === 'condition' && kept.targetId === tokenId && kept.condition === mark.condition));
+      setCombatState(campaignId, now);
+    }
+    const roll = outcome.roll;
+    if (roll) {
+      const notation = roll.mode === 'normal' ? '1d20' : roll.mode === 'advantage' ? '2d20kh1' : '2d20kl1';
+      const sign = roll.modifier < 0 ? '-' : '+';
+      const expression = `${notation}${sign}${Math.abs(roll.modifier)}`;
+      await logRoll(
+        io,
+        socket,
+        campaignId,
+        {
+          expression,
+          total: roll.total,
+          breakdown: {
+            expression,
+            rolls: [
+              { type: 'dice' as const, notation, count: roll.dice.length, sides: 20, results: roll.dice, kept: [roll.natural], total: roll.natural },
+              { type: 'modifier' as const, value: roll.modifier },
+            ],
+            total: roll.total,
+            formula: `[${roll.dice.join(', ')}] ${sign} ${Math.abs(roll.modifier)} = ${roll.total}`,
+          },
+        },
+        token.name,
+        summary,
+        hiddenFromPlayers(token)
+      );
+    }
+  }
+}
+onTurnEnd(repeatSavesAtTurnEnd);
 
 export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket): void {
   /** The campaign's current map with what an attack needs, or null. */
@@ -1881,7 +1951,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (action.source === 'statBlock') {
         const written = conditionsOnFailure(action.text ?? '');
         for (const [index, target] of result.targets.entries()) {
-          if (!target.outcome.success && !target.dropped) riders.push(...(await applyRiders(io, campaignId, map.id, sourceToken, targetTokens[index], written)));
+          if (!target.outcome.success && !target.dropped) riders.push(
+            ...(await applyRiders(io, campaignId, map.id, sourceToken, targetTokens[index], written, action.save ? { ability: action.save.ability, dc: action.save.dc } : undefined))
+          );
         }
       }
       // What a failed save against an Unarmed Strike leaves the target with.

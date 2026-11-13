@@ -82,6 +82,14 @@ describe('advanceTurn', () => {
     ]);
   });
 
+  it('keeps a condition saved against again however turns pass', () => {
+    const mark = { kind: 'condition' as const, attackerId: 'b', targetId: 'b', condition: 'Frightened', ends: 'save' as const, save: { ability: 'wis', dc: 12 }, turnEndsLeft: 1 };
+    const state = fight({ marks: [mark] });
+    advanceTurn(state);
+    advanceTurn(state);
+    expect(state.marks).toEqual([mark]);
+  });
+
   it('keeps a Vex to the end of its maker’s next turn', () => {
     const state = fight({ marks: [{ kind: 'vex', attackerId: 'a', targetId: 'b', turnEndsLeft: 2 }] });
     advanceTurn(state); // a's turn ends: one left

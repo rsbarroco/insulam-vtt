@@ -1646,9 +1646,11 @@ export interface WeaponMark {
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
-  /** For a `condition` mark: the condition, and whether it ends as that turn starts or ends. */
+  /** For a `condition` mark: the condition, and whether it ends as that turn starts or ends, or on a repeated save. */
   condition?: string;
-  ends?: 'start' | 'end';
+  ends?: 'start' | 'end' | 'save';
+  /** For `ends: 'save'`: the save the target repeats at the end of each of its turns. */
+  save?: { ability: string; dc: number };
 }
 
 /** An Opportunity Attack on offer: who may attack whom. Where the target stood is the server's to keep. */
