@@ -8,8 +8,10 @@
 // features of the species, the feats and the classes, written out.
 //
 // Pure: the caller stores what comes back. What is not worked out is said in
-// docs/TACTICAL_MODE.md: equipment, Armor Class beyond 10 + Dexterity, the
+// docs/TACTICAL_MODE.md: equipment, Armor Class beyond 10 + Dexterity, most
 // numbers a species trait or a feature changes, and which spells are known.
+// Two are worked out: Alert adds the Proficiency Bonus to Initiative, and a
+// Dwarf's Dwarven Toughness adds 1 Hit Point a level.
 // ============================================
 
 import { abilityScoreCap, type CharacterRules } from '../../utils/characterRules';
@@ -232,7 +234,9 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
   const mods = Object.fromEntries(ABILITIES.map((ability) => [ability, modifier(scores[ability])])) as Scores;
   const saves = savingThrowProficiencies(tracks);
   const proficient = new Set<Skill>([...fromBackground, ...picks]);
-  const hitPoints = fixedHitPoints(tracks, level, mods.con);
+  const toughness = species.traits.some((trait) => trait.name === 'Dwarven Toughness') ? level : 0;
+  const hitPoints = fixedHitPoints(tracks, level, mods.con) + toughness;
+  const alert = taken.some((feat) => feat.name === 'Alert') ? bonus : 0;
   const slots = spellSlots(tracks, level);
   const pact = pactMagic(tracks, level);
   if (pact) slots[pact.slotLevel - 1] += pact.slots;
@@ -261,7 +265,8 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
     ),
     passivePerception: 10 + mods.wis + (proficient.has('perception') ? bonus : 0),
     armorClass: Math.max(1, 10 + mods.dex),
-    initiative: mods.dex,
+    initiative: mods.dex + alert,
+    initiativeBonus: alert,
     speed: species.speedFeet,
     hp: { maximum: hitPoints, current: hitPoints, temporary: 0 },
     conditions: [],
