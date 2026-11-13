@@ -269,6 +269,7 @@ export const SOCKET_CEILINGS = {
   'combat.stand': turnEvents,
   'combat.check': turnEvents,
   'combat.rest': turnEvents,
+  'combat.feature': turnEvents,
   'dice.clearHistory': dmEvent('requests to clear the dice log'),
   'exploration:reset': dmEvent('explored-area resets'),
 } satisfies Record<string, SocketCeiling>;

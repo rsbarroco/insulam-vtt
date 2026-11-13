@@ -19,6 +19,7 @@ const h = vi.hoisted(() => ({
   resolveAttack: vi.fn(),
   standUp: vi.fn(),
   resolveCheck: vi.fn(),
+  useFeature: vi.fn(),
   listCombatActions: vi.fn(),
   showToast: vi.fn(),
 }));
@@ -32,6 +33,7 @@ const socket = {
   resolveAttack: (...args: unknown[]) => h.resolveAttack(...args),
   standUp: (...args: unknown[]) => h.standUp(...args),
   resolveCheck: (...args: unknown[]) => h.resolveCheck(...args),
+  useFeature: (...args: unknown[]) => h.useFeature(...args),
   listCombatActions: (...args: unknown[]) => h.listCombatActions(...args),
 };
 vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({ socket }) }));
@@ -444,5 +446,48 @@ describe('a Slowed combatant', () => {
     fight({ marks: [{ kind: 'slow', attackerId: 'ogre', targetId: 'hero', turnEndsLeft: 1 }] });
     render(<TurnBar />);
     expect(screen.getByText('20 of 20 ft left')).toBeInTheDocument();
+  });
+});
+
+describe('class features with uses', () => {
+  const secondWind = { name: 'Second Wind', cost: 'bonusAction', text: 'As a Bonus Action, regain 1d10 + Fighter level.' };
+  const listing = (resources: unknown[]) => ({ ok: true, actions: [], attacksPerAction: 1, features: [secondWind], resources });
+
+  beforeEach(() => {
+    h.useFeature.mockReset().mockResolvedValue({ ok: true, summary: 'Hero uses Second Wind: regains 9 Hit Points (1 use left)', left: 1 });
+    h.emitTurnUpdate.mockReset();
+  });
+
+  it('uses Second Wind on the server, and shows the uses left', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue(listing([{ name: 'Second Wind', max: 2, used: 0 }]));
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Features' }));
+    expect(screen.getByText(/2\/2 left/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use Second Wind as a Bonus Action' }));
+
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Second Wind'));
+    expect(h.emitTurnUpdate).not.toHaveBeenCalled();
+    await waitFor(() => expect(h.showToast).toHaveBeenCalledWith('Hero uses Second Wind: regains 9 Hit Points (1 use left)', 'success'));
+  });
+
+  it('turns a feature off with no uses left', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue(listing([{ name: 'Second Wind', max: 2, used: 2 }]));
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Features' }));
+    expect(screen.getByRole('button', { name: 'Use Second Wind as a Bonus Action' })).toBeDisabled();
+  });
+
+  it('offers Action Surge with its uses', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue(listing([{ name: 'Action Surge', max: 1, used: 0 }]));
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Action Surge (1/1)' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Action Surge'));
   });
 });

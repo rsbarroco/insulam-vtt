@@ -18,7 +18,7 @@ import { useWebSocket } from '@/contexts/WebSocketContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCharacterHp, useCombatState, useTokenList } from '@/stores/gameStore';
 import { useToast } from '@/contexts/ToastContext';
-import type { CombatActionSummary, CombatFeatureOption, Token } from '@/types';
+import type { CombatActionSummary, CombatFeatureName, CombatFeatureOption, CombatResource, Token } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import {
@@ -51,7 +51,10 @@ export default function TurnBar() {
     attacksPerAction: number | null;
     features: CombatFeatureOption[];
     passivePerception: number | null;
+    resources: CombatResource[];
   } | null>(null);
+  // Asked again after a feature is used, so its uses left are the sheet's.
+  const [listed, setListed] = useState(0);
   const [showFeatures, setShowFeatures] = useState(false);
   // The melee attacks to choose between for an Opportunity Attack, once asked.
   const [weapons, setWeapons] = useState<{
@@ -76,6 +79,7 @@ export default function TurnBar() {
               attacksPerAction: answer.attacksPerAction,
               features: answer.features,
               passivePerception: answer.passivePerception ?? null,
+              resources: answer.resources ?? [],
             }
           : null
       );
@@ -83,7 +87,7 @@ export default function TurnBar() {
     return () => {
       current = false;
     };
-  }, [socket, watching]);
+  }, [socket, watching, listed]);
 
   if (!combat.active || !combat.turn || !combat.currentTokenId) return null;
   const turn = combat.turn;
@@ -115,13 +119,26 @@ export default function TurnBar() {
   const known = abilities?.tokenId === actingId ? abilities : null;
   const features = canAct ? (known?.features ?? []) : [];
   const attacksAllowed = known?.attacksPerAction ?? null;
+  const resources = canAct ? (known?.resources ?? []) : [];
+  const resource = (name: string) => resources.find((entry) => entry.name === name) ?? null;
+  /** A feature the server applies: it spends the use, and Second Wind its Bonus Action. */
+  const applyOnServer = async (feature: CombatFeatureName) => {
+    const answer = await socket.useFeature(actingId, feature);
+    showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
+    if (answer.ok) setListed((count) => count + 1);
+  };
   const spendFeature = (feature: CombatFeatureOption) => {
+    if (feature.name === 'Second Wind' && resource('Second Wind')) return void applyOnServer('Second Wind');
     if (feature.cost === 'bonusAction') socket.emitTurnUpdate({ bonusAction: true });
     else socket.emitTurnUpdate({ reaction: { tokenId: actingId, spent: true } });
     showToast(`${actingName} uses ${feature.name}`, 'info');
   };
-  const spent = (feature: CombatFeatureOption) =>
-    feature.cost === 'bonusAction' ? turn.bonusAction : combat.reactionsSpent.includes(actingId);
+  const spent = (feature: CombatFeatureOption) => {
+    const counted = resource(feature.name);
+    if (counted && counted.used >= counted.max) return true;
+    return feature.cost === 'bonusAction' ? turn.bonusAction : combat.reactionsSpent.includes(actingId);
+  };
+  const surge = resource('Action Surge');
 
   // The Opportunity Attacks this viewer may take: the attacker is theirs.
   const offers = combat.opportunities.flatMap((offer) => {
@@ -304,6 +321,18 @@ export default function TurnBar() {
         />
       )}
 
+      {surge && (
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={surge.used >= surge.max}
+          title="One more action this turn, not the Magic action. Back on a Short or Long Rest."
+          onClick={() => void applyOnServer('Action Surge')}
+        >
+          Action Surge ({surge.max - surge.used}/{surge.max})
+        </Button>
+      )}
+
       {features.length > 0 && (
         <span className="relative">
           <Button
@@ -327,6 +356,8 @@ export default function TurnBar() {
                       {feature.name}{' '}
                       <span className="text-xs font-normal text-ink-muted">
                         {feature.cost === 'bonusAction' ? 'Bonus Action' : 'Reaction'}
+                        {resource(feature.name) &&
+                          ` · ${resource(feature.name)!.max - resource(feature.name)!.used}/${resource(feature.name)!.max} left`}
                       </span>
                     </span>
                     <Button

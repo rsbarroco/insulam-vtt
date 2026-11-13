@@ -24,15 +24,16 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing, type WeaponMark } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import { canAct, DODGING, effectiveSpeed, readConditions, saveModifiers, type Ability } from '../../rules/dnd/conditions';
-import { savingThrow } from '../../rules/dnd/d20';
+import { rollDie, savingThrow } from '../../rules/dnd/d20';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import { resolveFall } from '../../rules/dnd/falling';
 import { longRest, spendHitDie } from '../../rules/dnd/rests';
+import { resourcesOf, restoreResources, secondWindBonus, spendResource } from '../../rules/dnd/resources';
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
@@ -425,6 +426,9 @@ async function spendAction(io: Server, campaignId: string, tokenId: string, name
   await resendInitiativeState(io, campaignId);
 }
 
+/** The turn each campaign's last Action Surge was used in: once a turn. */
+const actionSurges = new Map<string, { tokenId: string; round: number }>();
+
 /** A combatant's reaction is spent; what it was offered to spend it on goes with it. */
 async function spendReaction(io: Server, campaignId: string, tokenId: string): Promise<void> {
   const combat = getCombatState(campaignId);
@@ -705,6 +709,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           // A stat block's Multiattack says how many attacks it makes; a character's features do.
           attacksPerAction: sheet ? attacksPerAction(features) : null,
           features: featureOptions(features),
+          // The class features it spends and gets back on a rest, with what is left.
+          resources: sheet ? resourcesOf(sheet).map(({ name, max, used }) => ({ name, max, used })) : [],
           // What a creature notices without looking: 10 plus its Wisdom (Perception) bonus.
           passivePerception: (() => {
             const bonus = skillBonusOf(token, sheet, 'perception');
@@ -984,9 +990,17 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           return { refusal: 'That is not a D&D 5e character you can rest' };
         }
         const sheet = (fresh.data ?? {}) as Record<string, unknown>;
+        if (kind === 'shortFinish') {
+          const back = restoreResources(sheet, 'short');
+          const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(back.sheet) } });
+          const gains = back.regained.length > 0 ? back.regained.join(', ') : 'no feature to regain';
+          return { updated, hp: null, die: null, summary: `${fresh.name} finishes a Short Rest: ${gains}` };
+        }
         if (kind === 'long') {
           const long = longRest(sheet);
-          const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(long.sheet) } });
+          const features = restoreResources(long.sheet, 'long');
+          const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(features.sheet) } });
+          long.regained.push(...features.regained);
           const gains = long.regained.length > 0 ? long.regained.join(', ') : 'nothing to regain';
           return { updated, hp: long.hp, die: null, summary: `${fresh.name} finishes a Long Rest: ${gains}` };
         }
@@ -1040,6 +1054,121 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.rest failed', { err: error });
       refuseRequest(socket, ack, 'Failed to resolve the rest');
+    }
+  });
+
+  /**
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for Second Wind. The DM, or the player who controls the token.
+   */
+  socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.feature', ack)) return;
+      const parsed = CombatFeatureSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const { tokenId, feature } = parsed.data;
+
+      const map = await currentMap(campaignId);
+      if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
+      const token = readTokens(map.tokens).find((t) => t.id === tokenId);
+      if (!token || !canControlToken(socket.role, token.controlledBy, socket.userId)) {
+        return refuseRequest(socket, ack, 'You can only act for your own token');
+      }
+      const characterId = token.characterId;
+      if (!characterId || !(await sheetOf(token, campaignId))) return refuseRequest(socket, ack, `${token.name} has no D&D character sheet`);
+
+      const combat = getCombatState(campaignId);
+      const ownTurn = someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn !== null;
+      if (feature === 'Second Wind' && ownTurn && combat.turn!.bonusAction) {
+        return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
+      }
+      if (feature === 'Action Surge') {
+        if (!ownTurn) return refuseRequest(socket, ack, 'Action Surge is used on the character’s own turn');
+        const surged = actionSurges.get(campaignId);
+        if (surged && surged.tokenId === tokenId && surged.round === combat.round) {
+          return refuseRequest(socket, ack, `${token.name} has used Action Surge this turn`);
+        }
+      }
+
+      const used = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+        const fresh = await tx.character.findUnique({ where: { id: characterId } });
+        if (!fresh) return { refusal: `${token.name} has no D&D character sheet` };
+        const sheet = (fresh.data ?? {}) as Record<string, unknown>;
+        const spent = spendResource(sheet, feature);
+        if (!spent.ok) return { refusal: `${token.name}: ${spent.reason}` };
+        let next = spent.sheet;
+        let healed: { rolled: number; bonus: number; hp: { current: number; max: number; temp: number } } | null = null;
+        if (feature === 'Second Wind') {
+          const rolled = rollDie(10);
+          const bonus = secondWindBonus(sheet);
+          const change = applyHpDelta(DND, next, rolled + bonus);
+          if ('error' in change) return { refusal: `${token.name} tracks no Hit Points` };
+          next = change.data as Record<string, unknown>;
+          healed = { rolled, bonus, hp: change.hp };
+        }
+        const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(next) } });
+        return { updated, healed, left: spent.left };
+      });
+      if ('refusal' in used) return refuseRequest(socket, ack, used.refusal!);
+
+      const { updated, healed, left } = used;
+      await bestEffort('sheet after a feature', () =>
+        emitCharacterUpdated(campaignId, updated, { characterId, userId: updated.userId, tokensChanged: false })
+      );
+      const usesLeft = `${left} ${left === 1 ? 'use' : 'uses'} left`;
+      let summary: string;
+      if (healed) {
+        io.to(campaignId).emit('character.hp.updated', { characterId, hp: healed.hp });
+        summary = `${token.name} uses Second Wind: regains ${healed.rolled + healed.bonus} Hit Points (${usesLeft})`;
+        if (ownTurn) {
+          const now = getCombatState(campaignId);
+          if (someoneActing(now) && now.currentTokenId === tokenId && now.turn) {
+            now.turn = { ...now.turn, bonusAction: true };
+            setCombatState(campaignId, now);
+          }
+        }
+        const expression = `1d10+${healed.bonus}`;
+        await logRoll(
+          io,
+          socket,
+          campaignId,
+          {
+            expression,
+            total: healed.rolled + healed.bonus,
+            breakdown: {
+              expression,
+              rolls: [
+                { type: 'dice' as const, notation: '1d10', count: 1, sides: 10, results: [healed.rolled], kept: [healed.rolled], total: healed.rolled },
+                { type: 'modifier' as const, value: healed.bonus },
+              ],
+              total: healed.rolled + healed.bonus,
+              formula: `[${healed.rolled}] + ${healed.bonus} = ${healed.rolled + healed.bonus}`,
+            },
+          },
+          token.name,
+          summary,
+          hiddenFromPlayers(token)
+        );
+      } else {
+        // One more action: the one taken is given back, and the turn remembers the surge.
+        const now = getCombatState(campaignId);
+        if (someoneActing(now) && now.currentTokenId === tokenId && now.turn) {
+          now.turn = { ...now.turn, action: null, attacks: 0 };
+          setCombatState(campaignId, now);
+          actionSurges.set(campaignId, { tokenId, round: now.round });
+        }
+        summary = `${token.name} uses Action Surge: one more action this turn, not the Magic action (${usesLeft})`;
+      }
+      await resendInitiativeState(io, campaignId);
+
+      ack?.({ ok: true, summary, left });
+      logger.debug('combat.feature', { campaignId, tokenId, feature });
+    } catch (error) {
+      logger.error('combat.feature failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to use the feature');
     }
   });
 
