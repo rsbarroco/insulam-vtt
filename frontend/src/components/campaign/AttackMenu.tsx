@@ -129,7 +129,8 @@ function ActionRow({
     : what;
   // A spent "(Recharge 5–6)" waits for its d6 at the start of the creature's turn.
   const spent = action.recharge !== undefined && !action.recharge.ready;
-  const detail = spent ? `${caught} · not recharged` : caught;
+  const legendary = action.legendary ? ` · Legendary, ${action.legendary.max - action.legendary.used}/${action.legendary.max} left` : '';
+  const detail = `${spent ? `${caught} · not recharged` : caught}${legendary}`;
   const levelled = action.spell !== null && action.spell.level > 0;
   if (!levelled) {
     return (
@@ -210,6 +211,8 @@ export default function AttackMenu({
     setBusy(true);
     const lines: string[] = [];
     let landed = false;
+    // A Legendary Action's attacks spend one use, with the first of them.
+    let legendaryFor = multi.cost === 'legendary' ? multi.index : undefined;
     for (const [step, { count, choices }] of (multi.multiattack ?? []).entries()) {
       const index = picks[`${multi.index}:${step}`] ?? choices[0];
       for (let made = 0; made < count; made += 1) {
@@ -218,7 +221,9 @@ export default function AttackMenu({
           targetId: target.id,
           action: index,
           ...(mode !== 'normal' ? { mode } : {}),
+          ...(legendaryFor !== undefined ? { legendary: legendaryFor } : {}),
         });
+        legendaryFor = undefined;
         if (!answer.ok) {
           setBusy(false);
           onResolved(lines.length > 0 ? { ok: true, summary: [...lines, answer.error].join(' · '), landed } : answer);
@@ -321,7 +326,15 @@ export default function AttackMenu({
 
       {multiattacks.map((multi) => (
         <div key={`multi:${multi.index}`} className="px-2 py-1.5 space-y-1" aria-label={`${multi.name} against ${target.name}`}>
-          <span className="block text-sm font-medium text-ink">{multi.name}</span>
+          <span className="block text-sm font-medium text-ink">
+            {multi.name}
+            {multi.legendary && (
+              <span className="text-xs font-normal text-ink-muted">
+                {' '}
+                · Legendary, {multi.legendary.max - multi.legendary.used}/{multi.legendary.max} left
+              </span>
+            )}
+          </span>
           <span className="flex flex-wrap items-center gap-1 text-xs text-ink-muted">
             {(multi.multiattack ?? []).map(({ count, choices }, step) => (
               <span key={step} className="flex items-center gap-1">

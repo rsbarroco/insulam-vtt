@@ -78,6 +78,18 @@ export interface CombatAction {
   recharge?: number;
 }
 
+/**
+ * How many Legendary Actions a stat block takes a round: the "Legendary Action
+ * Uses: 3" its notes write, 3 when it lists Legendary Actions and says no
+ * number, 0 when it has none.
+ */
+export function legendaryUses(statBlock: { legendaryActions?: unknown; notes?: unknown } | null | undefined): number {
+  const listed = Array.isArray(statBlock?.legendaryActions) ? statBlock.legendaryActions.length : 0;
+  if (listed === 0) return 0;
+  const written = /legendary action uses:\s*(\d+)/i.exec(typeof statBlock?.notes === 'string' ? statBlock.notes : '');
+  return written ? Number(written[1]) : 3;
+}
+
 /** The lowest d6 roll a "(Recharge 5–6)" or "(Recharge 6)" in an action's name asks for; null for none. */
 export function rechargeOf(name: string): number | null {
   const found = /\(recharge\s+([1-6])(?:\s*[–-]\s*6)?\)/i.exec(name);

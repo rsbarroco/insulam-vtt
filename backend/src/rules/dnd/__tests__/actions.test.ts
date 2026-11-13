@@ -1,4 +1,5 @@
 import {
+  legendaryUses,
   rechargeOf,
   actionFromSheetAttack,
   actionFromStatBlockEntry,
@@ -287,5 +288,15 @@ describe('rechargeOf', () => {
     expect(rechargeOf('Web (Recharge 4-6)')).toBe(4);
     expect(rechargeOf('Teleport (Recharge after a Short or Long Rest)')).toBeNull();
     expect(rechargeOf('Bite')).toBeNull();
+  });
+});
+
+describe('legendaryUses', () => {
+  it('reads the uses a stat block writes, 3 when it says none, 0 without Legendary Actions', () => {
+    const actions = [{ name: 'Lash', description: '' }];
+    expect(legendaryUses({ legendaryActions: actions, notes: 'Legendary Action Uses: 4 (5 in Lair).' })).toBe(4);
+    expect(legendaryUses({ legendaryActions: actions })).toBe(3);
+    expect(legendaryUses({ notes: 'Legendary Action Uses: 3.' })).toBe(0);
+    expect(legendaryUses(null)).toBe(0);
   });
 });

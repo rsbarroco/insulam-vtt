@@ -26,6 +26,8 @@ export const CombatAttackSchema = z
     extra: z.enum(['cleave', 'light']).optional(),
     /** The attack the attacker readied against this target, made now with its reaction: `action` is then the readied one. */
     readied: z.literal(true).optional(),
+    /** The stat block Legendary Action (by index) this attack is made for: it spends one use. */
+    legendary: z.number().int().min(0).max(199).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
