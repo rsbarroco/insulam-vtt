@@ -422,6 +422,14 @@ describe('distance, sight and cover on the board', () => {
   });
 });
 
+describe('the weapons of the reference document', () => {
+  // The sheet editor fills an attack from a weapon and the server reads the
+  // weapon's properties when it resolves one; the two must name the same.
+  it('are the same file in the browser and on the server', () => {
+    expect(read('frontend/src/utils/srdWeapons.ts')).toBe(read('backend/src/utils/srdWeapons.ts'));
+  });
+});
+
 describe('the token centre', () => {
   it('is the same file in the browser and on the server', () => {
     expect(read('frontend/src/utils/tokenCentre.ts')).toBe(read('backend/src/utils/tokenCentre.ts'));

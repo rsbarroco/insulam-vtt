@@ -71,6 +71,24 @@ describe('defencesFromStatBlock', () => {
 });
 
 describe('actionFromSheetAttack', () => {
+  it('gives an SRD weapon named with no properties its own', () => {
+    expect(actionFromSheetAttack({ name: 'Glaive', attackBonus: 5, damageRoll: '1d10+3', damageType: 'slashing' }).attack).toMatchObject({
+      kind: 'melee',
+      reachFeet: 10,
+      heavy: true,
+    });
+    expect(actionFromSheetAttack({ name: 'Longbow', attackBonus: 5, damageRoll: '1d8+3', damageType: 'piercing' }).attack).toMatchObject({
+      kind: 'ranged',
+      rangeFeet: { normal: 150, long: 600 },
+    });
+  });
+
+  it('keeps the properties a sheet wrote, even for an SRD weapon', () => {
+    expect(
+      actionFromSheetAttack({ name: 'Longbow', attackBonus: 5, damageRoll: '1d8', range: 30, properties: ['Thrown'] }).attack?.kind
+    ).toBe('melee');
+  });
+
   it('reads a melee weapon', () => {
     const action = actionFromSheetAttack({ name: 'Longsword', attackBonus: 5, damageRoll: '1d8+3', damageType: 'Slashing', range: 5 });
     expect(action).toEqual({

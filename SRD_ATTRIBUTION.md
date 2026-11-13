@@ -74,6 +74,8 @@ of the document's "Monsters A–Z" and "Animals" sections, built by
 creature's Initiative, its gear and the number of its legendary actions have
 no field there and are kept in its notes.
 
+`backend/src/utils/srdWeapons.ts` (kept identical in `frontend/src/utils/`) holds the document's Weapons table, written by `scripts/srd-weapons.py`, with the definitions of the mastery properties in the document's words.
+
 `backend/src/rules/dnd/data/srd-5.2.1-rules.json` is the text of the
 document's "Playing the Game" chapter and of its "Rules Glossary", built by
 `scripts/srd-rules.py`: every heading with its paragraphs, tables and

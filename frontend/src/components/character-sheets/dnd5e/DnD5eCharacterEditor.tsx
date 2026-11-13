@@ -59,6 +59,7 @@ import {
   dnd5eBackfilledInitiativeBonus,
 } from '@/utils/rules/initiative';
 import { readProficiencyGroups, flattenProficiencyGroups } from '@/utils/proficiencies';
+import { findSrdWeapon, proficientWith, SRD_WEAPONS, weaponAttack } from '@/utils/srdWeapons';
 import {
   DND5E_WEAPON_PROPERTIES,
   MAX_WEAPON_PROPERTY_LENGTH,
@@ -2231,6 +2232,39 @@ export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
             + Add Attack
           </Button>
         </div>
+        {/* A weapon of the reference document, filled in from this sheet's
+            Strength, Dexterity, Proficiency Bonus and weapon proficiencies. */}
+        <label className="flex items-center gap-2 mb-3 text-sm text-ink-secondary">
+          Add a weapon
+          <select
+            aria-label="Add a weapon from the SRD"
+            className="px-2 py-1 border border-ink/20 rounded-sm text-sm bg-paper"
+            value=""
+            disabled={listIsFull(formData.attacks)}
+            onChange={(e) => {
+              const weapon = findSrdWeapon(e.target.value);
+              if (!weapon) return;
+              const attack = weaponAttack(weapon, {
+                str: formData.stats?.strength?.modifier ?? 0,
+                dex: formData.stats?.dexterity?.modifier ?? 0,
+                proficiencyBonus: formData.proficiencyBonus ?? 2,
+                proficient: proficientWith(weapon, getProficienciesByCategory().weapons),
+              });
+              updateField('attacks', [...(formData.attacks || []), newRow(attack)]);
+            }}
+          >
+            <option value="">Choose…</option>
+            {(['simple', 'martial'] as const).map((category) => (
+              <optgroup key={category} label={category === 'simple' ? 'Simple weapons' : 'Martial weapons'}>
+                {SRD_WEAPONS.filter((weapon) => weapon.category === category).map((weapon) => (
+                  <option key={weapon.name} value={weapon.name}>
+                    {weapon.name} ({weapon.damage} {weapon.damageType})
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
         <ListLimitNote full={listIsFull(formData.attacks)} />
         <div className="space-y-4">
           {(formData.attacks || []).map((attack, index) => (
