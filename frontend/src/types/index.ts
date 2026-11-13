@@ -1726,6 +1726,9 @@ export type CombatCheckAck =
   | { ok: true; summary: string; total: number; success: boolean | null; reasons: string[]; hidden: boolean }
   | { ok: false; error: string };
 
+/** `combat.rest`: what a rest gave the character back. */
+export type CombatRestAck = { ok: true; summary: string } | { ok: false; error: string };
+
 /** `combat.stand`: a Prone token got up. */
 export type CombatStandAck = { ok: true } | { ok: false; error: string };
 

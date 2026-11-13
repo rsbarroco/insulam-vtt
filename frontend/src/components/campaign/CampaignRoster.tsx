@@ -15,7 +15,7 @@ import { useTableRoll } from '@/hooks/useTableRoll';
 import { api } from '@/services/api';
 import { apiErrorMessage, errorSummary } from '@/utils/errors';
 import { canRollAsCharacter, canEditCharacter, canRemoveCharacterFromCampaign } from '@/services/permissions';
-import { Users, Crown, Gamepad2, Eye, Edit, X, Minus, Plus, Dices, MapPin } from 'lucide-react';
+import { Users, Crown, Gamepad2, Eye, Edit, X, Minus, Plus, Dices, MapPin, Coffee, BedDouble } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { CharacterHpInfo } from '@/utils/characterHp';
 import CharacterSheetViewerModal from '../character/CharacterSheetViewerModal';
@@ -206,6 +206,19 @@ export default function CampaignRoster() {
    * the map had no way to place anyone. Placed at the centre of the map, the
    * same as the creature library, because a menu click has no cursor position.
    */
+  /** A rest for the character the menu is open on: the server rolls and restores, and says what came back. */
+  const handleRest = async (kind: 'short' | 'long') => {
+    if (!contextMenu || !socket) return;
+    const { characterId } = contextMenu;
+    handleCloseContextMenu();
+    const answer = await socket.rest(characterId, kind);
+    showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
+  };
+  // Rests are resolved by the D&D rules, for D&D 5e characters.
+  const menuCharacterIsDnd =
+    contextMenu !== null &&
+    roster.flatMap((member) => member.characters).find((c) => c.id === contextMenu.characterId)?.gameSystem === 'DND_5E';
+
   const handleAddTokenToMap = async () => {
     if (!contextMenu || !campaign || !currentMap) return;
     const character = roster
@@ -420,6 +433,19 @@ export default function CampaignRoster() {
               // ownership, like Edit and Remove below — not `true`, which let
               // any member roll anyone's character.
               visible: canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
+            },
+            {
+              icon: Coffee,
+              label: 'Short rest: spend a Hit Die',
+              onClick: () => void handleRest('short'),
+              visible:
+                menuCharacterIsDnd && canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
+            },
+            {
+              icon: BedDouble,
+              label: 'Long rest',
+              onClick: () => void handleRest('long'),
+              visible: menuCharacterIsDnd && userMembership.role === 'DM',
             },
             {
               icon: Edit,

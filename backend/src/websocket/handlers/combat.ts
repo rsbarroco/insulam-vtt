@@ -23,13 +23,14 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import { canAct, DODGING, effectiveSpeed, readConditions, type Ability } from '../../rules/dnd/conditions';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import { resolveFall } from '../../rules/dnd/falling';
+import { longRest, spendHitDie } from '../../rules/dnd/rests';
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
@@ -812,6 +813,88 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.check failed', { err: error });
       refuseRequest(socket, ack, 'Failed to resolve the check');
+    }
+  });
+
+  /**
+   * COMBAT.REST — A D&D 5e character of the campaign rests. `short` spends one Hit Point Die: the server rolls it, adds the Constitution modifier, restores that many Hit Points (at least 1) and records the roll in the dice log; the character's player or the DM. `long` gives back all Hit Points, Hit Point Dice and spell slots, ends Temporary Hit Points, takes off one level of Exhaustion and clears death saves; the DM only.
+   */
+  socket.on('combat.rest', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.rest', ack)) return;
+      const parsed = CombatRestSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const { characterId, kind } = parsed.data;
+      const isDM = socket.role === 'DM';
+      if (kind === 'long' && !isDM) return refuseRequest(socket, ack, 'A Long Rest is the DM’s to give');
+
+      // Rolled and written under the row lock, so two dice spent at once are two dice.
+      const rested = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+        const fresh = await tx.character.findFirst({ where: { id: characterId, campaignId } });
+        if (!fresh || fresh.gameSystem !== DND || (!isDM && fresh.userId !== socket.userId)) {
+          return { refusal: 'That is not a D&D 5e character you can rest' };
+        }
+        const sheet = (fresh.data ?? {}) as Record<string, unknown>;
+        if (kind === 'long') {
+          const long = longRest(sheet);
+          const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(long.sheet) } });
+          const gains = long.regained.length > 0 ? long.regained.join(', ') : 'nothing to regain';
+          return { updated, hp: long.hp, die: null, summary: `${fresh.name} finishes a Long Rest: ${gains}` };
+        }
+        const spent = spendHitDie(sheet);
+        if (!spent.ok) return { refusal: `${fresh.name}: ${spent.reason}` };
+        const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(spent.sheet) } });
+        const sign = spent.modifier < 0 ? '-' : '+';
+        return {
+          updated,
+          hp: spent.hp,
+          die: spent,
+          summary: `${fresh.name} spends a Hit Point Die (d${spent.sides}${sign}${Math.abs(spent.modifier)}): regains ${spent.regained} Hit Points, ${spent.left} ${spent.left === 1 ? 'die' : 'dice'} left`,
+        };
+      });
+      if ('refusal' in rested) return refuseRequest(socket, ack, rested.refusal!);
+
+      const { updated, hp, die, summary } = rested;
+      await bestEffort('sheet after a rest', () =>
+        emitCharacterUpdated(campaignId, updated, { characterId, userId: updated.userId, tokensChanged: false })
+      );
+      if (hp) io.to(campaignId).emit('character.hp.updated', { characterId, hp: { current: hp.current, max: hp.maximum, temp: hp.temporary } });
+      if (die) {
+        const sign = die.modifier < 0 ? '-' : '+';
+        const expression = `1d${die.sides}${sign}${Math.abs(die.modifier)}`;
+        const total = die.rolled + die.modifier;
+        await logRoll(
+          io,
+          socket,
+          campaignId,
+          {
+            expression,
+            total,
+            breakdown: {
+              expression,
+              rolls: [
+                { type: 'dice' as const, notation: `1d${die.sides}`, count: 1, sides: die.sides, results: [die.rolled], kept: [die.rolled], total: die.rolled },
+                { type: 'modifier' as const, value: die.modifier },
+              ],
+              total,
+              formula: `[${die.rolled}] ${sign} ${Math.abs(die.modifier)} = ${total}`,
+            },
+          },
+          updated.name,
+          summary,
+          false
+        );
+      }
+
+      ack?.({ ok: true, summary });
+      logger.debug('combat.rest', { campaignId, characterId, kind });
+    } catch (error) {
+      logger.error('combat.rest failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to resolve the rest');
     }
   });
 

@@ -412,7 +412,9 @@ setTimeout(() => {
         proc.kill('SIGKILL');
         reject(new Error(`the process did not stop:\n${stderr}`));
       }, 20000);
-      proc.on('exit', (code) => {
+      // 'close', not 'exit': the process can have exited with what it last wrote
+      // to its pipes still unread, and the test reads those pipes.
+      proc.on('close', (code) => {
         clearTimeout(giveUp);
         const logFile = path.join(dir, 'logs', 'error.log');
         const errorLog = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '';
