@@ -1644,7 +1644,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1806,7 +1806,8 @@ export type CombatFeatureName =
   | 'Cunning Action'
   | 'Flurry of Blows'
   | 'Patient Defense'
-  | 'Step of the Wind';
+  | 'Step of the Wind'
+  | 'Uncanny Dodge';
 export type CombatFeatureAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
 
 /** `combat.stand`: a Prone token got up. */

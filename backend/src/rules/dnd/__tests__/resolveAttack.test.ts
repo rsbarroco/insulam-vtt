@@ -237,3 +237,18 @@ describe('the feats that change the damage', () => {
   });
 });
 
+
+describe('a reaction that halves the damage', () => {
+  it('halves a hit, rounding down, and says so', () => {
+    const result = ok(resolveAttack(request({ halveDamage: 'Uncanny Dodge' }), dice(12, 6)));
+    expect(result.dealt).toBe(4);
+    expect(result.hp?.current).toBe(16);
+    expect(result.halvedBy).toBe('Uncanny Dodge');
+    expect(result.summary).toBe('Longsword vs Ogre (AC 14): hit, 4 slashing damage (halved by Uncanny Dodge)');
+  });
+
+  it('is not used by a miss', () => {
+    const result = ok(resolveAttack(request({ halveDamage: 'Uncanny Dodge' }), dice(2)));
+    expect(result.halvedBy).toBeUndefined();
+  });
+});

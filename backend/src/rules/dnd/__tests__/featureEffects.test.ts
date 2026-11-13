@@ -79,3 +79,12 @@ describe('features used with a Bonus Action or a Reaction', () => {
     expect(names).not.toContain('Weapon Mastery');
   });
 });
+
+describe('a reaction the server resolves', () => {
+  it('is listed by its name when the sheet gives no text for it', () => {
+    expect(featureOptions([{ name: 'Uncanny Dodge (Rogue 5)', description: '' }])).toEqual([
+      { name: 'Uncanny Dodge', cost: 'reaction', text: '' },
+    ]);
+    expect(featureOptions([{ name: 'Fast Hands', description: '' }])).toEqual([]);
+  });
+});

@@ -184,6 +184,9 @@ export default function TurnBar() {
       }),
   ];
   const raging = combat.marks.some((mark) => mark.kind === 'rage' && mark.attackerId === actingId);
+  const holdingDodge = combat.marks.some(
+    (mark) => mark.kind === 'uncanny' && mark.attackerId === actingId
+  );
 
   // The Opportunity Attacks this viewer may take: the attacker is theirs.
   const offers = combat.opportunities.flatMap((offer) => {
@@ -393,6 +396,23 @@ export default function TurnBar() {
           hide={() => socket.resolveCheck({ tokenId: actingId, hide: true, bonusAction: true })}
           onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
         />
+      )}
+
+      {canAct && features.some((feature) => feature.name === 'Uncanny Dodge') && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          aria-pressed={holdingDodge}
+          title="Uncanny Dodge: hold your reaction to halve the damage of the next hit from an attacker you can see"
+          onClick={() =>
+            void socket.useFeature(actingId, 'Uncanny Dodge').then((answer) => {
+              showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
+            })
+          }
+        >
+          {holdingDodge ? 'Let Uncanny Dodge go' : 'Hold Uncanny Dodge'}
+        </Button>
       )}
 
       {canAct && (
