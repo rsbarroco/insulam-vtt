@@ -33,6 +33,7 @@ import Button from '@/components/ui/Button';
 import CheckRoller from './CheckRoller';
 import LayOnHands from './LayOnHands';
 import ConcentrationControl from './ConcentrationControl';
+import TurnFeatures from './TurnFeatures';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
 /** The class features the server counts and the table applies: a button each, while uses are left. */
@@ -379,6 +380,20 @@ export default function TurnBar() {
           </span>
         );
       })}
+
+      {canAct && (
+        <TurnFeatures
+          features={features.filter((feature) => feature.cost === 'bonusAction').map((feature) => feature.name)}
+          bonusActionSpent={turn.bonusAction}
+          use={async (feature, options) => {
+            const answer = await socket.useFeature(actingId, feature, undefined, undefined, options);
+            if (answer.ok) setListed((count) => count + 1);
+            return answer;
+          }}
+          hide={() => socket.resolveCheck({ tokenId: actingId, hide: true, bonusAction: true })}
+          onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
+        />
+      )}
 
       {canAct && (
         <ConcentrationControl

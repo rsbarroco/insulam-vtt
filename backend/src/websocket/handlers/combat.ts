@@ -49,6 +49,7 @@ import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../
 import { onTurnEnd, onTurnStart } from '../turnHooks';
 import { commitUndo, prepareUndo, restoreSnapshot, takeLastUndo, undoCount } from '../combatUndo';
 import { multiattackSteps, type MultiattackStep } from '../../rules/dnd/multiattack';
+import { hasTurnFeature, turnFeatureEffect, type TurnFeature } from '../../rules/dnd/bonusActions';
 import { conditionsOnFailure, conditionsOnHit, fits, sizeOfSquares, turnLimit, type ConditionRider } from '../../rules/dnd/actionConditions';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
@@ -526,6 +527,66 @@ function spendBonusAction(campaignId: string, tokenId: string): void {
 }
 
 /**
+ * A class feature taken as a Bonus Action that changes the turn: Cunning
+ * Action's Dash or Disengage, a Monk's Flurry of Blows, Patient Defense or
+ * Step of the Wind, with the Focus Point it costs. On the creature's own turn,
+ * with its Bonus Action left.
+ */
+async function takeTurnFeature(
+  io: Server,
+  campaignId: string,
+  token: Token,
+  characterId: string,
+  feature: TurnFeature,
+  options: { as?: 'Dash' | 'Disengage'; focus?: true },
+  ownTurn: boolean
+): Promise<{ summary: string; left: number } | { refusal: string }> {
+  if (!ownTurn) return { refusal: `${feature} is a Bonus Action on the creature’s own turn` };
+  const effect = turnFeatureEffect(feature, options);
+  if ('refusal' in effect) return effect;
+  let left = 0;
+  const spent = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+    const fresh = await tx.character.findUnique({ where: { id: characterId } });
+    const sheet = (fresh?.data ?? {}) as Record<string, unknown>;
+    if (!fresh || !hasTurnFeature(sheet, feature)) return { refusal: `${token.name} has no ${feature}` };
+    if (effect.focus === 0) return { updated: null };
+    const result = spendResource(sheet, 'Focus Points', effect.focus);
+    if (!result.ok) return { refusal: `${token.name}: ${result.reason}` };
+    left = result.left;
+    return { updated: await tx.character.update({ where: { id: characterId }, data: { data: toJson(result.sheet) } }) };
+  });
+  if ('refusal' in spent) return { refusal: spent.refusal! };
+  if (spent.updated) {
+    const updated = spent.updated;
+    await bestEffort('sheet after a Focus Point', () =>
+      emitCharacterUpdated(campaignId, updated, { characterId, userId: updated.userId, tokensChanged: false })
+    );
+  }
+  const combat = getCombatState(campaignId);
+  if (combat.turn) {
+    combat.turn = {
+      ...combat.turn,
+      bonusAction: true,
+      dashes: combat.turn.dashes + (effect.dash ? 1 : 0),
+      ...(effect.disengage ? { disengaged: true } : {}),
+    };
+  }
+  if (effect.dodge) combat.dodging = [...combat.dodging.filter((id) => id !== token.id), token.id];
+  setCombatState(campaignId, combat);
+  if (effect.strikes > 0) turnAttacksOf(campaignId)?.flurry.set(token.id, effect.strikes);
+  await resendInitiativeState(io, campaignId);
+  const did = [
+    ...(effect.dash ? ['Dash'] : []),
+    ...(effect.disengage ? ['Disengage'] : []),
+    ...(effect.dodge ? ['Dodge'] : []),
+    ...(effect.strikes > 0 ? [`${effect.strikes} Unarmed Strikes`] : []),
+  ].join(' and ');
+  const cost = effect.focus > 0 ? ` (1 Focus Point, ${left} left)` : '';
+  return { summary: `${token.name} uses ${feature}: ${did}${cost}`, left };
+}
+
+/**
  * Lay on Hands: the paladin touches a creature within 5 feet (or itself) and
  * restores Hit Points from its pool, as many as `amount` but no more than the
  * creature is missing, or spends 5 points to end its Poisoned condition.
@@ -715,6 +776,8 @@ interface TurnAttacks {
   lightWeapons: Map<string, Array<{ name: string; nick: boolean }>>;
   cleaved: Set<string>;
   lightExtra: Set<string>;
+  /** The Unarmed Strikes each Monk has left from Flurry of Blows this turn. */
+  flurry: Map<string, number>;
 }
 const turnAttacks = new Map<string, TurnAttacks>();
 
@@ -724,7 +787,7 @@ function turnAttacksOf(campaignId: string): TurnAttacks | null {
   if (turn === null) return null;
   const kept = turnAttacks.get(campaignId);
   if (kept?.turn === turn) return kept;
-  const fresh: TurnAttacks = { turn, cleaveHits: [], lightWeapons: new Map(), cleaved: new Set(), lightExtra: new Set() };
+  const fresh: TurnAttacks = { turn, cleaveHits: [], lightWeapons: new Map(), cleaved: new Set(), lightExtra: new Set(), flurry: new Map() };
   turnAttacks.set(campaignId, fresh);
   return fresh;
 }
@@ -801,7 +864,7 @@ export async function offerOpportunityAttacks(
   from: { x: number; y: number }
 ): Promise<void> {
   const before = getCombatState(campaignId);
-  if (!someoneActing(before) || before.currentTokenId !== moverId || before.turn?.action === 'Disengage') return;
+  if (!someoneActing(before) || before.currentTokenId !== moverId || before.turn?.action === 'Disengage' || before.turn?.disengaged) return;
   const mover = tokens.find((t) => t.id === moverId);
   const moverSide = mover ? sideOf({ type: mover.type ?? 'npc', disposition: mover.disposition ?? null }) : null;
   if (!mover || !moverSide || readConditions(mover.conditions ?? []).has.has('invisible')) return;
@@ -852,7 +915,7 @@ export async function offerOpportunityAttacks(
 
   // Read again after the awaits: the turn may have passed on, or a reaction been spent.
   const combat = getCombatState(campaignId);
-  if (!someoneActing(combat) || combat.currentTokenId !== moverId || combat.turn?.action === 'Disengage') return;
+  if (!someoneActing(combat) || combat.currentTokenId !== moverId || combat.turn?.action === 'Disengage' || combat.turn?.disengaged) return;
   const fresh = provoked.filter(
     (attackerId) => !combat.reactionsSpent.includes(attackerId) && !combat.opportunities.some((o) => o.attackerId === attackerId)
   );
@@ -1361,7 +1424,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       // the Two-Weapon Fighting style; neither counts against the Attack action.
       const record = turnAttacksOf(campaignId);
       let nicked = false;
-      if (extra) {
+      // An Unarmed Strike of Flurry of Blows: one of the two the Bonus Action gave.
+      if (extra === 'flurry') {
+        if (action.unarmed !== 'damage') return refuseRequest(socket, ack, 'Flurry of Blows makes Unarmed Strikes');
+        if (!acting || !record || (record.flurry.get(attackerId) ?? 0) <= 0) {
+          return refuseRequest(socket, ack, `${attackerToken.name} has no Flurry of Blows strike left this turn`);
+        }
+      }
+      if (extra && extra !== 'flurry') {
         if (!extrasOf(action).includes(extra)) {
           return refuseRequest(socket, ack, extra === 'cleave' ? `${action.name} has no Cleave` : `${action.name} is not a Light weapon`);
         }
@@ -1516,7 +1586,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           : [];
       // What the turn remembers for the extra attacks that follow.
       if (record && !offer && turnNow.currentTokenId === attackerId) {
-        if (extra === 'cleave') record.cleaved.add(attackerId);
+        if (extra === 'flurry') record.flurry.set(attackerId, (record.flurry.get(attackerId) ?? 1) - 1);
+        else if (extra === 'cleave') record.cleaved.add(attackerId);
         else if (extra === 'light') record.lightExtra.add(attackerId);
         else if (weapon) {
           if (result.outcome.hit && extrasOf(action).includes('cleave')) record.cleaveHits.push({ attackerId, targetId });
@@ -1537,6 +1608,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
       const extraLabel = legendaryTaken
         ? `Legendary Action: ${legendaryTaken.name}`
+        : extra === 'flurry'
+        ? 'Flurry of Blows'
         : ready
         ? `readied: ${ready.trigger}`
         : extra === 'cleave'
@@ -1626,7 +1699,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.check', ack)) return;
       const parsed = CombatCheckSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { tokenId, ability, hide, mode } = parsed.data;
+      const { tokenId, ability, hide, mode, bonusAction } = parsed.data;
       const skill = hide ? 'stealth' : parsed.data.skill;
       const dc = hide ? HIDE_DC : parsed.data.dc;
 
@@ -1640,6 +1713,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const creature = combatant(token, sheet, [], isRaging(campaignId, tokenId));
       const state = readConditions(creature.conditions, creature.exhaustion);
       if (hide && !canAct(state)) return refuseRequest(socket, ack, `${token.name} is Incapacitated and cannot take the Hide action`);
+      // Hide as a Bonus Action is a Rogue's Cunning Action, on its own turn with the Bonus Action left.
+      if (bonusAction) {
+        const turnNow = getCombatState(campaignId);
+        if (!hide) return refuseRequest(socket, ack, 'Only the Hide action is taken as a Bonus Action');
+        if (!sheet || !hasTurnFeature(sheet, 'Cunning Action')) return refuseRequest(socket, ack, `${token.name} has no Cunning Action`);
+        if (!(someoneActing(turnNow) && turnNow.currentTokenId === tokenId && turnNow.turn)) return refuseRequest(socket, ack, 'Cunning Action is a Bonus Action on the creature’s own turn');
+        if (turnNow.turn.bonusAction) return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
+      }
 
       const bonus = skill ? skillBonusOf(token, sheet, skill) : abilityModifierOf(token, sheet, ability!);
       if (bonus === null) return refuseRequest(socket, ack, `${token.name} has no sheet or stat block to make the check with`);
@@ -1651,7 +1732,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const hidden = hide === true && result.success === true;
       if (hidden) await giveCondition(io, campaignId, map.id, tokenId, 'Invisible');
-      if (hide) await spendAction(io, campaignId, tokenId, 'Hide');
+      if (hide && bonusAction) {
+        spendBonusAction(campaignId, tokenId);
+        await resendInitiativeState(io, campaignId);
+      } else if (hide) await spendAction(io, campaignId, tokenId, 'Hide');
       // Hiding well enough to be Invisible sets what a search for the creature must beat.
       const summary = hidden ? `${result.summary}; hidden (Invisible) until found with a Wisdom (Perception) check of DC ${result.total}` : result.summary;
 
@@ -1790,7 +1874,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.feature', ack)) return;
       const parsed = CombatFeatureSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { tokenId, feature, amount, targetId, cure } = parsed.data;
+      const { tokenId, feature, amount, targetId, cure, as, focus } = parsed.data;
       if ((targetId !== undefined || cure !== undefined) && feature !== 'Lay on Hands') {
         return refuseRequest(socket, ack, 'Only Lay on Hands takes a target');
       }
@@ -1824,9 +1908,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is already raging`);
       }
       const bonusAction =
-        feature === 'Second Wind' || feature === 'Rage' || feature === 'Bardic Inspiration' || feature === 'Wild Shape' || feature === 'Lay on Hands';
+        feature === 'Second Wind' || feature === 'Rage' || feature === 'Bardic Inspiration' || feature === 'Wild Shape' || feature === 'Lay on Hands' ||
+        feature === 'Cunning Action' || feature === 'Flurry of Blows' || feature === 'Patient Defense' || feature === 'Step of the Wind';
       if (bonusAction && ownTurn && combat.turn!.bonusAction) {
         return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
+      }
+      if (feature === 'Cunning Action' || feature === 'Flurry of Blows' || feature === 'Patient Defense' || feature === 'Step of the Wind') {
+        const taken = await takeTurnFeature(io, campaignId, token, characterId, feature, { as, focus }, ownTurn);
+        if ('refusal' in taken) return refuseRequest(socket, ack, taken.refusal);
+        ack?.({ ok: true, summary: taken.summary, left: taken.left });
+        return;
       }
       if (feature === 'Lay on Hands') {
         const touched = await layOnHands(io, socket, campaignId, map, token, targetId ?? tokenId, amount, cure === 'Poisoned');

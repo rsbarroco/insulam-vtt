@@ -27,6 +27,7 @@ describe('extrasOf', () => {
   it('gives nothing to a spell or an Unarmed Strike', () => {
     expect(extrasOf(weapon({ source: 'spell', mastery: 'Cleave' }))).toEqual([]);
     expect(extrasOf(weapon({ source: 'unarmed' }, true))).toEqual([]);
+    expect(extrasOf(weapon({ source: 'unarmed', unarmed: 'damage' }))).toEqual(['flurry']);
   });
 });
 
