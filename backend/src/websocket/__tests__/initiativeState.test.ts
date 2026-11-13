@@ -7,7 +7,7 @@
  * as it is now. No database: the recipient's token list is an input.
  */
 
-import { projectCombatState, sortCombatants, removeCombatants, getState, setState, type CombatState, type CombatantEntry } from '../initiativeState';
+import { projectCombatState, sortCombatants, removeCombatants, getState, setState, clearState, turnSerial, type CombatState, type CombatantEntry } from '../initiativeState';
 
 const hp = (current: number) => ({ current, max: 10, temp: 0 });
 const entry = (tokenId: string, extra: Partial<CombatantEntry> = {}): CombatantEntry => ({
@@ -131,5 +131,25 @@ describe('removeCombatants', () => {
     setState('c-remove-5', { active: true, round: 1, currentTokenId: 'b', combatants: [combatant('a'), combatant('b'), combatant('c'), combatant('d')] });
     removeCombatants('c-remove-5', (e) => e.tokenId === 'b' || e.tokenId === 'c');
     expect(getState('c-remove-5')).toMatchObject({ round: 1, currentTokenId: 'd' });
+  });
+});
+
+describe('turnSerial', () => {
+  const id = 'turn-serial-campaign';
+  const entry = (tokenId: string) => ({ tokenId, mapId: 'm', name: tokenId, imageUrl: '', initiative: 10, hp: null, type: 'npc' as const, disposition: null });
+  const state = (currentTokenId: string, round = 1) => ({ active: true, round, currentTokenId, combatants: [entry('a'), entry('b')] });
+
+  it('stays on one turn and moves on with the turn, the round, or a forgotten fight', () => {
+    setState(id, state('a'));
+    const first = turnSerial(id);
+    setState(id, { ...state('a'), turn: { movementSpent: 10, dashes: 0, action: 'Attack', bonusAction: false, attacks: 1 } });
+    expect(turnSerial(id)).toBe(first);
+    setState(id, state('b'));
+    expect(turnSerial(id)).toBe(first + 1);
+    setState(id, state('b', 2));
+    expect(turnSerial(id)).toBe(first + 2);
+    clearState(id);
+    setState(id, state('b', 2));
+    expect(turnSerial(id)).toBe(first + 4);
   });
 });

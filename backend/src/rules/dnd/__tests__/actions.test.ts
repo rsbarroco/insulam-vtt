@@ -270,3 +270,11 @@ describe('gathering actions', () => {
     expect(actionsFromSheet(null)).toEqual([]);
   });
 });
+
+describe('a Light weapon', () => {
+  it('is marked, from the SRD or as the sheet writes it', () => {
+    expect(actionFromSheetAttack({ name: 'Scimitar', attackBonus: 5, damageRoll: '1d6+3' }).attack?.light).toBe(true);
+    expect(actionFromSheetAttack({ name: 'Knife', attackBonus: 5, damageRoll: '1d4', properties: ['Light'] }).attack?.light).toBe(true);
+    expect(actionFromSheetAttack({ name: 'Greataxe', attackBonus: 5, damageRoll: '1d12' }).attack?.light).toBeUndefined();
+  });
+});
