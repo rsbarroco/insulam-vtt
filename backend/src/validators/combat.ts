@@ -89,9 +89,14 @@ export const CombatFeatureSchema = z
       'Focus Points',
       'Sorcery Points',
       'Favored Enemy',
+      'Lay on Hands',
     ]),
-    /** How many points of Focus Points or Sorcery Points; other features spend one use. */
-    amount: z.number().int().min(1).max(20).optional(),
+    /** How many points of Focus Points, Sorcery Points or Lay on Hands; other features spend one use. */
+    amount: z.number().int().min(1).max(100).optional(),
+    /** Lay on Hands: the creature touched, the user itself when left out. */
+    targetId: tokenId.optional(),
+    /** Lay on Hands: spend 5 points to end the Poisoned condition instead of healing. */
+    cure: z.literal('Poisoned').optional(),
   })
   .strict();
 

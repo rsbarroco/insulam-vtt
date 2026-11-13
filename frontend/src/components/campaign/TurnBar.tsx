@@ -31,6 +31,7 @@ import {
 } from '@/utils/turn';
 import Button from '@/components/ui/Button';
 import CheckRoller from './CheckRoller';
+import LayOnHands from './LayOnHands';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
 /** The class features the server counts and the table applies: a button each, while uses are left. */
@@ -148,6 +149,9 @@ export default function TurnBar() {
     if (answer.ok) setListed((count) => count + 1);
   };
   const spendFeature = (feature: CombatFeatureOption) => {
+    if (feature.name === 'Lay on Hands' && resource('Lay on Hands')) {
+      return showToast('Choose the creature and the Hit Points with the Lay on Hands button', 'info');
+    }
     const counted = COUNTED_FEATURES.find((name) => name === feature.name);
     if ((feature.name === 'Second Wind' || counted) && resource(feature.name)) return void applyOnServer(feature.name as CombatFeatureName);
     if (feature.cost === 'bonusAction') socket.emitTurnUpdate({ bonusAction: true });
@@ -165,6 +169,16 @@ export default function TurnBar() {
     return found ? [{ ...found, name }] : [];
   });
   const rage = resource('Rage');
+  const layOnHands = resource('Lay on Hands');
+  const touchTargets = [
+    ...(acting ? [{ id: acting.id, name: actingName }] : []),
+    ...combat.combatants
+      .filter((combatant) => combatant.tokenId !== actingId)
+      .flatMap((combatant) => {
+        const token = tokens.find((entry) => entry.id === combatant.tokenId);
+        return token && (isDM || token.visible !== false) ? [{ id: token.id, name: tokenDisplayName(token) }] : [];
+      }),
+  ];
   const raging = combat.marks.some((mark) => mark.kind === 'rage' && mark.attackerId === actingId);
 
   // The Opportunity Attacks this viewer may take: the attacker is theirs.
@@ -364,6 +378,20 @@ export default function TurnBar() {
             Rage ({rage.max - rage.used}/{rage.max})
           </Button>
         ))}
+
+      {layOnHands && (
+        <LayOnHands
+          pool={layOnHands}
+          targets={touchTargets}
+          bonusActionSpent={turn.bonusAction}
+          touch={async (targetId, amount, cure) => {
+            const answer = await socket.useFeature(actingId, 'Lay on Hands', amount, { targetId, ...(cure ? { cure: 'Poisoned' as const } : {}) });
+            if (answer.ok) setListed((count) => count + 1);
+            return answer;
+          }}
+          onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
+        />
+      )}
 
       {counted.map((entry) => (
         <Button

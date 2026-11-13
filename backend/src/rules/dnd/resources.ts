@@ -23,6 +23,8 @@
 //     Long Rest.
 //   • Sorcery Points (Sorcerer 2): the Sorcery Points column; all back on a
 //     Long Rest.
+//   • Lay on Hands (Paladin 1): a pool of five times the Paladin level in
+//     Hit Points, spent a point at a time; all back on a Long Rest.
 //   • Favored Enemy (Ranger 1): Hunter's Mark cast without a spell slot, as
 //     many times as the column says; all back on a Long Rest.
 //
@@ -43,10 +45,11 @@ export type ResourceName =
   | 'Wild Shape'
   | 'Focus Points'
   | 'Sorcery Points'
-  | 'Favored Enemy';
+  | 'Favored Enemy'
+  | 'Lay on Hands';
 
 /** The features spent a point at a time, several at once: the rest are spent one use at a time. */
-export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points'];
+export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points', 'Lay on Hands'];
 
 export interface Resource {
   name: ResourceName;
@@ -115,6 +118,7 @@ export function resourcesOf(sheet: Sheet): Resource[] {
     has(classes, 'Paladin') ? count('Paladin', 'Channel Divinity', level) : 0
   );
   add('Channel Divinity', divinity, 'one');
+  if (has(classes, 'Paladin')) add('Lay on Hands', 5 * level, 'none');
   if (has(classes, 'Druid')) add('Wild Shape', count('Druid', 'Wild Shape', level), 'one');
   if (has(classes, 'Monk')) add('Focus Points', count('Monk', 'Focus Points', level), 'all');
   if (has(classes, 'Sorcerer')) add('Sorcery Points', count('Sorcerer', 'Sorcery Points', level), 'none');

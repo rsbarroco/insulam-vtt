@@ -468,6 +468,106 @@ function spendBonusAction(campaignId: string, tokenId: string): void {
   }
 }
 
+/**
+ * Lay on Hands: the paladin touches a creature within 5 feet (or itself) and
+ * restores Hit Points from its pool, as many as `amount` but no more than the
+ * creature is missing, or spends 5 points to end its Poisoned condition.
+ */
+async function layOnHands(
+  io: Server,
+  socket: AuthenticatedSocket,
+  campaignId: string,
+  map: { id: string; tokens: Parameters<typeof readTokens>[0]; tileHeights: Parameters<typeof readTileHeights>[0]; feetPerSquare: number; diagonalRule: string },
+  paladin: Token,
+  targetId: string,
+  amount: number | undefined,
+  curePoison: boolean
+): Promise<{ summary: string; left: number } | { refusal: string }> {
+  const target = readTokens(map.tokens).find((t) => t.id === targetId);
+  if (!target || target.layer !== paladin.layer || (socket.role !== 'DM' && hiddenFromPlayers(target))) {
+    return { refusal: 'That creature is not on the map' };
+  }
+  const board = {
+    heights: readTileHeights(map.tileHeights),
+    feetPerSquare: map.feetPerSquare,
+    diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+  };
+  if (target.id !== paladin.id && distanceFeet(standing(paladin), standing(target), board) > 5) {
+    return { refusal: `${target.name} is beyond the reach of a touch` };
+  }
+  const targetSheet = await sheetOf(target, campaignId);
+  let cost: number;
+  if (curePoison) {
+    if (!(target.conditions ?? []).some((name) => name.toLowerCase() === 'poisoned')) return { refusal: `${target.name} is not Poisoned` };
+    cost = 5;
+  } else {
+    const hp = targetSheet ? extractCharacterHp(DND, targetSheet) : target.hp ?? null;
+    if (!hp) return { refusal: `${target.name} tracks no Hit Points` };
+    const missing = Math.max(0, hp.max - hp.current);
+    if (missing === 0) return { refusal: `${target.name} is at its Hit Point maximum` };
+    cost = Math.min(amount ?? missing, missing);
+  }
+
+  const characterId = paladin.characterId!;
+  const spent = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+    const fresh = await tx.character.findUnique({ where: { id: characterId } });
+    if (!fresh) return { refusal: `${paladin.name} has no D&D character sheet` };
+    const result = spendResource((fresh.data ?? {}) as Record<string, unknown>, 'Lay on Hands', cost);
+    if (!result.ok) return { refusal: `${paladin.name}: ${result.reason}` };
+    const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(result.sheet) } });
+    return { updated, left: result.left };
+  });
+  if ('refusal' in spent) return { refusal: spent.refusal! };
+  await bestEffort('sheet after Lay on Hands', () =>
+    emitCharacterUpdated(campaignId, spent.updated, { characterId, userId: spent.updated.userId, tokensChanged: false })
+  );
+
+  if (curePoison) {
+    await takeCondition(io, campaignId, map.id, target.id, 'Poisoned');
+    return { summary: `${paladin.name} uses Lay on Hands: ${target.name} is no longer Poisoned (${spent.left} left)`, left: spent.left };
+  }
+  await healToken(io, campaignId, map.id, target, cost);
+  return { summary: `${paladin.name} uses Lay on Hands: ${target.name} regains ${cost} Hit Points (${spent.left} left)`, left: spent.left };
+}
+
+/** Give Hit Points back to a creature, on its sheet or on its token; a character healed from 0 starts its death saves afresh. */
+async function healToken(io: Server, campaignId: string, mapId: string, token: Token, amount: number): Promise<void> {
+  const characterId = token.characterId;
+  if (characterId) {
+    const healed = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+      const fresh = await tx.character.findUnique({ where: { id: characterId }, select: { data: true } });
+      if (!fresh) return null;
+      const change = applyHpDelta(DND, fresh.data, amount);
+      if ('error' in change) return null;
+      const before = extractCharacterHp(DND, (fresh.data ?? {}) as Record<string, unknown>)?.current ?? 1;
+      const data = before <= 0 ? { ...change.data, deathSaves: { successes: 0, failures: 0 } } : change.data;
+      const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(data) } });
+      return { hp: change.hp, updated };
+    });
+    if (healed) {
+      io.to(campaignId).emit('character.hp.updated', { characterId, hp: healed.hp });
+      await bestEffort('sheet after healing', () =>
+        emitCharacterUpdated(campaignId, healed.updated, { characterId, userId: healed.updated.userId, tokensChanged: false })
+      );
+    }
+    return;
+  }
+  const updated = await withMapsLocked([mapId], async (tx) => {
+    const fresh = await tx.map.findUnique({ where: { id: mapId } });
+    if (!fresh) return null;
+    const list = readTokens(fresh.tokens);
+    const found = list.find((t) => t.id === token.id);
+    if (!found?.hp) return null;
+    found.hp = { ...found.hp, current: Math.min(found.hp.max, found.hp.current + amount) };
+    return tx.map.update({ where: { id: mapId }, data: { tokens: toJson(list) } });
+  });
+  if (updated) {
+    await bestEffort('map after healing', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
+  }
+}
+
 /** The log line for a class feature the server counts and the table applies. */
 function featureSummary(name: string, feature: string, sheet: Record<string, unknown>, amount: number, left: number): string {
   const uses = `${left} ${left === 1 ? 'use' : 'uses'} left`;
@@ -1180,7 +1280,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1190,7 +1290,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.feature', ack)) return;
       const parsed = CombatFeatureSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { tokenId, feature, amount } = parsed.data;
+      const { tokenId, feature, amount, targetId, cure } = parsed.data;
+      if ((targetId !== undefined || cure !== undefined) && feature !== 'Lay on Hands') {
+        return refuseRequest(socket, ack, 'Only Lay on Hands takes a target');
+      }
       if (amount !== undefined && amount > 1 && !POINT_RESOURCES.includes(feature as ResourceName)) {
         return refuseRequest(socket, ack, `${feature} is spent one use at a time`);
       }
@@ -1220,9 +1323,18 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (!combat.active) return refuseRequest(socket, ack, 'A Rage is kept during combat');
         if (isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is already raging`);
       }
-      const bonusAction = feature === 'Second Wind' || feature === 'Rage' || feature === 'Bardic Inspiration' || feature === 'Wild Shape';
+      const bonusAction =
+        feature === 'Second Wind' || feature === 'Rage' || feature === 'Bardic Inspiration' || feature === 'Wild Shape' || feature === 'Lay on Hands';
       if (bonusAction && ownTurn && combat.turn!.bonusAction) {
         return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
+      }
+      if (feature === 'Lay on Hands') {
+        const touched = await layOnHands(io, socket, campaignId, map, token, targetId ?? tokenId, amount, cure === 'Poisoned');
+        if ('refusal' in touched) return refuseRequest(socket, ack, touched.refusal);
+        if (ownTurn) spendBonusAction(campaignId, tokenId);
+        await resendInitiativeState(io, campaignId);
+        ack?.({ ok: true, summary: touched.summary, left: touched.left });
+        return;
       }
       if (feature === 'Action Surge') {
         if (!ownTurn) return refuseRequest(socket, ack, 'Action Surge is used on the character’s own turn');

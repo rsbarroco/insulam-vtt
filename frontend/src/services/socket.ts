@@ -779,8 +779,18 @@ class SocketClient {
   }
 
   /** A token's character uses a class feature with uses; the server spends the use (or `amount` points) and applies what it can. */
-  useFeature(tokenId: string, feature: CombatFeatureName, amount?: number): Promise<CombatFeatureAck> {
-    const payload = amount && amount > 1 ? { tokenId, feature, amount } : { tokenId, feature };
+  useFeature(
+    tokenId: string,
+    feature: CombatFeatureName,
+    amount?: number,
+    touch?: { targetId: string; cure?: 'Poisoned' }
+  ): Promise<CombatFeatureAck> {
+    const payload = {
+      tokenId,
+      feature,
+      ...(amount && (amount > 1 || touch) && !touch?.cure ? { amount } : {}),
+      ...(touch ? { targetId: touch.targetId, ...(touch.cure ? { cure: touch.cure } : {}) } : {}),
+    };
     return this.askFor<CombatFeatureAck>('combat.feature', payload, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
