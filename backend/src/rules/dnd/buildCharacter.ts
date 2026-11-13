@@ -10,11 +10,13 @@
 // Pure: the caller stores what comes back. What is not worked out is said in
 // docs/TACTICAL_MODE.md: equipment, Armor Class beyond 10 + Dexterity, most
 // numbers a species trait or a feature changes, and which spells are known.
-// Two are worked out: Alert adds the Proficiency Bonus to Initiative, and a
-// Dwarf's Dwarven Toughness adds 1 Hit Point a level.
+// Some are worked out: Alert adds the Proficiency Bonus to Initiative, a
+// Dwarf's Dwarven Toughness adds 1 Hit Point a level, and a Barbarian's or
+// Monk's Unarmored Defense sets the Armor Class.
 // ============================================
 
 import { abilityScoreCap, type CharacterRules } from '../../utils/characterRules';
+import { armorClassOf } from '../../utils/srdArmor';
 import type { Ability } from './conditions';
 import {
   casterLevel, CLASSES, fixedHitPoints, hitDie, improvements, MAX_LEVEL, pactMagic, proficiencyBonus, savingThrowProficiencies,
@@ -264,7 +266,8 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
       ])
     ),
     passivePerception: 10 + mods.wis + (proficient.has('perception') ? bonus : 0),
-    armorClass: Math.max(1, 10 + mods.dex),
+    // No armor yet: 10 + Dexterity, or a Barbarian's or Monk's Unarmored Defense.
+    armorClass: Math.max(1, armorClassOf({ dex: mods.dex, con: mods.con, wis: mods.wis, classes: tracks, features: [], equipped: [] }).armorClass),
     initiative: mods.dex + alert,
     initiativeBonus: alert,
     speed: species.speedFeet,
