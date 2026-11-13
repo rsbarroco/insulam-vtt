@@ -22,6 +22,7 @@ import type {
   CombatCheckAck,
   CombatCheckEvent,
   CombatFallAck,
+  CombatRestAck,
   CombatStandAck,
   CombatSaveAck,
   CombatSaveEvent,
@@ -768,6 +769,11 @@ class SocketClient {
   /** Have the server roll an ability check for a token, against a DC when one is given. */
   resolveCheck(check: CombatCheckEvent): Promise<CombatCheckAck> {
     return this.askFor<CombatCheckAck>('combat.check', check, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  }
+
+  /** A D&D 5e character rests: `short` spends one Hit Point Die and heals, `long` (the DM's) gives everything back. */
+  rest(characterId: string, kind: 'short' | 'long'): Promise<CombatRestAck> {
+    return this.askFor<CombatRestAck>('combat.rest', { characterId, kind }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** A Prone token stands up: the server takes the condition off it. */

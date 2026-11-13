@@ -483,7 +483,9 @@ It rolls **one** die, not the whole pool — spending is one die at a time, and 
 
 Once the pool is empty the number stops being clickable. Your DM can also spend one on your behalf if you're not at the table, and it comes off your sheet the same way.
 
-**Getting them back.** A short rest is when you *spend* hit dice — it doesn't give any back. A **long rest** does: you regain all your lost hit points, plus spent hit dice up to **half your total, rounded down, and always at least one**. So a level 5 fighter with `5d10` gets two back, not five, and a level 1 character gets their single die back.
+**Letting the VTT do it.** Right-click your character in the Campaign Roster and choose **Short rest: spend a Hit Die**: the server rolls one die from your pool, adds your Constitution modifier, puts the hit points on your sheet (at least 1, never above your maximum) and logs the roll. Choose it again for another die. It works for a pool of plain dice (`d10`); a homebrew die such as `2d6` is still rolled from the sheet as above.
+
+**Getting them back.** A short rest is when you *spend* hit dice — it doesn't give any back. A **long rest** does, by the 2024 rules: all your lost hit points, **all** your spent hit dice and all your spell slots come back, temporary hit points end, and one level of exhaustion goes. Your DM gives it, from the same menu.
 
 CozyVTT doesn't apply that for you yet. After a long rest, click **Edit** on your sheet and set the remaining number for each pool yourself — **Max** is there so you can see what you're counting back up towards.
 
