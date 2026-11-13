@@ -1642,7 +1642,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1651,6 +1651,8 @@ export interface WeaponMark {
   ends?: 'start' | 'end' | 'save';
   /** For `ends: 'save'`: the save the target repeats at the end of each of its turns. */
   save?: { ability: string; dc: number };
+  /** For a `recharge` mark: the action spent, until a d6 at the start of the creature's turn gives it back. */
+  action?: string;
 }
 
 /** An Opportunity Attack on offer: who may attack whom. Where the target stood is the server's to keep. */
@@ -1689,6 +1691,8 @@ export interface CombatActionSummary {
   } | null;
   /** The extra attacks the weapon can be made as: Cleave after a hit, or the Light weapon's extra attack. */
   extras?: CombatExtraAttack[];
+  /** A "(Recharge 5–6)" action: the lowest d6 roll that gives it back, and whether it is ready now. */
+  recharge?: { min: number; ready: boolean };
 }
 export type CombatExtraAttack = 'cleave' | 'light';
 /** A feature the turn can offer, with its rule. */

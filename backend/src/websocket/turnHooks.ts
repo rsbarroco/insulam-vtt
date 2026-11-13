@@ -1,5 +1,5 @@
 // ============================================
-// What happens as a combatant's turn ends
+// What happens as a combatant's turn ends, and as the next one starts
 //
 // The initiative handlers pass the turn on; what the rules make happen at
 // the end of a creature's turn (a save it repeats against a condition) is
@@ -19,6 +19,17 @@ export type TurnEndHook = (
 ) => Promise<void>;
 
 const hooks: TurnEndHook[] = [];
+const startHooks: TurnEndHook[] = [];
+
+/** Run `hook` each time a combatant's turn starts, once it is the one acting. */
+export function onTurnStart(hook: TurnEndHook): void {
+  if (!startHooks.includes(hook)) startHooks.push(hook);
+}
+
+/** Everything registered for the start of `tokenId`'s turn. */
+export async function runTurnStart(io: Server, socket: AuthenticatedSocket, campaignId: string, tokenId: string): Promise<void> {
+  for (const hook of startHooks) await bestEffort('the start of a turn', () => hook(io, socket, campaignId, tokenId));
+}
 
 /** Run `hook` each time a combatant's turn ends, before the next one starts. */
 export function onTurnEnd(hook: TurnEndHook): void {

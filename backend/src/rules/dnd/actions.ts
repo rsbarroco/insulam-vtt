@@ -74,6 +74,14 @@ export interface CombatAction {
   mastery?: WeaponMastery;
   /** The SRD weapon a sheet attack is made with. */
   weapon?: string;
+  /** A stat block's "(Recharge 5–6)": the lowest d6 roll that gives it back once used. */
+  recharge?: number;
+}
+
+/** The lowest d6 roll a "(Recharge 5–6)" or "(Recharge 6)" in an action's name asks for; null for none. */
+export function rechargeOf(name: string): number | null {
+  const found = /\(recharge\s+([1-6])(?:\s*[–-]\s*6)?\)/i.exec(name);
+  return found ? Number(found[1]) : null;
 }
 
 /** An area of effect, by the shapes the rules name. `sizeFeet` is the radius of a sphere, cylinder or emanation, and the length of a cone, cube or line. */
@@ -269,6 +277,8 @@ function saveIn(text: string): SaveProfile | null {
 export function actionFromStatBlockEntry(entry: { name: string; description?: string }, cost: ActionCost): CombatAction {
   const text = entry.description ?? '';
   const action: CombatAction = { name: entry.name, cost, source: 'statBlock', text };
+  const recharge = rechargeOf(entry.name);
+  if (recharge !== null) action.recharge = recharge;
   const attack = attackIn(text);
   if (attack) action.attack = attack;
   // An attack's rider ("…must succeed on a DC 11 Constitution saving throw")

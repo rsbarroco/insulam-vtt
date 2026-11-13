@@ -46,7 +46,7 @@ import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
-import { onTurnEnd } from '../turnHooks';
+import { onTurnEnd, onTurnStart } from '../turnHooks';
 import { conditionsOnFailure, conditionsOnHit, fits, sizeOfSquares, turnLimit, type ConditionRider } from '../../rules/dnd/actionConditions';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
@@ -66,6 +66,8 @@ interface ActionSummary {
   save: { ability: Ability; dc: number; halfOnSuccess: boolean; damage: string; rangeFeet?: number; area?: AreaOfEffect } | null;
   /** The extra attacks the weapon can be made as: Cleave, or the Light weapon's extra attack. */
   extras?: ExtraAttack[];
+  /** A "(Recharge 5–6)" action: the lowest d6 roll that gives it back, and whether it is ready now. */
+  recharge?: { min: number; ready: boolean };
 }
 
 const standing = (token: Token): Standing => ({
@@ -83,9 +85,10 @@ function damageText(action: CombatAction): string {
   return (action.attack?.damage ?? []).map(damageLine).filter(Boolean).join(' + ');
 }
 
-function summarizeAction(action: CombatAction, index: number, slots: Record<number, number>): ActionSummary {
+function summarizeAction(action: CombatAction, index: number, slots: Record<number, number>, spent: readonly string[] = []): ActionSummary {
   const attack = action.attack;
   return {
+    ...(action.recharge ? { recharge: { min: action.recharge, ready: !spent.includes(action.name) } } : {}),
     index,
     name: action.name,
     cost: action.cost,
@@ -982,6 +985,66 @@ function saveBreakdown(result: SaveResult, action: CombatAction): LoggedRoll {
   };
 }
 
+/** The "(Recharge …)" actions a creature has spent in the fight, by name. */
+function spentRecharges(campaignId: string, tokenId: string): string[] {
+  return getCombatState(campaignId)
+    .marks.filter((mark) => mark.kind === 'recharge' && mark.attackerId === tokenId && mark.action)
+    .map((mark) => mark.action!);
+}
+
+/** A "(Recharge …)" action is spent once used, in a fight. */
+function spendRecharge(campaignId: string, tokenId: string, action: CombatAction): void {
+  const combat = getCombatState(campaignId);
+  if (!action.recharge || !combat.active) return;
+  combat.marks = [
+    ...combat.marks.filter((mark) => !(mark.kind === 'recharge' && mark.attackerId === tokenId && mark.action === action.name)),
+    { kind: 'recharge', attackerId: tokenId, targetId: tokenId, action: action.name, turnEndsLeft: 1 },
+  ];
+  setCombatState(campaignId, combat);
+}
+
+/** At the start of a creature's turn, a d6 for each action it has spent: one high enough gives it back. */
+async function rechargeAtTurnStart(io: Server, socket: AuthenticatedSocket, campaignId: string, tokenId: string): Promise<void> {
+  const combat = getCombatState(campaignId);
+  const spent = combat.marks.filter((mark) => mark.kind === 'recharge' && mark.attackerId === tokenId && mark.action);
+  if (spent.length === 0) return;
+  const mapId = combat.combatants.find((entry) => entry.tokenId === tokenId)?.mapId;
+  const map = mapId ? await prisma.map.findUnique({ where: { id: mapId } }) : null;
+  const token = map ? readTokens(map.tokens).find((t) => t.id === tokenId) : undefined;
+  if (!token) return;
+  const actions = actionsOf(token, await sheetOf(token, campaignId));
+  for (const mark of spent) {
+    const min = actions.find((action) => action.name === mark.action)?.recharge ?? 7;
+    const rolled = rollDie(6);
+    const back = rolled >= min;
+    if (back) {
+      const now = getCombatState(campaignId);
+      now.marks = now.marks.filter((kept) => !(kept.kind === 'recharge' && kept.attackerId === tokenId && kept.action === mark.action));
+      setCombatState(campaignId, now);
+    }
+    const summary = `${token.name}'s ${mark.action} ${back ? 'recharges' : 'does not recharge'} (${rolled})`;
+    await logRoll(
+      io,
+      socket,
+      campaignId,
+      {
+        expression: '1d6',
+        total: rolled,
+        breakdown: {
+          expression: '1d6',
+          rolls: [{ type: 'dice' as const, notation: '1d6', count: 1, sides: 6, results: [rolled], kept: [rolled], total: rolled }],
+          total: rolled,
+          formula: `[${rolled}] = ${rolled}`,
+        },
+      },
+      token.name,
+      summary,
+      hiddenFromPlayers(token)
+    );
+  }
+}
+onTurnStart(rechargeAtTurnStart);
+
 /**
  * At the end of a creature's turn, the saves it repeats against conditions
  * that say so: rolled by the server, logged, and on a success the condition
@@ -1076,7 +1139,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (ack) {
         ack({
           ok: true,
-          actions: actionsOf(token, sheet).map((action, index) => summarizeAction(action, index, slots)),
+          actions: actionsOf(token, sheet).map((action, index) => summarizeAction(action, index, slots, spentRecharges(socket.campaignId!, token.id))),
           // A stat block's Multiattack says how many attacks it makes; a character's features do.
           attacksPerAction: sheet ? attacksPerAction(features) : null,
           features: featureOptions(features),
@@ -1133,6 +1196,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const [attackerSheet, targetSheet] = await Promise.all([sheetOf(attackerToken, campaignId), sheetOf(targetToken, campaignId)]);
       const listed = actionsOf(attackerToken, attackerSheet)[actionIndex];
       if (!listed) return refuseRequest(socket, ack, 'That action is not one the attacker has');
+      if (listed.recharge && spentRecharges(campaignId, attackerId).includes(listed.name)) {
+        return refuseRequest(socket, ack, `${attackerToken.name}'s ${listed.name} has not recharged`);
+      }
       const cast = castWithSlot(attackerSheet as SheetSpellcasting | null, listed, slotLevel);
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
       let action = cast.action;
@@ -1301,6 +1367,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       const endured = await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
+      spendRecharge(campaignId, attackerId, action);
       if (vexed || sapped || helped) useMarks(campaignId, [vexed, sapped, helped]);
       if (ready) {
         const now = getCombatState(campaignId);
@@ -1900,6 +1967,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const sourceSheet = await sheetOf(sourceToken, campaignId);
       const listed = actionsOf(sourceToken, sourceSheet)[actionIndex];
       if (!listed) return refuseRequest(socket, ack, 'That action is not one the creature has');
+      if (listed.recharge && spentRecharges(campaignId, sourceId).includes(listed.name)) {
+        return refuseRequest(socket, ack, `${sourceToken.name}'s ${listed.name} has not recharged`);
+      }
       const cast = castWithSlot(sourceSheet as SheetSpellcasting | null, listed, slotLevel);
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
       let action = cast.action;
@@ -1940,6 +2010,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
 
+      spendRecharge(campaignId, sourceId, action);
       const endured = await applyDealt(
         io,
         campaignId,
