@@ -54,8 +54,13 @@ describe('advanceTurn', () => {
     expect(state.marks).toEqual([{ kind: 'slow', attackerId: 'c', targetId: 'a', turnEndsLeft: 1 }]);
   });
 
-  it('ends a Help when the helper’s next turn begins', () => {
-    const state = fight({ marks: [{ kind: 'help', attackerId: 'b', targetId: 'c', turnEndsLeft: 1 }] });
+  it('ends a Help or a readied attack when its maker’s next turn begins', () => {
+    const state = fight({
+      marks: [
+        { kind: 'help', attackerId: 'b', targetId: 'c', turnEndsLeft: 1 },
+        { kind: 'ready', attackerId: 'b', targetId: 'a', turnEndsLeft: 1 },
+      ],
+    });
     advanceTurn(state); // b's turn begins
     expect(state.marks).toEqual([]);
   });

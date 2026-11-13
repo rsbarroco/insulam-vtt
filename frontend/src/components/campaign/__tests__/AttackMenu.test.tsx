@@ -19,6 +19,7 @@ function renderMenu() {
     resolveAttack: vi.fn().mockResolvedValue({ ok: true, summary: 'hit; Cleave', hit: true }),
     resolveSave: vi.fn(),
     help: vi.fn().mockResolvedValue({ ok: true, summary: 'Hero helps against Ogre' }),
+    ready: vi.fn().mockResolvedValue({ ok: true, summary: 'Hero readies Greataxe' }),
   };
   const onResolved = vi.fn();
   render(
@@ -68,6 +69,21 @@ describe('AttackMenu extra attacks', () => {
     const { socket, onResolved } = renderMenu();
     fireEvent.click(await screen.findByRole('button', { name: 'Help against it' }));
     await waitFor(() => expect(socket.help).toHaveBeenCalledWith('hero', 'ogre'));
-    expect(onResolved).toHaveBeenCalledWith({ ok: true, summary: 'Hero helps against Ogre', landed: true });
+    expect(onResolved).toHaveBeenCalledWith({
+      ok: true,
+      summary: 'Hero helps against Ogre',
+      landed: true,
+    });
+  });
+
+  it('readies an attack for the trigger written', async () => {
+    const { socket } = renderMenu();
+    fireEvent.change(await screen.findByPlaceholderText('when it comes into reach'), {
+      target: { value: 'when it opens the door' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Ready Greataxe' }));
+    await waitFor(() =>
+      expect(socket.ready).toHaveBeenCalledWith('hero', 'ogre', 0, 'when it opens the door')
+    );
   });
 });

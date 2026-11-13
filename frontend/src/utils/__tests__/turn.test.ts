@@ -66,6 +66,7 @@ describe('weapon marks', () => {
     { kind: 'slow' as const, attackerId: 'b', targetId: 'ogre', turnEndsLeft: 1 },
     { kind: 'sap' as const, attackerId: 'a', targetId: 'ogre', turnEndsLeft: 1 },
     { kind: 'help' as const, attackerId: 'b', targetId: 'ogre', turnEndsLeft: 1 },
+    { kind: 'ready' as const, attackerId: 'b', targetId: 'wolf', turnEndsLeft: 1 },
     { kind: 'vex' as const, attackerId: 'a', targetId: 'wolf', turnEndsLeft: 2 },
   ];
 
@@ -77,7 +78,7 @@ describe('weapon marks', () => {
 
   it('names what a creature carries', () => {
     expect(markLabels(marks, 'ogre')).toEqual(['Sapped', 'Slowed', 'Distracted']);
-    expect(markLabels(marks, 'wolf')).toEqual(['Vexed']);
+    expect(markLabels(marks, 'wolf')).toEqual(['Vexed', 'Readied against']);
     expect(markLabels(marks, 'hero')).toEqual([]);
     expect(markLabels([{ kind: 'rage', attackerId: 'hero', targetId: 'hero', turnEndsLeft: 2 }], 'hero')).toEqual(['Raging']);
   });

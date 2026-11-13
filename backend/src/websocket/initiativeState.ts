@@ -79,10 +79,12 @@ export interface CombatState {
  * both) is raging until the end of its next turn, kept going by each attack
  * it makes on its turn. Help: the next attack roll an ally of the helper
  * (`attackerId`) makes against the target has Advantage, until the helper's
- * next turn starts.
+ * next turn starts. Ready: the attacker has readied an attack against the
+ * target, to be made with its reaction when the trigger comes, until its next
+ * turn starts.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -133,7 +135,7 @@ export function advanceTurn(state: CombatState): void {
   state.reactionsSpent = state.reactionsSpent.filter((tokenId) => tokenId !== state.currentTokenId);
   state.dodging = state.dodging.filter((tokenId) => tokenId !== state.currentTokenId);
   state.opportunities = [];
-  // Sap, Slow and Help last until the start of the attacker's next turn.
+  // Sap, Slow, Help and a readied attack last until the start of the attacker's next turn.
   state.marks = state.marks.filter(
     (mark) => mark.kind === 'vex' || mark.kind === 'rage' || mark.attackerId !== state.currentTokenId
   );

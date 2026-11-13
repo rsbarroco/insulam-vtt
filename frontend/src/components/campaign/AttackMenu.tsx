@@ -180,6 +180,7 @@ export default function AttackMenu({
   const [problem, setProblem] = useState<string | null>(null);
   const [mode, setMode] = useState<AttackMode>('normal');
   const [busy, setBusy] = useState(false);
+  const [trigger, setTrigger] = useState('');
 
   useEffect(() => {
     let current = true;
@@ -238,6 +239,14 @@ export default function AttackMenu({
         ? { ok: true, summary: answer.summary, landed: answer.targets.some((t) => !t.saved) }
         : answer
     );
+  };
+
+  /** The Ready action: hold this attack for the trigger, to make it later with the reaction. */
+  const readyAttack = async (action: CombatActionSummary) => {
+    setBusy(true);
+    const answer = await socket.ready(attacker.id, target.id, action.index, trigger.trim() || 'when the trigger comes');
+    setBusy(false);
+    onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: true } : answer);
   };
 
   /** The Help action: distract the target, so an ally's next attack on it has Advantage. */
@@ -301,10 +310,38 @@ export default function AttackMenu({
                     busy={busy}
                     onMake={(extra) => void make(action, undefined, extra)}
                   />
+                  {action.attack && action.spell === null && (
+                    <span className="flex px-2 pb-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        aria-label={`Ready ${action.name}`}
+                        title="The Ready action: hold this attack for the trigger below, and make it later with your reaction."
+                        onClick={() => void readyAttack(action)}
+                      >
+                        Ready
+                      </Button>
+                    </span>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
+          {anyAttackRoll && (
+            <label className="flex items-center justify-between gap-2 text-sm text-ink">
+              Readied for
+              <input
+                type="text"
+                value={trigger}
+                maxLength={200}
+                placeholder="when it comes into reach"
+                onChange={(event) => setTrigger(event.target.value)}
+                className="input-cozy text-sm py-1 w-40"
+              />
+            </label>
+          )}
           {anyAttackRoll && (
             <label className="flex items-center justify-between gap-2 text-sm text-ink">
               Roll with

@@ -24,6 +24,8 @@ export const CombatAttackSchema = z
     opportunity: z.literal(true).optional(),
     /** An extra attack the weapon gives on the attacker's turn: Cleave after a hit, or the Light weapon's extra attack. */
     extra: z.enum(['cleave', 'light']).optional(),
+    /** The attack the attacker readied against this target, made now with its reaction: `action` is then the readied one. */
+    readied: z.literal(true).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
@@ -104,6 +106,16 @@ export const CombatFeatureSchema = z
 
 /** `combat.help`: the helper, and the enemy within 5 feet it distracts. */
 export const CombatHelpSchema = z.object({ helperId: tokenId, targetId: tokenId }).strict();
+
+/** `combat.ready`: the acting token readies one of its attacks against a creature, for a trigger it names. */
+export const CombatReadySchema = z
+  .object({
+    tokenId,
+    targetId: tokenId,
+    action: z.number().int().min(0).max(199),
+    trigger: z.string().trim().min(1).max(200),
+  })
+  .strict();
 
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();
