@@ -184,7 +184,8 @@ export default function TurnBar() {
       }),
   ];
   const raging = combat.marks.some((mark) => mark.kind === 'rage' && mark.attackerId === actingId);
-  const holding = (kind: 'uncanny' | 'deflect') =>
+  const indomitable = resource('Indomitable');
+  const holding = (kind: 'uncanny' | 'deflect' | 'indomitable') =>
     combat.marks.some((mark) => mark.kind === kind && mark.attackerId === actingId);
   // The reactions held ready for the next hit: a Rogue's Uncanny Dodge, a Monk's Deflect Attacks.
   const heldReactions = [
@@ -432,6 +433,26 @@ export default function TurnBar() {
               {holding(kind) ? `Let ${feature} go` : `Hold ${feature}`}
             </Button>
           ))}
+
+      {canAct && indomitable && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          aria-pressed={holding('indomitable')}
+          disabled={!holding('indomitable') && indomitable.used >= indomitable.max}
+          title="Indomitable: hold a use for your next failed saving throw, rerolled with your Fighter level added"
+          onClick={() =>
+            void socket.useFeature(actingId, 'Indomitable').then((answer) => {
+              showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
+            })
+          }
+        >
+          {holding('indomitable')
+            ? 'Let Indomitable go'
+            : `Hold Indomitable (${indomitable.max - indomitable.used}/${indomitable.max})`}
+        </Button>
+      )}
 
       {canAct && (
         <ConcentrationControl

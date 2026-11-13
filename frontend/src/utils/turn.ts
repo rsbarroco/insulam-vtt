@@ -80,6 +80,7 @@ export function markLabels(marks: CombatState['marks'], tokenId: string): string
   if (marks.some((mark) => mark.kind === 'reckless' && mark.attackerId === tokenId)) labels.push('Reckless');
   if (marks.some((mark) => mark.kind === 'uncanny' && mark.attackerId === tokenId)) labels.push('Holding Uncanny Dodge');
   if (marks.some((mark) => mark.kind === 'deflect' && mark.attackerId === tokenId)) labels.push('Holding Deflect Attacks');
+  if (marks.some((mark) => mark.kind === 'indomitable' && mark.attackerId === tokenId)) labels.push('Holding Indomitable');
   const held = marks.find((mark) => mark.kind === 'concentration' && mark.attackerId === tokenId);
   if (held) labels.push(`Concentrating (${held.action ?? 'a spell'})`);
   return labels;

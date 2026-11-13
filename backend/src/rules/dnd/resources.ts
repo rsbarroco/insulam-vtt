@@ -9,6 +9,9 @@
 //     One use back on a Short Rest, all on a Long Rest.
 //   • Action Surge (Fighter 2): one use, two from level 17, once a turn; one
 //     more action, not the Magic action. All back on a Short or Long Rest.
+//   • Indomitable (Fighter 9): one use, two from level 13, three from 17; a
+//     failed saving throw rerolled with a bonus of the Fighter level. All back
+//     on a Long Rest.
 //   • Rage (Barbarian 1): uses from the Rages column. One back on a Short
 //     Rest, all on a Long Rest. (What a Rage does comes with its own rules.)
 //   • Bardic Inspiration (Bard 1): as many uses as the Charisma modifier, at
@@ -48,7 +51,8 @@ export type ResourceName =
   | 'Sorcery Points'
   | 'Favored Enemy'
   | 'Lay on Hands'
-  | 'Relentless Endurance';
+  | 'Relentless Endurance'
+  | 'Indomitable';
 
 /** The features spent a point at a time, several at once: the rest are spent one use at a time. */
 export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points', 'Lay on Hands'];
@@ -77,6 +81,12 @@ export function classesOf(sheet: Sheet): { classes: string[]; level: number } {
       ? Math.max(1, Math.min(20, sheet.level))
       : 1;
   return { classes, level };
+}
+
+/** A sheet's level in one class: its level when the class is among its classes (gestalt: each at full level), else 0. */
+export function classLevel(sheet: Sheet, name: string): number {
+  const { classes, level } = classesOf(sheet);
+  return classes.some((entry) => entry.toLowerCase() === name.toLowerCase()) ? level : 0;
 }
 
 /** A number from a class table's column, 0 where it has a dash. */
@@ -110,6 +120,7 @@ export function resourcesOf(sheet: Sheet): Resource[] {
   if (has(classes, 'Fighter')) {
     add('Second Wind', Number(columnAt('Fighter', 'Second Wind', level) ?? 0), 'one');
     add('Action Surge', level >= 17 ? 2 : level >= 2 ? 1 : 0, 'all');
+    add('Indomitable', level >= 17 ? 3 : level >= 13 ? 2 : level >= 9 ? 1 : 0, 'none');
   }
   if (has(classes, 'Barbarian'))
     add('Rage', Number(columnAt('Barbarian', 'Rages', level) ?? 0), 'one');

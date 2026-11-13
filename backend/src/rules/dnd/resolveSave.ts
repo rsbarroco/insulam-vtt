@@ -21,6 +21,8 @@ import type { AttackRefusal, AttackRequest, Combatant } from './resolveAttack';
 export interface SaveTarget extends Combatant {
   /** What the creature adds to a save with the action's ability. Null when nothing gives one. */
   saveBonus: number | null;
+  /** A Fighter's Indomitable held ready: a failed save is rerolled with this bonus (the Fighter level). */
+  indomitable?: number;
 }
 
 export interface SaveRequest {
@@ -41,6 +43,8 @@ export interface TargetSaveResult {
   instantDeath: boolean;
   /** Evasion changed the damage it took. */
   evaded?: boolean;
+  /** Indomitable rerolled a failed save: the first roll; `outcome` is the reroll, which stands. */
+  rerolled?: SaveOutcome;
 }
 
 export interface SaveResult {
@@ -101,10 +105,12 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
     const state = readConditions(target.conditions, target.exhaustion);
     const modifiers = saveModifiers(state, profile.ability, { dangerSense: target.dangerSense });
     const cover = profile.ability === 'dex' && covers[index] !== 'total' ? coverBonus(covers[index]) : 0;
-    const outcome = savingThrow(
-      { bonus: target.saveBonus! + modifiers.penalty + cover, dc: profile.dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
-      target.lucky ? lucky(roll) : roll
-    );
+    const input = { bonus: target.saveBonus! + modifiers.penalty + cover, dc: profile.dc, mode: modifiers.mode, autoFail: modifiers.autoFail };
+    const die = target.lucky ? lucky(roll) : roll;
+    const first = savingThrow(input, die);
+    // Indomitable: a failed save that was rolled is rolled again with the Fighter level added; the new roll stands.
+    const rerolled = !first.success && first.roll !== null && target.indomitable !== undefined ? first : undefined;
+    const outcome = rerolled ? savingThrow({ ...input, bonus: input.bonus + target.indomitable! }, die) : first;
     // Evasion: a Dexterity save for half damage gives none on a success and half on a failure.
     const evades = target.evasion === true && profile.ability === 'dex' && profile.halfOnSuccess === true && canAct(state);
     const dealt = damage.reduce((sum, entry) => {
@@ -127,13 +133,22 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
       dropped = applied.dropped;
       instantDeath = applied.instantDeath;
     }
-    return { name: target.name, outcome, dealt, hp, dropped, instantDeath, ...(evades && damage.length > 0 ? { evaded: true } : {}) };
+    return {
+      name: target.name,
+      outcome,
+      dealt,
+      hp,
+      dropped,
+      instantDeath,
+      ...(evades && damage.length > 0 ? { evaded: true } : {}),
+      ...(rerolled ? { rerolled } : {}),
+    };
   });
 
   const rolled = damage.map((entry) => `${entry.rolled.total}${entry.type ? ` ${entry.type}` : ''}`).join(' + ');
   const each = results.map((result) => {
     const rolledSave = result.outcome.roll ? ` (${result.outcome.roll.total})` : ' (no roll)';
-    const verdict = result.outcome.success ? 'saves' : 'fails';
+    const verdict = `${result.rerolled ? `fails (${result.rerolled.roll?.total}), Indomitable: ` : ''}${result.outcome.success ? 'saves' : 'fails'}`;
     const harm = damage.length > 0 ? `, ${result.dealt} damage${result.evaded ? ' (Evasion)' : ''}` : '';
     const fate = result.instantDeath ? ', killed outright' : result.dropped ? ', drops to 0' : '';
     return `${result.name} ${verdict}${rolledSave}${harm}${fate}`;
