@@ -123,7 +123,11 @@ function ActionRow({
   catches: string[] | null;
   onMake: (slotLevel?: number) => void;
 }) {
-  const what = action.attack ? attackText(action.attack) : saveText(action.save!);
+  const what = action.attack
+    ? attackText(action.attack)
+    : action.heal
+      ? `heals ${action.heal.dice} · ${action.heal.rangeFeet <= 5 ? 'touch' : `range ${action.heal.rangeFeet} ft`}`
+      : saveText(action.save!);
   const caught = catches
     ? `${what} · ${catches.length > 0 ? `catches ${catches.join(', ')}` : 'catches nobody'}`
     : what;
@@ -199,7 +203,7 @@ export default function AttackMenu({
   }, [socket, attacker.id]);
 
   const attacks = (actions ?? []).filter(
-    (action) => action.attack !== null || action.save !== null
+    (action) => action.attack !== null || action.save !== null || action.heal !== undefined
   );
   const anyAttackRoll = attacks.some((action) => action.attack !== null);
   const multiattacks = (actions ?? []).filter((action) => (action.multiattack ?? []).length > 0);
@@ -252,6 +256,12 @@ export default function AttackMenu({
   ) => {
     const slot = slotLevel === undefined ? {} : { slotLevel };
     setBusy(true);
+    if (action.heal) {
+      const answer = await socket.heal({ casterId: attacker.id, targetId: target.id, action: action.index, ...slot });
+      setBusy(false);
+      onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: true } : answer);
+      return;
+    }
     if (action.attack) {
       const answer = await socket.resolveAttack({
         attackerId: attacker.id,

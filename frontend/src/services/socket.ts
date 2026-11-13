@@ -25,7 +25,7 @@ import type {
   CombatFeatureAck,
   CombatFeatureName,
   CombatRestAck,
-  CombatStandAck, CombatHelpAck, CombatReadyAck, CombatConcentrateAck,
+  CombatStandAck, CombatHelpAck, CombatReadyAck, CombatConcentrateAck, CombatHealAck,
   CombatSaveAck,
   CombatSaveEvent,
   ChatMessageBroadcast,
@@ -802,6 +802,11 @@ class SocketClient {
   /** The acting token readies one of its attacks against a creature, for a trigger; it is made later with the reaction. */
   ready(tokenId: string, targetId: string, action: number, trigger: string): Promise<CombatReadyAck> {
     return this.askFor<CombatReadyAck>('combat.ready', { tokenId, targetId, action, trigger }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  }
+
+  /** A caster casts one of its healing spells on a creature; the server rolls it, heals and spends the slot. */
+  heal(cast: { casterId: string; targetId: string; action: number; slotLevel?: number }): Promise<CombatHealAck> {
+    return this.askFor<CombatHealAck>('combat.heal', cast, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** A token's caster concentrates on one of its spells, or ends its concentration. */

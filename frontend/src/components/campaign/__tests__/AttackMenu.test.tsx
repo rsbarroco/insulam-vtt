@@ -247,4 +247,63 @@ describe('AttackMenu extra attacks', () => {
       })
     );
   });
+
+  it('casts a healing spell on the creature with the slot chosen', async () => {
+    const socket = {
+      listCombatActions: vi.fn().mockResolvedValue({
+        ok: true,
+        actions: [
+          {
+            index: 0,
+            name: 'Cure Wounds',
+            cost: 'action',
+            attack: null,
+            save: null,
+            spell: { level: 1, slotLevels: [1, 2] },
+            heal: { dice: '2d8+3', rangeFeet: 5 },
+          },
+        ],
+      }),
+      resolveAttack: vi.fn(),
+      resolveSave: vi.fn(),
+      heal: vi
+        .fn()
+        .mockResolvedValue({
+          ok: true,
+          summary: 'Cure Wounds (level 2): Ally regains 14 Hit Points',
+          healed: 14,
+        }),
+      help: vi.fn(),
+      ready: vi.fn(),
+    };
+    const onResolved = vi.fn();
+    render(
+      <AttackMenu
+        socket={socket as unknown as typeof socketService}
+        attacker={{ id: 'cleric', name: 'Cleric' }}
+        target={{ id: 'ally', name: 'Ally' }}
+        situation={null}
+        style={{}}
+        caughtBy={() => []}
+        onAim={() => {}}
+        onResolved={onResolved}
+        onClose={() => {}}
+      />
+    );
+    expect(await screen.findByText(/heals 2d8\+3 · touch/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cast Cure Wounds with a level 2 slot' }));
+    await waitFor(() =>
+      expect(socket.heal).toHaveBeenCalledWith({
+        casterId: 'cleric',
+        targetId: 'ally',
+        action: 0,
+        slotLevel: 2,
+      })
+    );
+    expect(onResolved).toHaveBeenCalledWith({
+      ok: true,
+      summary: 'Cure Wounds (level 2): Ally regains 14 Hit Points',
+      landed: true,
+    });
+  });
 });
