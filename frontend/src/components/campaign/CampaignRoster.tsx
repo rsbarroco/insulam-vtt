@@ -207,7 +207,7 @@ export default function CampaignRoster() {
    * same as the creature library, because a menu click has no cursor position.
    */
   /** A rest for the character the menu is open on: the server rolls and restores, and says what came back. */
-  const handleRest = async (kind: 'short' | 'long') => {
+  const handleRest = async (kind: 'short' | 'shortFinish' | 'long') => {
     if (!contextMenu || !socket) return;
     const { characterId } = contextMenu;
     handleCloseContextMenu();
@@ -438,6 +438,13 @@ export default function CampaignRoster() {
               icon: Coffee,
               label: 'Short rest: spend a Hit Die',
               onClick: () => void handleRest('short'),
+              visible:
+                menuCharacterIsDnd && canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
+            },
+            {
+              icon: Coffee,
+              label: 'Finish short rest',
+              onClick: () => void handleRest('shortFinish'),
               visible:
                 menuCharacterIsDnd && canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
             },

@@ -1699,6 +1699,8 @@ export type CombatActionsAck =
       features: CombatFeatureOption[];
       /** 10 plus its Wisdom (Perception) bonus, or null when it has neither sheet nor stat block. */
       passivePerception?: number | null;
+      /** Class features with a number of uses: Second Wind, Action Surge, Rage. */
+      resources?: CombatResource[];
     }
   | { ok: false; error: string };
 
@@ -1738,6 +1740,17 @@ export type CombatCheckAck =
 
 /** `combat.rest`: what a rest gave the character back. */
 export type CombatRestAck = { ok: true; summary: string } | { ok: false; error: string };
+
+/** A class feature with a number of uses, as `combat.actions` gives it. */
+export interface CombatResource {
+  name: string;
+  max: number;
+  used: number;
+}
+
+/** `combat.feature`: a class feature the server applies when it is used. */
+export type CombatFeatureName = 'Second Wind' | 'Action Surge';
+export type CombatFeatureAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
 
 /** `combat.stand`: a Prone token got up. */
 export type CombatStandAck = { ok: true } | { ok: false; error: string };

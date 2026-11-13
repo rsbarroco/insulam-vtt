@@ -22,6 +22,8 @@ import type {
   CombatCheckAck,
   CombatCheckEvent,
   CombatFallAck,
+  CombatFeatureAck,
+  CombatFeatureName,
   CombatRestAck,
   CombatStandAck,
   CombatSaveAck,
@@ -772,8 +774,13 @@ class SocketClient {
   }
 
   /** A D&D 5e character rests: `short` spends one Hit Point Die and heals, `long` (the DM's) gives everything back. */
-  rest(characterId: string, kind: 'short' | 'long'): Promise<CombatRestAck> {
+  rest(characterId: string, kind: 'short' | 'shortFinish' | 'long'): Promise<CombatRestAck> {
     return this.askFor<CombatRestAck>('combat.rest', { characterId, kind }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  }
+
+  /** A token's character uses Second Wind or Action Surge; the server spends the use and applies it. */
+  useFeature(tokenId: string, feature: CombatFeatureName): Promise<CombatFeatureAck> {
+    return this.askFor<CombatFeatureAck>('combat.feature', { tokenId, feature }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** A Prone token stands up: the server takes the condition off it. */

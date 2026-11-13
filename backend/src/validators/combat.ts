@@ -69,10 +69,13 @@ export const CombatCheckSchema = z
   })
   .refine((check) => !(check.hide && check.dc !== undefined), { message: 'The Hide action has its own DC' });
 
-/** `combat.rest`: a character rests. Short spends one Hit Point Die; long is the DM's to give. */
+/** `combat.rest`: a character rests. `short` spends one Hit Point Die, `shortFinish` ends a Short Rest; `long` is the DM's to give. */
 export const CombatRestSchema = z
-  .object({ characterId: z.string().uuid('A character is named by its id'), kind: z.enum(['short', 'long']) })
+  .object({ characterId: z.string().uuid('A character is named by its id'), kind: z.enum(['short', 'shortFinish', 'long']) })
   .strict();
+
+/** `combat.feature`: a token's character uses a class feature with a number of uses. */
+export const CombatFeatureSchema = z.object({ tokenId, feature: z.enum(['Second Wind', 'Action Surge']) }).strict();
 
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();
