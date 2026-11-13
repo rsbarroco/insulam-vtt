@@ -23,13 +23,14 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatDeathSaveSchema, CombatFallSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import { canAct, DODGING, effectiveSpeed, readConditions, type Ability } from '../../rules/dnd/conditions';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import { resolveFall } from '../../rules/dnd/falling';
+import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
 import type { HitPoints } from '../../rules/dnd/damage';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
@@ -434,6 +435,39 @@ function saveBonusOf(token: Token, sheet: Record<string, unknown> | null, abilit
   return typeof score === 'number' ? Math.floor((score - 10) / 2) : null;
 }
 
+/** A creature's ability modifier, from its sheet's stats or its stat block's scores. Null when neither gives one. */
+function abilityModifierOf(token: Token, sheet: Record<string, unknown> | null, ability: Ability): number | null {
+  if (sheet) {
+    const stat = (sheet.stats as Record<string, { score?: unknown; modifier?: unknown } | undefined> | undefined)?.[ABILITY_FULL[ability]];
+    if (typeof stat?.modifier === 'number') return stat.modifier;
+    return typeof stat?.score === 'number' ? Math.floor((stat.score - 10) / 2) : null;
+  }
+  const block = token.statBlock as { attributeModifiers?: Record<string, number>; abilities?: Record<string, number> } | null | undefined;
+  if (!block) return null;
+  const modifier = block.attributeModifiers?.[ability];
+  if (typeof modifier === 'number') return modifier;
+  const score = block.abilities?.[ability];
+  return typeof score === 'number' ? Math.floor((score - 10) / 2) : null;
+}
+
+/**
+ * A creature's bonus to a skill: the total its sheet keeps, or the one its
+ * stat block lists; without either, the modifier of the skill's ability.
+ */
+function skillBonusOf(token: Token, sheet: Record<string, unknown> | null, skill: SkillCheck): number | null {
+  if (sheet) {
+    const bonus = (sheet.skills as Record<string, { bonus?: unknown } | undefined> | undefined)?.[skill]?.bonus;
+    if (typeof bonus === 'number') return bonus;
+  } else {
+    const listed = (token.statBlock as { skills?: Record<string, unknown> } | null | undefined)?.skills ?? {};
+    const wanted = SKILL_CHECKS[skill].name.toLowerCase().replace(/\s+/g, '');
+    for (const [name, bonus] of Object.entries(listed)) {
+      if (name.toLowerCase().replace(/\s+/g, '') === wanted && typeof bonus === 'number') return bonus;
+    }
+  }
+  return abilityModifierOf(token, sheet, SKILL_CHECKS[skill].ability);
+}
+
 const ABILITY_FULL: Readonly<Record<Ability, string>> = {
   str: 'strength',
   dex: 'dexterity',
@@ -505,6 +539,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           // A stat block's Multiattack says how many attacks it makes; a character's features do.
           attacksPerAction: sheet ? attacksPerAction(features) : null,
           features: featureOptions(features),
+          // What a creature notices without looking: 10 plus its Wisdom (Perception) bonus.
+          passivePerception: (() => {
+            const bonus = skillBonusOf(token, sheet, 'perception');
+            return bonus === null ? null : passiveScore(bonus);
+          })(),
         });
       }
     } catch (error) {
@@ -659,6 +698,79 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.fall failed', { err: error });
       refuseRequest(socket, ack, 'Failed to resolve the fall');
+    }
+  });
+
+  /**
+   * COMBAT.CHECK — A token on the current map makes an ability check: a skill, a bare ability, or the Hide action. The server reads the bonus from the character's sheet or the stat block, rolls the d20 with the token's conditions (Disadvantage while Poisoned or Frightened, the Exhaustion penalty), compares the total with the DC when one is given, and records the roll in the dice log. The Hide action is a Dexterity (Stealth) check against DC 15 that gives the token the Invisible condition on a success and is its action on its own turn. The DM, or the player who controls the token.
+   */
+  socket.on('combat.check', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.check', ack)) return;
+      const parsed = CombatCheckSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const { tokenId, ability, hide, mode } = parsed.data;
+      const skill = hide ? 'stealth' : parsed.data.skill;
+      const dc = hide ? HIDE_DC : parsed.data.dc;
+
+      const map = await currentMap(campaignId);
+      if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
+      const token = readTokens(map.tokens).find((t) => t.id === tokenId);
+      if (!token || !canControlToken(socket.role, token.controlledBy, socket.userId)) {
+        return refuseRequest(socket, ack, 'You can only act for your own token');
+      }
+      const sheet = await sheetOf(token, campaignId);
+      const creature = combatant(token, sheet);
+      const state = readConditions(creature.conditions, creature.exhaustion);
+      if (hide && !canAct(state)) return refuseRequest(socket, ack, `${token.name} is Incapacitated and cannot take the Hide action`);
+
+      const bonus = skill ? skillBonusOf(token, sheet, skill) : abilityModifierOf(token, sheet, ability!);
+      if (bonus === null) return refuseRequest(socket, ack, `${token.name} has no sheet or stat block to make the check with`);
+      const label = skill
+        ? `${ABILITY_CHECK_NAMES[SKILL_CHECKS[skill].ability]} (${SKILL_CHECKS[skill].name})`
+        : ABILITY_CHECK_NAMES[ability!];
+      const result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state });
+
+      const hidden = hide === true && result.success === true;
+      if (hidden) await giveCondition(io, campaignId, map.id, tokenId, 'Invisible');
+      if (hide) await spendAction(io, campaignId, tokenId, 'Hide');
+      // Hiding well enough to be Invisible sets what a search for the creature must beat.
+      const summary = hidden ? `${result.summary}; hidden (Invisible) until found with a Wisdom (Perception) check of DC ${result.total}` : result.summary;
+
+      const { roll } = result;
+      const notation = roll.mode === 'normal' ? '1d20' : roll.mode === 'advantage' ? '2d20kh1' : '2d20kl1';
+      const sign = roll.modifier < 0 ? '-' : '+';
+      const expression = `${notation}${sign}${Math.abs(roll.modifier)}`;
+      await logRoll(
+        io,
+        socket,
+        campaignId,
+        {
+          expression,
+          total: roll.total,
+          breakdown: {
+            expression,
+            rolls: [
+              { type: 'dice' as const, notation, count: roll.dice.length, sides: 20, results: roll.dice, kept: [roll.natural], total: roll.natural },
+              { type: 'modifier' as const, value: roll.modifier },
+            ],
+            total: roll.total,
+            formula: `[${roll.dice.join(', ')}] ${sign} ${Math.abs(roll.modifier)} = ${roll.total}`,
+          },
+        },
+        token.name,
+        summary,
+        hiddenFromPlayers(token)
+      );
+
+      ack?.({ ok: true, summary, total: result.total, success: result.success, reasons: result.reasons, hidden });
+      logger.debug('combat.check', { campaignId, tokenId, skill, ability, total: result.total });
+    } catch (error) {
+      logger.error('combat.check failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to resolve the check');
     }
   });
 

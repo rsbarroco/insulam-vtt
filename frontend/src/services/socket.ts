@@ -19,6 +19,8 @@ import type {
   CombatAttackAck,
   CombatAttackEvent,
   CombatDeathSaveAck,
+  CombatCheckAck,
+  CombatCheckEvent,
   CombatFallAck,
   CombatStandAck,
   CombatSaveAck,
@@ -761,6 +763,11 @@ class SocketClient {
   /** Have the server roll the targets' saving throws against an action, and apply what it does. */
   resolveSave(save: CombatSaveEvent): Promise<CombatSaveAck> {
     return this.askFor<CombatSaveAck>('combat.save', save, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  }
+
+  /** Have the server roll an ability check for a token, against a DC when one is given. */
+  resolveCheck(check: CombatCheckEvent): Promise<CombatCheckAck> {
+    return this.askFor<CombatCheckAck>('combat.check', check, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** A Prone token stands up: the server takes the condition off it. */

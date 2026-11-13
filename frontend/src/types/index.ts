@@ -1687,6 +1687,8 @@ export type CombatActionsAck =
       attacksPerAction: number | null;
       /** The character's features used with a Bonus Action or a Reaction. */
       features: CombatFeatureOption[];
+      /** 10 plus its Wisdom (Perception) bonus, or null when it has neither sheet nor stat block. */
+      passivePerception?: number | null;
     }
   | { ok: false; error: string };
 
@@ -1709,6 +1711,19 @@ export type CombatAttackAck =
 export interface CombatSaveEvent { sourceId: string; targetIds: string[]; action: number; slotLevel?: number; }
 export type CombatSaveAck =
   | { ok: true; summary: string; dc: number; ability: string; targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }> }
+  | { ok: false; error: string };
+
+/** `combat.check`: an ability check a token makes: one of a skill, a bare ability, or the Hide action. */
+export interface CombatCheckEvent {
+  tokenId: string;
+  skill?: string;
+  ability?: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
+  hide?: true;
+  dc?: number;
+  mode?: AttackMode;
+}
+export type CombatCheckAck =
+  | { ok: true; summary: string; total: number; success: boolean | null; reasons: string[]; hidden: boolean }
   | { ok: false; error: string };
 
 /** `combat.stand`: a Prone token got up. */

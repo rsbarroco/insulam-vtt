@@ -42,6 +42,10 @@ interface Answer {
   critical?: boolean;
   dealt?: number;
   distanceFeet?: number;
+  total?: number;
+  success?: boolean | null;
+  hidden?: boolean;
+  reasons?: string[];
   actions?: Array<{ index: number; name: string; cost: string; attack: { kind: string; bonus: number; damage: string } | null }>;
 }
 const ask = (socket: ClientSocket, event: string, payload: unknown) =>
@@ -76,6 +80,8 @@ const heroSheet = () => ({
   armorClass: 16,
   savingThrows: { strength: { bonus: 2 }, dexterity: { bonus: 4 }, constitution: { bonus: 2 }, intelligence: { bonus: 0 }, wisdom: { bonus: 1 }, charisma: { bonus: 0 } },
   attacks: [{ name: 'Longsword', attackBonus: 5, damageRoll: '1d8+3', damageType: 'slashing' }],
+  stats: { strength: { score: 16, modifier: 3 }, wisdom: { score: 12, modifier: 1 } },
+  skills: { stealth: { proficient: true, expertise: false, bonus: 6 }, perception: { proficient: true, expertise: false, bonus: 4 } },
   spellcasting: { spellAttackBonus: 6, spellSaveDC: 14, cantrips: ['Fire Bolt'], spells: [{ name: 'Fireball', level: 3, prepared: true, ritual: false, concentration: false }], slots: { '3': { total: 2, expended: 0 }, '4': { total: 1, expended: 0 } } },
 });
 
@@ -524,5 +530,84 @@ describe('combat.stand', () => {
   it('refuses a player another creature', async () => {
     await withOgre(['Prone']);
     expect((await ask(player, 'combat.stand', { tokenId: OGRE })).error).toBe('You can only act for your own token');
+  });
+});
+
+describe('combat.check', () => {
+  const tokenOf = async (id: string) => readTokens((await prisma.map.findUniqueOrThrow({ where: { id: mapId } })).tokens).find((t) => t.id === id);
+  const withOgre = (extra: Record<string, unknown>) =>
+    prisma.map.update({
+      where: { id: mapId },
+      data: { tokens: toJson(freshTokens().map((t) => (t.id === OGRE ? { ...t, ...extra } : t))) },
+    });
+
+  it('rolls a skill from the character’s sheet against the DC, and logs it', async () => {
+    rolls = [11];
+    const logged = waitForEvent<{ purpose: string; result: number; expression: string; characterName: string }>(dm, 'dice.rolled');
+
+    const answer = await ask(player, 'combat.check', { tokenId: HERO, skill: 'stealth', dc: 15 });
+
+    expect(answer).toMatchObject({ ok: true, total: 17, success: true, summary: 'Hero Dexterity (Stealth) check: 17 vs DC 15: success' });
+    expect(await logged).toMatchObject({ expression: '1d20+6', result: 17, characterName: 'Hero', purpose: answer.summary });
+  });
+
+  it('rolls a bare ability, and gives the total alone with no DC', async () => {
+    rolls = [8];
+    expect(await ask(player, 'combat.check', { tokenId: HERO, ability: 'str' })).toMatchObject({
+      ok: true, total: 11, success: null, summary: 'Hero Strength check: 11',
+    });
+  });
+
+  it('reads a stat block: the skill it lists, or else the ability', async () => {
+    await withOgre({ statBlock: { ...ogreBlock, skills: { Perception: 2 } } });
+    rolls = [10, 10];
+    expect((await ask(dm, 'combat.check', { tokenId: OGRE, skill: 'perception' })).total).toBe(12);
+    // Strength 19 is +4, and the block lists no Athletics.
+    expect((await ask(dm, 'combat.check', { tokenId: OGRE, skill: 'athletics' })).total).toBe(14);
+  });
+
+  it('rolls with Disadvantage for a Poisoned creature', async () => {
+    await withOgre({ conditions: ['Poisoned'] });
+    rolls = [18, 3];
+    const answer = await ask(dm, 'combat.check', { tokenId: OGRE, ability: 'str', dc: 10 });
+    expect(answer).toMatchObject({ total: 7, success: false, reasons: ['Disadvantage: Poisoned'] });
+  });
+
+  it('hides a creature that beats DC 15: Invisible, and its action on its turn', async () => {
+    setState(campaignId, { active: true, round: 1, currentTokenId: HERO, combatants: [entry(HERO, 'Hero', 18), entry(OGRE, 'Ogre', 9)] });
+    rolls = [12];
+
+    const answer = await ask(player, 'combat.check', { tokenId: HERO, hide: true });
+
+    expect(answer).toMatchObject({ ok: true, total: 18, success: true, hidden: true });
+    expect(answer.summary).toBe(
+      'Hero Dexterity (Stealth) check: 18 vs DC 15: success; hidden (Invisible) until found with a Wisdom (Perception) check of DC 18'
+    );
+    expect((await tokenOf(HERO))?.conditions).toEqual(['Invisible']);
+    expect(getState(campaignId).turn?.action).toBe('Hide');
+  });
+
+  it('leaves a creature that fails to hide in plain sight, its action spent', async () => {
+    setState(campaignId, { active: true, round: 1, currentTokenId: HERO, combatants: [entry(HERO, 'Hero', 18), entry(OGRE, 'Ogre', 9)] });
+    rolls = [4];
+
+    const answer = await ask(player, 'combat.check', { tokenId: HERO, hide: true });
+
+    expect(answer).toMatchObject({ total: 10, success: false, hidden: false });
+    expect((await tokenOf(HERO))?.conditions).toEqual([]);
+    expect(getState(campaignId).turn?.action).toBe('Hide');
+  });
+
+  it('refuses a player another creature, a check of nothing and a check of two things', async () => {
+    expect((await ask(player, 'combat.check', { tokenId: OGRE, ability: 'str' })).error).toBe('You can only act for your own token');
+    expect((await ask(dm, 'combat.check', { tokenId: OGRE })).error).toBe('A check names one skill, one ability, or the Hide action');
+    expect((await ask(dm, 'combat.check', { tokenId: OGRE, skill: 'stealth', ability: 'dex' })).ok).toBe(false);
+    expect((await ask(dm, 'combat.check', { tokenId: OGRE, hide: true, dc: 5 })).error).toBe('The Hide action has its own DC');
+  });
+
+  it('tells a creature’s passive Perception with its actions', async () => {
+    expect((await ask(player, 'combat.actions', { tokenId: HERO }) as unknown as { passivePerception: number }).passivePerception).toBe(14);
+    // The ogre's Wisdom 7 is -2.
+    expect((await ask(dm, 'combat.actions', { tokenId: OGRE }) as unknown as { passivePerception: number }).passivePerception).toBe(8);
   });
 });
