@@ -360,7 +360,7 @@ describe('the combat state the server sends and the client reads', () => {
   const server = read('backend/src/websocket/initiativeState.ts');
   const client = read('frontend/src/types/index.ts');
 
-  it.each(['CombatantEntry', 'CombatState'])('%s has the same fields on both sides', (name) => {
+  it.each(['CombatantEntry', 'CombatState', 'WeaponMark'])('%s has the same fields on both sides', (name) => {
     expect(interfaceFields(client, name)).toEqual(interfaceFields(server, name));
   });
 });

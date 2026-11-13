@@ -8,6 +8,7 @@
 import {
   advanceTurn,
   clearState,
+  endedConditions,
   freshTurn,
   getState,
   projectCombatState,
@@ -63,6 +64,22 @@ describe('advanceTurn', () => {
     });
     advanceTurn(state); // b's turn begins
     expect(state.marks).toEqual([]);
+  });
+
+  it('ends a condition mark as its turn starts, or counts it down to the end of the turn', () => {
+    const state = fight({
+      marks: [
+        { kind: 'condition', attackerId: 'b', targetId: 'c', condition: 'Poisoned', ends: 'start', turnEndsLeft: 1 },
+        { kind: 'condition', attackerId: 'a', targetId: 'c', condition: 'Restrained', ends: 'end', turnEndsLeft: 1 },
+      ],
+    });
+    const before = state.marks;
+    advanceTurn(state); // a's turn ends, b's begins
+    expect(state.marks).toEqual([]);
+    expect(endedConditions(before, state.marks)).toEqual([
+      { tokenId: 'c', condition: 'Poisoned' },
+      { tokenId: 'c', condition: 'Restrained' },
+    ]);
   });
 
   it('keeps a Vex to the end of its maker’s next turn', () => {

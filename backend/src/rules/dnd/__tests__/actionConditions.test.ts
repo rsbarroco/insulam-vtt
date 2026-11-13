@@ -4,6 +4,7 @@ import {
   conditionsOnHit,
   fits,
   sizeOfSquares,
+  turnLimit,
 } from '../actionConditions';
 
 describe('conditionsOnHit', () => {
@@ -53,5 +54,23 @@ describe('sizes', () => {
     expect(fits({ condition: 'Grappled', largest: 'Large' }, 'Huge')).toBe(false);
     expect(fits({ condition: 'Grappled', largest: 'Large' }, 'Medium')).toBe(true);
     expect(fits({ condition: 'Prone' }, 'Gargantuan')).toBe(true);
+  });
+});
+
+describe('turnLimit', () => {
+  it('ties a condition to the source’s turn, or the target’s own', () => {
+    expect(
+      turnLimit({ condition: 'Poisoned', until: 'start of the assassin’s next turn' })
+    ).toEqual({ ends: 'start', whose: 'source' });
+    expect(turnLimit({ condition: 'Restrained', until: "end of the devil's next turn" })).toEqual({
+      ends: 'end',
+      whose: 'source',
+    });
+    expect(turnLimit({ condition: 'Frightened', until: 'end of its next turn' })).toEqual({
+      ends: 'end',
+      whose: 'target',
+    });
+    expect(turnLimit({ condition: 'Restrained', until: 'grapple ends' })).toBeNull();
+    expect(turnLimit({ condition: 'Prone' })).toBeNull();
   });
 });

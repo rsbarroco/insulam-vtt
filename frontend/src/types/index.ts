@@ -1642,10 +1642,13 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
+  /** For a `condition` mark: the condition, and whether it ends as that turn starts or ends. */
+  condition?: string;
+  ends?: 'start' | 'end';
 }
 
 /** An Opportunity Attack on offer: who may attack whom. Where the target stood is the server's to keep. */
