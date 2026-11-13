@@ -68,3 +68,19 @@ describe('hasFeature', () => {
     expect(hasFeature([{ name: 'Evasive Footwork' }], 'Evasion')).toBe(false);
   });
 });
+
+describe('Indomitable', () => {
+  it('rerolls a failed save with the Fighter level added, and the reroll stands', () => {
+    // 4 + 6 = 10 fire; the fighter rolls 3 (5, fails), then 6 + 2 + 9 = 17 (saves).
+    const result = ok(resolveSave({ source: mage, targets: [target('Fighter', { indomitable: 9 })], action: fireball, board }, dice(4, 6, 3, 6)));
+    expect(result.targets[0]).toMatchObject({ outcome: { success: true }, rerolled: { success: false }, dealt: 5 });
+    expect(result.summary).toBe('Fireball (DC 15 Dexterity, 10 fire): Fighter fails (5), Indomitable: saves (17), 5 damage');
+  });
+
+  it('is not used by a save that succeeds, or one failed without a roll', () => {
+    const saved = ok(resolveSave({ source: mage, targets: [target('Fighter', { indomitable: 9 })], action: fireball, board }, dice(4, 6, 15)));
+    expect(saved.targets[0].rerolled).toBeUndefined();
+    const asleep = ok(resolveSave({ source: mage, targets: [target('Fighter', { indomitable: 9, conditions: ['unconscious'] })], action: fireball, board }, dice(4, 6)));
+    expect(asleep.targets[0].rerolled).toBeUndefined();
+  });
+});

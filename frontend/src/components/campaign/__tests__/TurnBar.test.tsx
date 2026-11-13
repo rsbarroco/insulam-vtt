@@ -554,6 +554,21 @@ describe('a rogue', () => {
     await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Deflect Attacks'));
     expect(screen.queryByRole('button', { name: 'Hold Uncanny Dodge' })).toBeNull();
   });
+
+  it('holds a Fighter’s Indomitable with its uses left', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [],
+      resources: [{ name: 'Indomitable', max: 2, used: 1 }],
+    });
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Hold Indomitable (1/2)' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Indomitable'));
+  });
 });
 
 describe('the features the server counts', () => {

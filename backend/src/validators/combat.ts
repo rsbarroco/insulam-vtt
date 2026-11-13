@@ -110,6 +110,7 @@ export const CombatFeatureSchema = z
       'Step of the Wind',
       'Uncanny Dodge',
       'Deflect Attacks',
+      'Indomitable',
     ]),
     /** Cunning Action: the action it takes as a Bonus Action (Hide is `combat.check` with `bonusAction`). */
     as: z.enum(['Dash', 'Disengage']).optional(),

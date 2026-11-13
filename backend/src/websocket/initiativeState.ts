@@ -94,9 +94,11 @@ export interface CombatState {
  * Barbarian (both ids) attacks recklessly, until the start of its next turn.
  * Uncanny: the Rogue (both ids) holds its reaction for Uncanny Dodge, until a
  * hit uses it or it lets it go. Deflect: the same, for a Monk's Deflect Attacks.
+ * Indomitable: the Fighter (both ids) holds a use of Indomitable for its next
+ * failed saving throw.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -163,6 +165,7 @@ export function advanceTurn(state: CombatState): void {
       mark.kind === 'concentration' ||
       mark.kind === 'uncanny' ||
       mark.kind === 'deflect' ||
+      mark.kind === 'indomitable' ||
       mark.attackerId !== state.currentTokenId
   );
 }

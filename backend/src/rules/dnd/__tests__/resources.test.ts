@@ -32,7 +32,15 @@ describe('resourcesOf', () => {
     expect(resourcesOf(fighter(17)).map((r) => [r.name, r.max])).toEqual([
       ['Second Wind', 4],
       ['Action Surge', 2],
+      ['Indomitable', 3],
     ]);
+  });
+
+  it('gives a Fighter Indomitable from level 9: one use, two from 13, three from 17, back on a Long Rest', () => {
+    const indomitable = (level: number) => resourcesOf(fighter(level)).find((r) => r.name === 'Indomitable');
+    expect(indomitable(8)).toBeUndefined();
+    expect(indomitable(9)).toEqual({ name: 'Indomitable', max: 1, used: 0, shortRest: 'none' });
+    expect(indomitable(13)?.max).toBe(2);
   });
 
   it('gives a Barbarian its Rages, and a gestalt character both', () => {

@@ -33,7 +33,7 @@ import { rollDie, savingThrow } from '../../rules/dnd/d20';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import { resolveFall } from '../../rules/dnd/falling';
 import { longRest, spendHitDie } from '../../rules/dnd/rests';
-import { bardicDie, POINT_RESOURCES, rageDamage, resourcesOf, restoreResources, secondWindBonus, spendResource, type ResourceName } from '../../rules/dnd/resources';
+import { bardicDie, classLevel, POINT_RESOURCES, rageDamage, resourcesOf, restoreResources, secondWindBonus, spendResource, type ResourceName } from '../../rules/dnd/resources';
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
@@ -830,6 +830,33 @@ function useSneakAttack(campaignId: string, tokenId: string): void {
 
 /** The turn each campaign's last Action Surge was used in: once a turn. */
 const actionSurges = new Map<string, { tokenId: string; round: number }>();
+
+/** A Fighter's Indomitable, held ready with a use left: the bonus its reroll adds (the Fighter level). */
+function indomitableFor(campaignId: string, token: Token, sheet: Record<string, unknown> | null): { indomitable?: number } {
+  if (!sheet || !getCombatState(campaignId).marks.some((mark) => mark.kind === 'indomitable' && mark.attackerId === token.id)) return {};
+  const uses = resourcesOf(sheet).find((entry) => entry.name === 'Indomitable');
+  return uses && uses.used < uses.max ? { indomitable: classLevel(sheet, 'Fighter') } : {};
+}
+
+/** Spend the use of Indomitable a reroll took, and let the held mark go. */
+async function useIndomitable(campaignId: string, token: Token): Promise<void> {
+  const combat = getCombatState(campaignId);
+  combat.marks = combat.marks.filter((mark) => !(mark.kind === 'indomitable' && mark.attackerId === token.id));
+  setCombatState(campaignId, combat);
+  const characterId = token.characterId;
+  if (!characterId) return;
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+    const fresh = await tx.character.findUnique({ where: { id: characterId } });
+    const spent = fresh ? spendResource((fresh.data ?? {}) as Record<string, unknown>, 'Indomitable') : null;
+    return spent?.ok ? tx.character.update({ where: { id: characterId }, data: { data: toJson(spent.sheet) } }) : null;
+  });
+  if (updated) {
+    await bestEffort('sheet after Indomitable', () =>
+      emitCharacterUpdated(campaignId, updated, { characterId, userId: updated.userId, tokensChanged: false })
+    );
+  }
+}
 
 /** The reactions a creature can hold ready for the next hit on it, by the mark each leaves. */
 const HELD_REACTIONS = { 'Uncanny Dodge': 'uncanny', 'Deflect Attacks': 'deflect' } as const;
@@ -1961,7 +1988,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Uncanny Dodge` holds the Rogue's reaction ready, or lets it go: the next hit from an attacker it can see deals half damage and spends it. `Deflect Attacks` does the same for a Monk: the next hit that deals Bludgeoning, Piercing or Slashing damage is reduced by 1d10 + its Dexterity modifier + its Monk level. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Uncanny Dodge` holds the Rogue's reaction ready, or lets it go: the next hit from an attacker it can see deals half damage and spends it. `Indomitable` holds a Fighter's use for its next failed save in `combat.save`, rerolled with its Fighter level added. `Deflect Attacks` does the same for a Monk: the next hit that deals Bludgeoning, Piercing or Slashing damage is reduced by 1d10 + its Dexterity modifier + its Monk level. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1991,6 +2018,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const combat = getCombatState(campaignId);
       const ownTurn = someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn !== null;
+      // Indomitable: a use held for the Fighter's next failed save the server rolls, or let go.
+      if (feature === 'Indomitable') {
+        if (!combat.active) return refuseRequest(socket, ack, 'Indomitable is held ready during combat');
+        const uses = resourcesOf(ownSheet).find((entry) => entry.name === 'Indomitable');
+        if (!uses) return refuseRequest(socket, ack, `${token.name} has no Indomitable`);
+        const held = combat.marks.some((mark) => mark.kind === 'indomitable' && mark.attackerId === tokenId);
+        if (!held && uses.used >= uses.max) return refuseRequest(socket, ack, `No uses of Indomitable left until a rest`);
+        combat.marks = held
+          ? combat.marks.filter((mark) => !(mark.kind === 'indomitable' && mark.attackerId === tokenId))
+          : [...combat.marks, { kind: 'indomitable', attackerId: tokenId, targetId: tokenId, turnEndsLeft: 1 }];
+        setCombatState(campaignId, combat);
+        await resendInitiativeState(io, campaignId);
+        const summary = held ? `${token.name} no longer holds Indomitable ready` : `${token.name} holds Indomitable ready`;
+        ack?.({ ok: true, summary, left: uses.max - uses.used });
+        return;
+      }
       // Uncanny Dodge, Deflect Attacks: the reaction is held for the next hit it answers, or let go.
       // One reaction: holding one lets the other go.
       if (feature === 'Uncanny Dodge' || feature === 'Deflect Attacks') {
@@ -2521,6 +2564,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         targets: targetTokens.map((token, index) => ({
           ...combatant(token, targetSheets[index], getCombatState(campaignId).dodging, isRaging(campaignId, token.id)),
           saveBonus: saveBonusOf(token, targetSheets[index], ability),
+          ...indomitableFor(campaignId, token, targetSheets[index]),
         })),
         action,
         board: {
@@ -2539,6 +2583,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       spendRecharge(campaignId, sourceId, action);
+      // A target whose Indomitable rerolled its save spends the use.
+      for (const [index, target] of result.targets.entries()) {
+        if (target.rerolled) await useIndomitable(campaignId, targetTokens[index]);
+      }
       const concentrating = action.spell ? findSpell(action.name) : null;
       if (concentrating?.concentration) startConcentration(campaignId, sourceId, concentrating.name);
       const endured = await applyDealt(
