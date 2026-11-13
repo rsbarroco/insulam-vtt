@@ -219,6 +219,8 @@ const attackSchema = z.object({
   properties: z.array(z.string().max(60)).max(DND5E_WEAPON_PROPERTIES_MAX).optional(),
   notes: longText.optional(),
   additionalDamage: z.array(additionalDamageSchema).max(DND5E_ATTACK_DAMAGE_ROLLS_MAX).optional(),
+  // The character uses this weapon's mastery property (Weapon Mastery).
+  useMastery: z.boolean().optional(),
 });
 
 /**

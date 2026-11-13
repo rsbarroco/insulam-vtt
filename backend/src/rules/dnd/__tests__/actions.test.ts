@@ -96,7 +96,14 @@ describe('actionFromSheetAttack', () => {
       cost: 'action',
       source: 'sheet',
       attack: { kind: 'melee', bonus: 5, reachFeet: 5, damage: [{ roll: { count: 1, sides: 8, bonus: 3 }, type: 'slashing' }] },
+      weapon: 'Longsword',
     });
+  });
+
+  it('carries the weapon’s mastery when the sheet marks it as used', () => {
+    expect(actionFromSheetAttack({ name: 'Maul', attackBonus: 5, damageRoll: '2d6+3', useMastery: true }).mastery).toBe('Topple');
+    expect(actionFromSheetAttack({ name: 'Maul', attackBonus: 5, damageRoll: '2d6+3' }).mastery).toBeUndefined();
+    expect(actionFromSheetAttack({ name: 'Claw', attackBonus: 5, damageRoll: '1d6', useMastery: true }).mastery).toBeUndefined();
   });
 
   it('gives a Reach weapon 10 feet', () => {

@@ -47,4 +47,21 @@ describe('adding an SRD weapon', () => {
     expect(screen.getByLabelText('Attack Bonus')).toHaveValue(4);
     expect(screen.getByLabelText('Damage Roll')).toHaveValue('1d8+4');
   });
+
+  it('offers an SRD weapon’s mastery to mark as used, and nothing for another attack', () => {
+    open({
+      stats: stats(3, 1),
+      proficiencyBonus: 2,
+      attacks: [
+        { name: 'Maul', attackBonus: 5, damageRoll: '2d6+3', damageType: 'bludgeoning', range: 5, properties: [], notes: '' },
+        { name: 'Bite', attackBonus: 5, damageRoll: '1d6', damageType: 'piercing', range: 5, properties: [], notes: '' },
+      ],
+    });
+
+    const box = screen.getByRole('checkbox', { name: 'Uses its mastery: Topple' });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    expect(box).toBeChecked();
+    expect(screen.getAllByRole('checkbox', { name: /Uses its mastery/ })).toHaveLength(1);
+  });
 });

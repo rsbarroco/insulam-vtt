@@ -12,7 +12,7 @@
 // its text and nothing else, and is the table's to resolve.
 // ============================================
 
-import { findSrdWeapon } from '../../utils/srdWeapons';
+import { findSrdWeapon, type WeaponMastery } from '../../utils/srdWeapons';
 import type { Ability } from './conditions';
 import { DAMAGE_TYPES, type DamageRoll, type DamageType, type Defences } from './damage';
 
@@ -64,6 +64,10 @@ export interface CombatAction {
   spell?: { id: string; level: number };
   /** The action as written, for the table to read and for what could not be read here. */
   text?: string;
+  /** The weapon's mastery property, when the sheet marks it as one its character uses. */
+  mastery?: WeaponMastery;
+  /** The SRD weapon a sheet attack is made with. */
+  weapon?: string;
 }
 
 /** An area of effect, by the shapes the rules name. `sizeFeet` is the radius of a sphere, cylinder or emanation, and the length of a cone, cube or line. */
@@ -146,6 +150,8 @@ export interface SheetAttack {
   /** Feet. */
   range?: number;
   properties?: string[];
+  /** The character uses this weapon's mastery property (it has Weapon Mastery and chose this kind of weapon). */
+  useMastery?: boolean;
   additionalDamage?: Array<{ label?: string; damageRoll?: string; damageType?: string }>;
 }
 
@@ -187,7 +193,15 @@ export function actionFromSheetAttack(written: SheetAttack): CombatAction {
     ? { kind: 'ranged', bonus: attack.attackBonus, rangeFeet: propertyRange(attack) ?? { normal: range || 5, long: null }, damage }
     : { kind: 'melee', bonus: attack.attackBonus, reachFeet: hasProperty(attack, 'reach') ? 10 : range > 5 && range <= 10 ? range : 5, damage };
   if (hasProperty(attack, 'heavy')) profile.heavy = true;
-  return { name: attack.name, cost: 'action', source: 'sheet', attack: profile };
+  const srd = findSrdWeapon(written.name);
+  return {
+    name: attack.name,
+    cost: 'action',
+    source: 'sheet',
+    attack: profile,
+    ...(srd ? { weapon: srd.name } : {}),
+    ...(srd && written.useMastery ? { mastery: srd.mastery } : {}),
+  };
 }
 
 /**
