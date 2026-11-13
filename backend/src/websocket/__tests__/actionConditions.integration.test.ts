@@ -13,7 +13,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { prisma } from '../../config/database';
 import { toJson } from '../../utils/prisma-json';
 import { createWsTestServer, WsTestServer } from '../../__tests__/helpers/websocket-test-server';
-import { clearState } from '../initiativeState';
+import { clearState, getState, setState, type CombatantEntry } from '../initiativeState';
 import * as d20 from '../../rules/dnd/d20';
 
 jest.setTimeout(20000);
@@ -99,6 +99,11 @@ const devilBlock = {
       name: 'Chain',
       description:
         'Melee Attack Roll: +7, reach 10 ft. Hit: 11 (2d6 + 4) Slashing damage. If the target is a Large or smaller creature, it has the Grappled condition (escape DC 14) from one of two chains, and it has the Restrained condition until the grapple ends.',
+    },
+    {
+      name: 'Sting',
+      description:
+        "Melee Attack Roll: +7, reach 5 ft. Hit: 7 (1d6 + 4) Piercing damage, and the target has the Poisoned condition until the start of the devil's next turn.",
     },
     {
       name: 'Glare',
@@ -282,11 +287,54 @@ describe('conditions an action gives', () => {
 
   it('a failed save frightens', async () => {
     rolls = [2];
-    const save = await ask(dm, 'combat.save', { sourceId: DEVIL, targetIds: [HERO], action: 1 });
+    const save = await ask(dm, 'combat.save', { sourceId: DEVIL, targetIds: [HERO], action: 2 });
     expect(save.ok).toBe(true);
     expect(save.summary).toContain(
       "Hero has the Frightened condition until the end of the devil's next turn"
     );
     expect(await heroConditions()).toEqual(['Frightened']);
+  });
+
+  it('takes a timed condition off when the turn it names starts', async () => {
+    const entry = (tokenId: string, name: string, initiative: number): CombatantEntry => ({
+      tokenId,
+      mapId,
+      name,
+      imageUrl: '',
+      initiative,
+      hp: null,
+      type: 'npc',
+      disposition: null,
+    });
+    setState(campaignId, {
+      active: true,
+      round: 1,
+      currentTokenId: DEVIL,
+      combatants: [entry(DEVIL, 'Chain Devil', 20), entry(HERO, 'Hero', 10)],
+    });
+    rolls = [15, 3];
+    const sting = await ask(dm, 'combat.attack', { attackerId: DEVIL, targetId: HERO, action: 1 });
+    expect(sting.summary).toContain(
+      "Hero has the Poisoned condition until the start of the devil's next turn"
+    );
+    expect(getState(campaignId).marks).toEqual([
+      {
+        kind: 'condition',
+        attackerId: DEVIL,
+        targetId: HERO,
+        condition: 'Poisoned',
+        ends: 'start',
+        turnEndsLeft: 1,
+      },
+    ]);
+
+    dm.emit('initiative.next');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await heroConditions()).toEqual(['Poisoned']);
+    dm.emit('initiative.next');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(getState(campaignId).currentTokenId).toBe(DEVIL);
+    expect(await heroConditions()).toEqual([]);
+    expect(getState(campaignId).marks).toEqual([]);
   });
 });

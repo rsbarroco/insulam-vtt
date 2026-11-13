@@ -26,6 +26,7 @@ import {
   sortCombatants,
   withoutCombatants,
   advanceTurn,
+  endedConditions,
   freshTurn,
   someoneActing,
   projectCombatState,
@@ -39,7 +40,7 @@ import {
   type CombatantSource,
 } from '../initiativeState';
 import { bestEffort, campaignSockets, getSocketInstance, stillInCampaign } from '../utils';
-import { stateRequestAllowed, withinCeiling } from '../shared';
+import { broadcastMapData, stateRequestAllowed, withinCeiling } from '../shared';
 import { TurnEndSchema, TurnUpdateSchema } from '../../validators/turn';
 
 /** What a send needs of a socket; a connected one and a fetched one both have it. */
@@ -199,6 +200,45 @@ async function sentToEveryPlayer(campaignId: string, token: ReturnType<typeof re
   if (campaign?.currentMapId !== mapId) return false;
   const spiritVisibility = await getSpiritVisibilityBatch(campaignId, members.map((m) => m.userId));
   return members.every((m) => filterTokensByRole([token], m.role, spiritVisibility.get(m.userId) ?? false, m.userId).length > 0);
+}
+
+/**
+ * Take off their tokens the conditions whose time is up: a condition an
+ * action gave "until the start of the ogre's next turn" ends as that turn
+ * starts. Each map the fight is on is changed under its lock and sent again.
+ */
+async function takeOffEndedConditions(
+  io: Server,
+  campaignId: string,
+  state: { combatants: ReadonlyArray<{ tokenId: string; mapId: string }> },
+  ended: ReadonlyArray<{ tokenId: string; condition: string }>
+): Promise<void> {
+  if (ended.length === 0) return;
+  const byMap = new Map<string, Array<{ tokenId: string; condition: string }>>();
+  for (const entry of ended) {
+    const mapId = state.combatants.find((c) => c.tokenId === entry.tokenId)?.mapId;
+    if (mapId) byMap.set(mapId, [...(byMap.get(mapId) ?? []), entry]);
+  }
+  for (const [mapId, entries] of byMap) {
+    await bestEffort('conditions whose time is up', async () => {
+      const updated = await withMapsLocked([mapId], async (tx) => {
+        const fresh = await tx.map.findUnique({ where: { id: mapId } });
+        if (!fresh) return null;
+        const list = readTokens(fresh.tokens);
+        let changed = false;
+        for (const { tokenId, condition } of entries) {
+          const token = list.find((t) => t.id === tokenId);
+          const kept = (token?.conditions ?? []).filter((name) => name.toLowerCase() !== condition.toLowerCase());
+          if (token && kept.length !== (token.conditions ?? []).length) {
+            token.conditions = kept;
+            changed = true;
+          }
+        }
+        return changed ? tx.map.update({ where: { id: mapId }, data: { tokens: toJson(list) } }) : null;
+      });
+      if (updated) await broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]);
+    });
+  }
 }
 
 export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSocket): void {
@@ -669,8 +709,10 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       const state = getCombatState(socket.campaignId);
       if (!state.active || state.combatants.length === 0) { socket.emit('error', { message: 'Combat is not active' }); return; }
 
+      const marksBefore = state.marks;
       advanceTurn(state);
       setCombatState(socket.campaignId, state);
+      await takeOffEndedConditions(io, socket.campaignId, state, endedConditions(marksBefore, getCombatState(socket.campaignId).marks));
       await broadcastInitiativeState(socket.campaignId);
       logger.debug('initiative.next', { round: state.round, current: state.currentTokenId, campaignId: socket.campaignId });
     } catch (error) {
@@ -786,8 +828,10 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       // on, passes one turn and not two.
       const state = getCombatState(socket.campaignId);
       if (!someoneActing(state) || state.currentTokenId !== tokenId) return;
+      const marksBefore = state.marks;
       advanceTurn(state);
       setCombatState(socket.campaignId, state);
+      await takeOffEndedConditions(io, socket.campaignId, state, endedConditions(marksBefore, getCombatState(socket.campaignId).marks));
       await broadcastInitiativeState(socket.campaignId);
       logger.debug('turn.end', { round: state.round, current: state.currentTokenId, campaignId: socket.campaignId });
     } catch (error) {

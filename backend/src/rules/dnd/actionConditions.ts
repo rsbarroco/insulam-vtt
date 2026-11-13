@@ -85,6 +85,20 @@ export function conditionsOnFailure(text: string): ConditionRider[] {
   return failure ? conditionsIn(failure[1]) : [];
 }
 
+/**
+ * When a rider's condition ends, if the text ties it to a turn: as the start
+ * or the end of the next turn of the source ("the assassin's next turn") or
+ * of the target itself ("its next turn"). Null for any other duration.
+ */
+export function turnLimit(
+  rider: ConditionRider
+): { ends: 'start' | 'end'; whose: 'source' | 'target' } | null {
+  const found = /^(start|end) of (?:the )?(.+?)(?:['’]s)? next turn$/i.exec(rider.until ?? '');
+  if (!found) return null;
+  const whose = /^(its|their)$/i.test(found[2].trim()) ? 'target' : 'source';
+  return { ends: found[1].toLowerCase() as 'start' | 'end', whose };
+}
+
 /** The size a token of so many squares across is taken to be: one square is Medium. */
 export function sizeOfSquares(squares: number): Size {
   if (squares >= 4) return 'Gargantuan';

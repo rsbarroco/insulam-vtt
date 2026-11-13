@@ -46,7 +46,7 @@ import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
-import { conditionsOnFailure, conditionsOnHit, fits, sizeOfSquares, type ConditionRider } from '../../rules/dnd/actionConditions';
+import { conditionsOnFailure, conditionsOnHit, fits, sizeOfSquares, turnLimit, type ConditionRider } from '../../rules/dnd/actionConditions';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
 /** The one system whose rules the engine knows. */
@@ -604,11 +604,33 @@ async function healToken(io: Server, campaignId: string, mapId: string, token: T
  * Give a creature the conditions an action's text gives it, those its size
  * allows, and say so for the log: "Ogre has the Grappled condition".
  */
-async function applyRiders(io: Server, campaignId: string, mapId: string, target: Token, riders: ConditionRider[]): Promise<string[]> {
+async function applyRiders(
+  io: Server,
+  campaignId: string,
+  mapId: string,
+  source: Token,
+  target: Token,
+  riders: ConditionRider[]
+): Promise<string[]> {
   const size = sizeOfSquares(Math.max(target.size?.width ?? 1, target.size?.height ?? 1));
   const lines: string[] = [];
   for (const rider of riders.filter((entry) => fits(entry, size))) {
     await giveCondition(io, campaignId, mapId, target.id, rider.condition);
+    // A condition tied to a turn is kept as a mark, and taken off when that turn starts or ends.
+    const limit = turnLimit(rider);
+    const combat = getCombatState(campaignId);
+    if (limit && combat.active) {
+      const whose = limit.whose === 'source' ? source.id : target.id;
+      const others = combat.marks.filter(
+        (mark) => !(mark.kind === 'condition' && mark.targetId === target.id && mark.condition === rider.condition)
+      );
+      const ownTurn = combat.currentTokenId === whose;
+      combat.marks = [
+        ...others,
+        { kind: 'condition', attackerId: whose, targetId: target.id, condition: rider.condition, ends: limit.ends, turnEndsLeft: limit.ends === 'end' && ownTurn ? 2 : 1 },
+      ];
+      setCombatState(campaignId, combat);
+    }
     lines.push(`${target.name} has the ${rider.condition} condition${rider.until ? ` until the ${rider.until}` : ''}`);
   }
   return lines;
@@ -1223,7 +1245,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       // A stat block's hit can leave a condition: a grapple, a poison, a fall.
       const riders =
         action.source === 'statBlock' && result.outcome.hit && !result.dropped
-          ? await applyRiders(io, campaignId, map.id, targetToken, conditionsOnHit(action.text ?? ''))
+          ? await applyRiders(io, campaignId, map.id, attackerToken, targetToken, conditionsOnHit(action.text ?? ''))
           : [];
       // What the turn remembers for the extra attacks that follow.
       if (record && !offer && turnNow.currentTokenId === attackerId) {
@@ -1859,7 +1881,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (action.source === 'statBlock') {
         const written = conditionsOnFailure(action.text ?? '');
         for (const [index, target] of result.targets.entries()) {
-          if (!target.outcome.success && !target.dropped) riders.push(...(await applyRiders(io, campaignId, map.id, targetTokens[index], written)));
+          if (!target.outcome.success && !target.dropped) riders.push(...(await applyRiders(io, campaignId, map.id, sourceToken, targetTokens[index], written)));
         }
       }
       // What a failed save against an Unarmed Strike leaves the target with.

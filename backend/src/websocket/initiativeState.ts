@@ -81,13 +81,18 @@ export interface CombatState {
  * (`attackerId`) makes against the target has Advantage, until the helper's
  * next turn starts. Ready: the attacker has readied an attack against the
  * target, to be made with its reaction when the trigger comes, until its next
- * turn starts.
+ * turn starts. Condition: a condition an action gave the target lasts until
+ * the start, or the end, of the `attackerId` creature's next turn; the server
+ * takes it off the token then.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
+  /** For a `condition` mark: the condition, and whether it ends as that turn starts or ends. */
+  condition?: string;
+  ends?: 'start' | 'end';
 }
 
 /** The combat state as a member is sent it: an offered attack without where its target stood. */
@@ -119,10 +124,9 @@ export function freshTurn(): TurnState {
 export function advanceTurn(state: CombatState): void {
   // The turn that ends counts down a Vex its combatant made.
   const ending = state.currentTokenId;
+  const countsEnds = (mark: WeaponMark) => mark.kind === 'vex' || mark.kind === 'rage' || (mark.kind === 'condition' && mark.ends === 'end');
   state.marks = state.marks
-    .map((mark) =>
-      (mark.kind === 'vex' || mark.kind === 'rage') && mark.attackerId === ending ? { ...mark, turnEndsLeft: mark.turnEndsLeft - 1 } : mark
-    )
+    .map((mark) => (countsEnds(mark) && mark.attackerId === ending ? { ...mark, turnEndsLeft: mark.turnEndsLeft - 1 } : mark))
     .filter((mark) => mark.turnEndsLeft > 0);
   const nextIndex = state.combatants.findIndex((c) => c.tokenId === state.currentTokenId) + 1;
   if (nextIndex >= state.combatants.length) {
@@ -137,8 +141,21 @@ export function advanceTurn(state: CombatState): void {
   state.opportunities = [];
   // Sap, Slow, Help and a readied attack last until the start of the attacker's next turn.
   state.marks = state.marks.filter(
-    (mark) => mark.kind === 'vex' || mark.kind === 'rage' || mark.attackerId !== state.currentTokenId
+    (mark) => countsEnds(mark) || mark.attackerId !== state.currentTokenId
   );
+}
+
+/** The conditions whose marks a change of the marks has ended: they come off their tokens. */
+export function endedConditions(before: readonly WeaponMark[], after: readonly WeaponMark[]): Array<{ tokenId: string; condition: string }> {
+  return before
+    .filter((mark) => mark.kind === 'condition' && mark.condition)
+    .filter(
+      (mark) =>
+        !after.some(
+          (kept) => kept.kind === 'condition' && kept.attackerId === mark.attackerId && kept.targetId === mark.targetId && kept.condition === mark.condition
+        )
+    )
+    .map((mark) => ({ tokenId: mark.targetId, condition: mark.condition! }));
 }
 
 const campaignStates = new Map<string, CombatState>();
