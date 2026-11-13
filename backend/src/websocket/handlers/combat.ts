@@ -44,6 +44,7 @@ import { attacksPerAction, featureOptions, hasFeature, readFeatures } from '../.
 import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
+import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd/smites';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
 import { onTurnEnd, onTurnStart } from '../turnHooks';
@@ -1328,6 +1329,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           features: featureOptions(features),
           // A Barbarian's Reckless Attack, offered with the first attack roll of its turn.
           reckless: sheet ? hasFeature(features, 'Reckless Attack') : false,
+          // Divine Smite: the slot levels it could be cast with, when the sheet has it ready.
+          divineSmite: sheet && hasDivineSmite(sheet as SheetSpellcasting) ? Object.keys(slots).map(Number) : [],
           // The class features it spends and gets back on a rest, with what is left.
           resources: sheet ? resourcesOf(sheet).map(({ name, max, used }) => ({ name, max, used })) : [],
           // The spell it concentrates on, and those it could.
@@ -1347,7 +1350,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1357,7 +1360,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless } = parsed.data;
+      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, smite } = parsed.data;
       if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
       if (readied && (opportunity || extra)) return refuseRequest(socket, ack, 'A readied attack is made on its own');
       // A readied attack is the one readied: its action, against its target, while the mark lasts.
@@ -1413,6 +1416,19 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           ack,
           `${attackerToken.name} has made its ${allowed === 1 ? 'attack' : `${allowed} attacks`} with the Attack action this turn`
         );
+      }
+
+      // Divine Smite, asked with the attack: a Bonus Action on the Paladin's own turn, with a slot it has left.
+      if (smite !== undefined) {
+        if (!attackerSheet || !hasDivineSmite(attackerSheet as SheetSpellcasting)) {
+          return refuseRequest(socket, ack, `${attackerToken.name} has no Divine Smite prepared`);
+        }
+        if (!canSmiteWith(action)) return refuseRequest(socket, ack, 'Divine Smite follows a hit with a Melee weapon or an Unarmed Strike');
+        if (turnNow.active && !acting) return refuseRequest(socket, ack, 'Divine Smite is a Bonus Action, taken on your own turn');
+        if (acting?.bonusAction) return refuseRequest(socket, ack, `${attackerToken.name} has used its Bonus Action this turn`);
+        const left = slotsLeft(attackerSheet as SheetSpellcasting)[smite] ?? 0;
+        const castSlot = cast.slotLevel === smite ? 1 : 0;
+        if (left - castSlot <= 0) return refuseRequest(socket, ack, `No level ${smite} spell slot left for Divine Smite`);
       }
 
       // Reckless Attack is decided with the first attack roll of the Barbarian's own turn.
@@ -1577,6 +1593,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         unseen: lit,
         extraReasons,
         ...(uncanny ? { halveDamage: 'Uncanny Dodge' } : {}),
+        ...(smite !== undefined
+          ? {
+              hitDamage: [
+                {
+                  label: `Divine Smite (level ${smite})`,
+                  damage: divineSmiteDamage(smite, (targetToken.statBlock as { creatureType?: string } | undefined)?.creatureType),
+                },
+              ],
+            }
+          : {}),
         bonusDamage: sneakDice > 0 ? sneakAttack : undefined,
         savage,
         greatWeapon: greatWeaponFighting(attackerFeatures, action),
@@ -1598,6 +1624,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       // The slot goes before the damage: a cast that finds it gone changes nothing.
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, attackerToken.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
+      }
+      // Divine Smite takes its slot and the Bonus Action only when the attack hits.
+      if (smite !== undefined && result.outcome.hit) {
+        if (!(await spendSlot(campaignId, socket.userId, attackerToken.characterId!, smite))) {
+          return refuseRequest(socket, ack, `No level ${smite} spell slot left for Divine Smite`);
+        }
+        spendBonusAction(campaignId, attackerId);
       }
 
       const endured = await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);

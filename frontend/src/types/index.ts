@@ -1726,6 +1726,8 @@ export type CombatActionsAck =
       concentrationSpells?: string[];
       /** A Barbarian's Reckless Attack, decided with the first attack roll of its turn. */
       reckless?: boolean;
+      /** Divine Smite: the spell slot levels it could be cast with on a hit; empty without it. */
+      divineSmite?: number[];
     }
   | { ok: false; error: string };
 
@@ -1747,6 +1749,8 @@ export interface CombatAttackEvent {
   legendary?: number;
   /** Attack recklessly: Advantage on Strength attacks, and attacks against it, until its next turn. */
   reckless?: true;
+  /** Divine Smite on a hit, with a spell slot of this level: spent only if the attack hits. */
+  smite?: number;
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }

@@ -67,6 +67,8 @@ export interface AttackRequest {
   savage?: boolean;
   /** Great Weapon Fighting: a 1 or 2 on a damage die counts as a 3. */
   greatWeapon?: boolean;
+  /** Damage spells cast on a hit add, whatever the roll's mode: Divine Smite. Their dice are doubled on a Critical Hit. */
+  hitDamage?: ReadonlyArray<{ label: string; damage: DamageComponent }>;
   /** A reaction of the target's that halves a hit's damage (round down), by name: "Uncanny Dodge". */
   halveDamage?: string;
 }
@@ -184,6 +186,10 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     if (bonus) {
       bonuses.push(bonus.label);
       damage.push({ type: bonus.damage.type, rolled: rollDamage(bonus.damage.roll, outcome.critical, dieRoll) });
+    }
+    for (const extra of request.hitDamage ?? []) {
+      bonuses.push(extra.label);
+      damage.push({ type: extra.damage.type, rolled: rollDamage(extra.damage.roll, outcome.critical, dieRoll) });
     }
     // Each line meets the target's defences on its own; damage of no named
     // type meets none.

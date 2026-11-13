@@ -252,3 +252,15 @@ describe('a reaction that halves the damage', () => {
     expect(result.halvedBy).toBeUndefined();
   });
 });
+
+describe('damage a spell adds on a hit', () => {
+  it('adds the dice, doubled on a Critical Hit, and names it', () => {
+    const smite = { label: 'Divine Smite (level 1)', damage: { roll: { count: 2, sides: 8 }, type: 'radiant' as const } };
+    const hit = ok(resolveAttack(request({ hitDamage: [smite] }), dice(12, 6, 3, 4)));
+    expect(hit.dealt).toBe(16);
+    expect(hit.bonuses).toEqual(['Divine Smite (level 1)']);
+    const crit = ok(resolveAttack(request({ hitDamage: [smite] }), dice(20, 1, 1, 1, 1, 1, 1)));
+    // 2d8 + 3 for the sword, 4d8 for the smite.
+    expect(crit.dealt).toBe(9);
+  });
+});

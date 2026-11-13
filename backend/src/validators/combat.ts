@@ -30,6 +30,8 @@ export const CombatAttackSchema = z
     legendary: z.number().int().min(0).max(199).optional(),
     /** A Barbarian's Reckless Attack, decided with the first attack roll of its turn. */
     reckless: z.literal(true).optional(),
+    /** Divine Smite on a hit, with a spell slot of this level: spent only if the attack hits. */
+    smite: z.number().int().min(1).max(9).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
