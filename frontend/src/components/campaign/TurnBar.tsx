@@ -29,6 +29,7 @@ import {
   STANDARD_ACTIONS,
 } from '@/utils/turn';
 import Button from '@/components/ui/Button';
+import CheckRoller from './CheckRoller';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
 export default function TurnBar() {
@@ -48,6 +49,7 @@ export default function TurnBar() {
     tokenId: string;
     attacksPerAction: number | null;
     features: CombatFeatureOption[];
+    passivePerception: number | null;
   } | null>(null);
   const [showFeatures, setShowFeatures] = useState(false);
   // The melee attacks to choose between for an Opportunity Attack, once asked.
@@ -72,6 +74,7 @@ export default function TurnBar() {
               tokenId: watching,
               attacksPerAction: answer.attacksPerAction,
               features: answer.features,
+              passivePerception: answer.passivePerception ?? null,
             }
           : null
       );
@@ -288,6 +291,16 @@ export default function TurnBar() {
           </span>
         );
       })}
+
+      {canAct && (
+        <CheckRoller
+          tokenId={actingId}
+          name={actingName}
+          passivePerception={known?.passivePerception ?? null}
+          resolve={(check) => socket.resolveCheck(check)}
+          onResult={showToast}
+        />
+      )}
 
       {features.length > 0 && (
         <span className="relative">

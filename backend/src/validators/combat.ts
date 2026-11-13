@@ -42,6 +42,33 @@ export const CombatSaveSchema = z
 /** `combat.fall`: a token that has fallen, and how far in feet. */
 export const CombatFallSchema = z.object({ tokenId, feet: z.number().int().min(10).max(5000) }).strict();
 
+const ABILITIES = ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const;
+const SKILLS = [
+  'acrobatics', 'animalHandling', 'arcana', 'athletics', 'deception', 'history', 'insight', 'intimidation', 'investigation',
+  'medicine', 'nature', 'perception', 'performance', 'persuasion', 'religion', 'sleightOfHand', 'stealth', 'survival',
+] as const;
+
+/**
+ * `combat.check`: an ability check a token makes. One of a skill, a bare
+ * ability, or the Hide action (a Dexterity (Stealth) check against DC 15).
+ */
+export const CombatCheckSchema = z
+  .object({
+    tokenId,
+    skill: z.enum(SKILLS).optional(),
+    ability: z.enum(ABILITIES).optional(),
+    /** The Hide action: Stealth against DC 15, and the Invisible condition on a success. */
+    hide: z.literal(true).optional(),
+    /** The Difficulty Class, when the table set one. */
+    dc: z.number().int().min(1).max(40).optional(),
+    mode: z.enum(['normal', 'advantage', 'disadvantage']).optional(),
+  })
+  .strict()
+  .refine((check) => [check.skill, check.ability, check.hide].filter((given) => given !== undefined).length === 1, {
+    message: 'A check names one skill, one ability, or the Hide action',
+  })
+  .refine((check) => !(check.hide && check.dc !== undefined), { message: 'The Hide action has its own DC' });
+
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();
 

@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
   rollDeathSave: vi.fn(),
   resolveAttack: vi.fn(),
   standUp: vi.fn(),
+  resolveCheck: vi.fn(),
   listCombatActions: vi.fn(),
   showToast: vi.fn(),
 }));
@@ -30,6 +31,7 @@ const socket = {
   rollDeathSave: (...args: unknown[]) => h.rollDeathSave(...args),
   resolveAttack: (...args: unknown[]) => h.resolveAttack(...args),
   standUp: (...args: unknown[]) => h.standUp(...args),
+  resolveCheck: (...args: unknown[]) => h.resolveCheck(...args),
   listCombatActions: (...args: unknown[]) => h.listCombatActions(...args),
 };
 vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({ socket }) }));

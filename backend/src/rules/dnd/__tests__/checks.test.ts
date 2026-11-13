@@ -1,0 +1,84 @@
+import { checkModifiers, passiveScore, resolveCheck, SKILL_CHECKS } from '../checks';
+import { readConditions } from '../conditions';
+
+const having = (...names: string[]) => readConditions(names);
+const dice =
+  (...faces: number[]) =>
+  () =>
+    faces.shift() ?? 10;
+const check = (over: Partial<Parameters<typeof resolveCheck>[0]> = {}) => ({
+  name: 'Hero',
+  label: 'Dexterity (Stealth)',
+  bonus: 5,
+  conditions: having(),
+  ...over,
+});
+
+describe('resolveCheck', () => {
+  it('meets or beats the DC to succeed', () => {
+    expect(resolveCheck(check({ dc: 15 }), dice(10))).toMatchObject({ total: 15, success: true });
+    expect(resolveCheck(check({ dc: 15 }), dice(9))).toMatchObject({ total: 14, success: false });
+  });
+
+  it('says the roll and the verdict in one line', () => {
+    expect(resolveCheck(check({ dc: 15 }), dice(12)).summary).toBe(
+      'Hero Dexterity (Stealth) check: 17 vs DC 15: success'
+    );
+    expect(resolveCheck(check({ dc: 15 }), dice(3)).summary).toBe(
+      'Hero Dexterity (Stealth) check: 8 vs DC 15: failure'
+    );
+  });
+
+  it('gives the total alone when the table set no DC', () => {
+    const made = resolveCheck(check({ label: 'Strength', bonus: -1 }), dice(7));
+    expect(made).toMatchObject({ total: 6, success: null });
+    expect(made.summary).toBe('Hero Strength check: 6');
+  });
+
+  it('makes nothing special of a 20 or a 1', () => {
+    expect(resolveCheck(check({ dc: 30 }), dice(20)).success).toBe(false);
+    expect(resolveCheck(check({ dc: 5 }), dice(1)).success).toBe(true);
+  });
+
+  it.each(['Poisoned', 'Frightened'])('rolls with Disadvantage for a %s creature', (name) => {
+    const made = resolveCheck(check({ dc: 15, conditions: having(name) }), dice(18, 4));
+    expect(made).toMatchObject({ total: 9, success: false, reasons: [`Disadvantage: ${name}`] });
+    expect(made.roll.dice).toEqual([18, 4]);
+  });
+
+  it('cancels the table’s Advantage against a condition’s Disadvantage', () => {
+    const made = resolveCheck(
+      check({ mode: 'advantage', conditions: having('Poisoned') }),
+      dice(18, 4)
+    );
+    expect(made.roll.dice).toEqual([18]);
+    expect(made.reasons).toEqual(['Disadvantage: Poisoned', 'Advantage: granted by the table']);
+  });
+
+  it('takes 2 from the roll for each level of Exhaustion', () => {
+    expect(resolveCheck(check({ conditions: readConditions([], 3) }), dice(10)).total).toBe(9);
+  });
+});
+
+describe('checkModifiers', () => {
+  it('leaves a creature with other conditions to roll normally', () => {
+    expect(checkModifiers(having('Prone', 'Grappled'))).toEqual({
+      disadvantage: false,
+      penalty: 0,
+      reasons: [],
+    });
+  });
+});
+
+describe('the skills', () => {
+  it('are the eighteen, each on its ability', () => {
+    expect(Object.keys(SKILL_CHECKS)).toHaveLength(18);
+    expect(SKILL_CHECKS.stealth).toEqual({ ability: 'dex', name: 'Stealth' });
+    expect(SKILL_CHECKS.animalHandling).toEqual({ ability: 'wis', name: 'Animal Handling' });
+  });
+
+  it('have a passive score of 10 plus the bonus', () => {
+    expect(passiveScore(3)).toBe(13);
+    expect(passiveScore(-1)).toBe(9);
+  });
+});
