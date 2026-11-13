@@ -126,7 +126,8 @@ describe('POST /api/campaigns/:campaignId/rules/dnd/build', () => {
   it('builds a sheet the character route accepts', async () => {
     const res = await player.post(`/api/campaigns/${campaignId}/rules/dnd/build`).send(choices);
     expect(res.status).toBe(200);
-    expect(res.body.summary).toMatchObject({ hitPoints: 36, proficiencyBonus: 2, feats: ['Alert', 'Grappler'] });
+    // 36 from the classes, and a Dwarf's Dwarven Toughness: 1 a level.
+    expect(res.body.summary).toMatchObject({ hitPoints: 40, proficiencyBonus: 2, feats: ['Alert', 'Grappler'] });
     expect(res.body.sheet.class).toBe('Fighter / Wizard');
 
     const saved = await player.post('/api/characters').send({ name: 'Brann', gameSystem: 'DND_5E', campaignId, data: res.body.sheet });
