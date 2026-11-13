@@ -1749,7 +1749,17 @@ export interface CombatResource {
 }
 
 /** `combat.feature`: a class feature the server applies when it is used. */
-export type CombatFeatureName = 'Second Wind' | 'Action Surge' | 'Rage' | 'End Rage';
+export type CombatFeatureName =
+  | 'Second Wind'
+  | 'Action Surge'
+  | 'Rage'
+  | 'End Rage'
+  | 'Bardic Inspiration'
+  | 'Channel Divinity'
+  | 'Wild Shape'
+  | 'Focus Points'
+  | 'Sorcery Points'
+  | 'Favored Enemy';
 export type CombatFeatureAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
 
 /** `combat.stand`: a Prone token got up. */

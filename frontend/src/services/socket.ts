@@ -778,9 +778,10 @@ class SocketClient {
     return this.askFor<CombatRestAck>('combat.rest', { characterId, kind }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
-  /** A token's character uses Second Wind or Action Surge; the server spends the use and applies it. */
-  useFeature(tokenId: string, feature: CombatFeatureName): Promise<CombatFeatureAck> {
-    return this.askFor<CombatFeatureAck>('combat.feature', { tokenId, feature }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  /** A token's character uses a class feature with uses; the server spends the use (or `amount` points) and applies what it can. */
+  useFeature(tokenId: string, feature: CombatFeatureName, amount?: number): Promise<CombatFeatureAck> {
+    const payload = amount && amount > 1 ? { tokenId, feature, amount } : { tokenId, feature };
+    return this.askFor<CombatFeatureAck>('combat.feature', payload, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** A Prone token stands up: the server takes the condition off it. */

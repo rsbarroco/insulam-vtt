@@ -75,7 +75,25 @@ export const CombatRestSchema = z
   .strict();
 
 /** `combat.feature`: a token's character uses a class feature with a number of uses. */
-export const CombatFeatureSchema = z.object({ tokenId, feature: z.enum(['Second Wind', 'Action Surge', 'Rage', 'End Rage']) }).strict();
+export const CombatFeatureSchema = z
+  .object({
+    tokenId,
+    feature: z.enum([
+      'Second Wind',
+      'Action Surge',
+      'Rage',
+      'End Rage',
+      'Bardic Inspiration',
+      'Channel Divinity',
+      'Wild Shape',
+      'Focus Points',
+      'Sorcery Points',
+      'Favored Enemy',
+    ]),
+    /** How many points of Focus Points or Sorcery Points; other features spend one use. */
+    amount: z.number().int().min(1).max(20).optional(),
+  })
+  .strict();
 
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();

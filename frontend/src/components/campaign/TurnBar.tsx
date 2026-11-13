@@ -33,6 +33,26 @@ import Button from '@/components/ui/Button';
 import CheckRoller from './CheckRoller';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
+/** The class features the server counts and the table applies: a button each, while uses are left. */
+const COUNTED_FEATURES = [
+  'Bardic Inspiration',
+  'Channel Divinity',
+  'Wild Shape',
+  'Focus Points',
+  'Sorcery Points',
+  'Favored Enemy',
+] as const satisfies readonly CombatFeatureName[];
+type CountedFeature = (typeof COUNTED_FEATURES)[number];
+const BONUS_ACTION_FEATURES: readonly string[] = ['Bardic Inspiration', 'Wild Shape'];
+const COUNTED_TITLES: Record<CountedFeature, string> = {
+  'Bardic Inspiration': 'A Bonus Action: a creature within 60 feet gains your Bardic Inspiration die.',
+  'Channel Divinity': 'One use of Channel Divinity. One back on a Short Rest, all on a Long Rest.',
+  'Wild Shape': 'A Bonus Action: take a beast form. One back on a Short Rest, all on a Long Rest.',
+  'Focus Points': 'Spend one Focus Point. All back on a Short or Long Rest.',
+  'Sorcery Points': 'Spend one Sorcery Point. All back on a Long Rest.',
+  'Favored Enemy': "Cast Hunter's Mark without a spell slot. All back on a Long Rest.",
+};
+
 export default function TurnBar() {
   const { userRole } = useCampaign();
   const { socket } = useWebSocket();
@@ -128,7 +148,8 @@ export default function TurnBar() {
     if (answer.ok) setListed((count) => count + 1);
   };
   const spendFeature = (feature: CombatFeatureOption) => {
-    if (feature.name === 'Second Wind' && resource('Second Wind')) return void applyOnServer('Second Wind');
+    const counted = COUNTED_FEATURES.find((name) => name === feature.name);
+    if ((feature.name === 'Second Wind' || counted) && resource(feature.name)) return void applyOnServer(feature.name as CombatFeatureName);
     if (feature.cost === 'bonusAction') socket.emitTurnUpdate({ bonusAction: true });
     else socket.emitTurnUpdate({ reaction: { tokenId: actingId, spent: true } });
     showToast(`${actingName} uses ${feature.name}`, 'info');
@@ -139,6 +160,10 @@ export default function TurnBar() {
     return feature.cost === 'bonusAction' ? turn.bonusAction : combat.reactionsSpent.includes(actingId);
   };
   const surge = resource('Action Surge');
+  const counted = COUNTED_FEATURES.flatMap((name) => {
+    const found = resource(name);
+    return found ? [{ ...found, name }] : [];
+  });
   const rage = resource('Rage');
   const raging = combat.marks.some((mark) => mark.kind === 'rage' && mark.attackerId === actingId);
 
@@ -339,6 +364,19 @@ export default function TurnBar() {
             Rage ({rage.max - rage.used}/{rage.max})
           </Button>
         ))}
+
+      {counted.map((entry) => (
+        <Button
+          key={entry.name}
+          variant="secondary"
+          size="sm"
+          disabled={entry.used >= entry.max || (BONUS_ACTION_FEATURES.includes(entry.name) && turn.bonusAction)}
+          title={COUNTED_TITLES[entry.name]}
+          onClick={() => void applyOnServer(entry.name)}
+        >
+          {entry.name} ({entry.max - entry.used}/{entry.max})
+        </Button>
+      ))}
 
       {surge && (
         <Button

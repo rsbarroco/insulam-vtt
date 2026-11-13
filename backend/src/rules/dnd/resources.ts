@@ -11,6 +11,20 @@
 //     more action, not the Magic action. All back on a Short or Long Rest.
 //   • Rage (Barbarian 1): uses from the Rages column. One back on a Short
 //     Rest, all on a Long Rest. (What a Rage does comes with its own rules.)
+//   • Bardic Inspiration (Bard 1): as many uses as the Charisma modifier, at
+//     least one; all back on a Long Rest, and from level 5 (Font of
+//     Inspiration) on a Short Rest too. Its die is the Bardic Die column.
+//   • Channel Divinity (Cleric 2, Paladin 3): uses from the class's column,
+//     the larger for a gestalt of both. One back on a Short Rest, all on a
+//     Long Rest.
+//   • Wild Shape (Druid 2): uses from the Wild Shape column. One back on a
+//     Short Rest, all on a Long Rest.
+//   • Focus Points (Monk 2): the Focus Points column; all back on a Short or
+//     Long Rest.
+//   • Sorcery Points (Sorcerer 2): the Sorcery Points column; all back on a
+//     Long Rest.
+//   • Favored Enemy (Ranger 1): Hunter's Mark cast without a spell slot, as
+//     many times as the column says; all back on a Long Rest.
 //
 // A sheet keeps what it has spent in `featureUses`: { "Second Wind": 1 }.
 // A gestalt character is both of its classes at its full level.
@@ -20,14 +34,26 @@
 
 import { columnAt } from './classes';
 
-export type ResourceName = 'Second Wind' | 'Action Surge' | 'Rage';
+export type ResourceName =
+  | 'Second Wind'
+  | 'Action Surge'
+  | 'Rage'
+  | 'Bardic Inspiration'
+  | 'Channel Divinity'
+  | 'Wild Shape'
+  | 'Focus Points'
+  | 'Sorcery Points'
+  | 'Favored Enemy';
+
+/** The features spent a point at a time, several at once: the rest are spent one use at a time. */
+export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points'];
 
 export interface Resource {
   name: ResourceName;
   max: number;
   used: number;
-  /** What a Short Rest gives back: one use, or all. */
-  shortRest: 'one' | 'all';
+  /** What a Short Rest gives back: one use, all, or none. */
+  shortRest: 'one' | 'all' | 'none';
 }
 
 type Sheet = Record<string, unknown>;
@@ -48,6 +74,18 @@ export function classesOf(sheet: Sheet): { classes: string[]; level: number } {
   return { classes, level };
 }
 
+/** A number from a class table's column, 0 where it has a dash. */
+const count = (name: Parameters<typeof columnAt>[0], column: string, level: number) =>
+  Number(columnAt(name, column, level) ?? 0) || 0;
+
+/** An ability modifier from a sheet's stats: the modifier it writes, or one from the score. */
+export function abilityModifier(sheet: Sheet, ability: string): number {
+  const stat = (sheet.stats as Record<string, { score?: unknown; modifier?: unknown } | undefined> | undefined)?.[ability];
+  if (typeof stat?.modifier === 'number') return stat.modifier;
+  if (typeof stat?.score === 'number') return Math.floor((stat.score - 10) / 2);
+  return 0;
+}
+
 const has = (classes: string[], name: string) =>
   classes.some((entry) => entry.toLowerCase() === name.toLowerCase());
 
@@ -61,7 +99,7 @@ function spent(sheet: Sheet, name: ResourceName): number {
 export function resourcesOf(sheet: Sheet): Resource[] {
   const { classes, level } = classesOf(sheet);
   const out: Resource[] = [];
-  const add = (name: ResourceName, max: number, shortRest: 'one' | 'all') => {
+  const add = (name: ResourceName, max: number, shortRest: Resource['shortRest']) => {
     if (max > 0) out.push({ name, max, used: Math.min(max, spent(sheet, name)), shortRest });
   };
   if (has(classes, 'Fighter')) {
@@ -70,27 +108,48 @@ export function resourcesOf(sheet: Sheet): Resource[] {
   }
   if (has(classes, 'Barbarian'))
     add('Rage', Number(columnAt('Barbarian', 'Rages', level) ?? 0), 'one');
+  if (has(classes, 'Bard'))
+    add('Bardic Inspiration', Math.max(1, abilityModifier(sheet, 'charisma')), level >= 5 ? 'all' : 'none');
+  const divinity = Math.max(
+    has(classes, 'Cleric') ? count('Cleric', 'Channel Divinity', level) : 0,
+    has(classes, 'Paladin') ? count('Paladin', 'Channel Divinity', level) : 0
+  );
+  add('Channel Divinity', divinity, 'one');
+  if (has(classes, 'Druid')) add('Wild Shape', count('Druid', 'Wild Shape', level), 'one');
+  if (has(classes, 'Monk')) add('Focus Points', count('Monk', 'Focus Points', level), 'all');
+  if (has(classes, 'Sorcerer')) add('Sorcery Points', count('Sorcerer', 'Sorcery Points', level), 'none');
+  if (has(classes, 'Ranger')) add('Favored Enemy', count('Ranger', 'Favored Enemy', level), 'none');
   return out;
 }
 
-/** A sheet with one use of a feature spent, or why not. */
+/** A sheet with `amount` uses (or points) of a feature spent, or why not. */
 export function spendResource(
   sheet: Sheet,
-  name: ResourceName
+  name: ResourceName,
+  amount = 1
 ): { ok: true; sheet: Sheet; left: number } | { ok: false; reason: string } {
   const resource = resourcesOf(sheet).find((entry) => entry.name === name);
   if (!resource) return { ok: false, reason: `The sheet has no ${name}` };
   if (resource.used >= resource.max)
     return { ok: false, reason: `No uses of ${name} left until a rest` };
+  if (resource.used + amount > resource.max)
+    return { ok: false, reason: `Only ${resource.max - resource.used} ${name} left` };
   const uses = {
     ...((sheet.featureUses ?? {}) as Record<string, unknown>),
-    [name]: resource.used + 1,
+    [name]: resource.used + amount,
   };
   return {
     ok: true,
     sheet: { ...sheet, featureUses: uses },
-    left: resource.max - resource.used - 1,
+    left: resource.max - resource.used - amount,
   };
+}
+
+/** The die a Bard's Bardic Inspiration gives at its level: "d6". */
+export function bardicDie(sheet: Sheet): string | null {
+  const { classes, level } = classesOf(sheet);
+  if (!has(classes, 'Bard')) return null;
+  return (columnAt('Bard', 'Bardic Die', level) ?? 'D6').toLowerCase();
 }
 
 /** What a rest gives back: on a Short Rest one use or all, as each feature says; on a Long Rest, all. */
@@ -102,6 +161,10 @@ export function restoreResources(
   const uses: Record<string, number> = {};
   for (const resource of resourcesOf(sheet)) {
     if (resource.used === 0) continue;
+    if (rest === 'short' && resource.shortRest === 'none') {
+      uses[resource.name] = resource.used;
+      continue;
+    }
     const back = rest === 'long' || resource.shortRest === 'all' ? resource.used : 1;
     if (resource.used - back > 0) uses[resource.name] = resource.used - back;
     regained.push(`${back} ${resource.name}`);

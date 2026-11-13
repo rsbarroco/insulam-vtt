@@ -515,3 +515,42 @@ describe('a barbarian', () => {
     await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'End Rage'));
   });
 });
+
+describe('the features the server counts', () => {
+  beforeEach(() => {
+    h.useFeature.mockReset().mockResolvedValue({ ok: true, summary: 'Hero spends 1 Focus Point (3 left)', left: 3 });
+  });
+
+  it('shows a button for each with what is left, and spends one on a click', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [],
+      resources: [
+        { name: 'Focus Points', max: 4, used: 0 },
+        { name: 'Channel Divinity', max: 2, used: 2 },
+      ],
+    });
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Focus Points (4/4)' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Focus Points'));
+    expect(screen.getByRole('button', { name: 'Channel Divinity (0/2)' })).toBeDisabled();
+  });
+
+  it('keeps a Bonus Action feature for a turn whose Bonus Action is left', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [],
+      resources: [{ name: 'Bardic Inspiration', max: 3, used: 0 }],
+    });
+    fight({ turn: { movementSpent: 0, dashes: 0, action: null, bonusAction: true, attacks: 0 } });
+    render(<TurnBar />);
+    expect(await screen.findByRole('button', { name: 'Bardic Inspiration (3/3)' })).toBeDisabled();
+  });
+});
