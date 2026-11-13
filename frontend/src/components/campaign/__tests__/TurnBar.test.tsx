@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
   emitTurnUpdate: vi.fn(),
   emitTurnEnd: vi.fn(),
   rollDeathSave: vi.fn(),
+  resolveAttack: vi.fn(),
   listCombatActions: vi.fn(),
   showToast: vi.fn(),
 }));
@@ -26,6 +27,7 @@ const socket = {
   emitTurnUpdate: (...args: unknown[]) => h.emitTurnUpdate(...args),
   emitTurnEnd: (...args: unknown[]) => h.emitTurnEnd(...args),
   rollDeathSave: (...args: unknown[]) => h.rollDeathSave(...args),
+  resolveAttack: (...args: unknown[]) => h.resolveAttack(...args),
   listCombatActions: (...args: unknown[]) => h.listCombatActions(...args),
 };
 vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({ socket }) }));
@@ -292,5 +294,69 @@ describe('what the character’s features give its turn', () => {
     fight({ turn: { ...fresh, action: 'Dodge' }, dodging: ['ogre'] });
     render(<TurnBar />);
     expect(screen.queryByText(/^Dodging/)).not.toBeInTheDocument();
+  });
+});
+
+describe('an Opportunity Attack', () => {
+  const offered = { opportunities: [{ attackerId: 'ogre', targetId: 'hero' }] };
+  const club = { index: 0, name: 'Greatclub', cost: 'action', attack: { kind: 'melee' }, spell: null, save: null };
+  const javelin = { index: 1, name: 'Javelin', cost: 'action', attack: { kind: 'ranged' }, spell: null, save: null };
+  const bite = { index: 2, name: 'Bite', cost: 'action', attack: { kind: 'melee' }, spell: null, save: null };
+  const listing = (...actions: unknown[]) => ({ ok: true, actions, attacksPerAction: null, features: [] });
+  const offer = { name: 'Opportunity Attack: Ogre on Hero' };
+
+  beforeEach(() => {
+    h.resolveAttack.mockReset().mockResolvedValue({ ok: true, summary: 'Greatclub vs Hero (AC 16): hit', hit: true });
+  });
+
+  it('is offered to whoever acts for the attacker, and made with its one melee attack', async () => {
+    as('DM', 'dm-1');
+    h.listCombatActions.mockResolvedValue(listing(club, javelin));
+    fight(offered);
+    render(<TurnBar />);
+
+    fireEvent.click(screen.getByRole('button', offer));
+
+    await waitFor(() =>
+      expect(h.resolveAttack).toHaveBeenCalledWith({ attackerId: 'ogre', targetId: 'hero', action: 0, opportunity: true })
+    );
+    await waitFor(() => expect(h.showToast).toHaveBeenCalledWith('Greatclub vs Hero (AC 16): hit', 'success'));
+  });
+
+  it('asks which melee attack when there are several', async () => {
+    as('DM', 'dm-1');
+    h.listCombatActions.mockResolvedValue(listing(club, javelin, bite));
+    fight(offered);
+    render(<TurnBar />);
+
+    fireEvent.click(screen.getByRole('button', offer));
+    fireEvent.click(await screen.findByRole('button', { name: 'Bite' }));
+
+    await waitFor(() =>
+      expect(h.resolveAttack).toHaveBeenCalledWith({ attackerId: 'ogre', targetId: 'hero', action: 2, opportunity: true })
+    );
+    expect(screen.queryByRole('button', { name: 'Javelin' })).not.toBeInTheDocument();
+  });
+
+  it('is not offered to a player who does not control the attacker', () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue(listing());
+    fight(offered);
+    render(<TurnBar />);
+    expect(screen.queryByRole('button', offer)).not.toBeInTheDocument();
+  });
+
+  it('says why when the server refuses it', async () => {
+    as('DM', 'dm-1');
+    h.listCombatActions.mockResolvedValue(listing(club));
+    h.resolveAttack.mockResolvedValue({ ok: false, error: 'Ogre has no Opportunity Attack to make against Hero' });
+    fight(offered);
+    render(<TurnBar />);
+
+    fireEvent.click(screen.getByRole('button', offer));
+
+    await waitFor(() =>
+      expect(h.showToast).toHaveBeenCalledWith('Ogre has no Opportunity Attack to make against Hero', 'error')
+    );
   });
 });

@@ -24,7 +24,7 @@ const token = (id: string) => ({ id, name: id, imageUrl: '' });
 const spent = { movementSpent: 15, dashes: 1, action: 'Dash', bonusAction: true, attacks: 0 };
 const fight = (over: Partial<CombatState> = {}): CombatState => ({
   active: true, round: 1, currentTokenId: 'a', combatants: [entry('a'), entry('b'), entry('c')],
-  turn: { ...spent }, reactionsSpent: ['b', 'c'], dodging: [], ...over,
+  turn: { ...spent }, reactionsSpent: ['b', 'c'], dodging: [], opportunities: [], ...over,
 });
 
 describe('freshTurn', () => {

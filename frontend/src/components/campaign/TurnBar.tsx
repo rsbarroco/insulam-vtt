@@ -12,13 +12,13 @@
 // ============================================
 
 import { useEffect, useState } from 'react';
-import { Footprints, HeartPulse, SkipForward, Sparkles } from 'lucide-react';
+import { Footprints, HeartPulse, SkipForward, Sparkles, Swords } from 'lucide-react';
 import { useCampaign } from '@/contexts/CampaignContext';
 import { useWebSocket } from '@/contexts/WebSocketContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCharacterHp, useCombatState, useTokenList } from '@/stores/gameStore';
 import { useToast } from '@/contexts/ToastContext';
-import type { CombatFeatureOption, Token } from '@/types';
+import type { CombatActionSummary, CombatFeatureOption, Token } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import {
@@ -50,6 +50,12 @@ export default function TurnBar() {
     features: CombatFeatureOption[];
   } | null>(null);
   const [showFeatures, setShowFeatures] = useState(false);
+  // The melee attacks to choose between for an Opportunity Attack, once asked.
+  const [weapons, setWeapons] = useState<{
+    attackerId: string;
+    targetId: string;
+    actions: CombatActionSummary[];
+  } | null>(null);
   const watching = combat.active ? combat.currentTokenId : null;
   useEffect(() => {
     setShowFeatures(false);
@@ -112,6 +118,28 @@ export default function TurnBar() {
   };
   const spent = (feature: CombatFeatureOption) =>
     feature.cost === 'bonusAction' ? turn.bonusAction : combat.reactionsSpent.includes(actingId);
+
+  // The Opportunity Attacks this viewer may take: the attacker is theirs.
+  const offers = combat.opportunities.flatMap((offer) => {
+    const attacker = tokens.find((token) => token.id === offer.attackerId);
+    const target = tokens.find((token) => token.id === offer.targetId);
+    return attacker && target && mine(attacker) ? [{ attacker, target }] : [];
+  });
+  const strike = async (attackerId: string, targetId: string, action: number) => {
+    setWeapons(null);
+    const answer = await socket.resolveAttack({ attackerId, targetId, action, opportunity: true });
+    if (answer.ok) showToast(answer.summary, answer.hit ? 'success' : 'info');
+    else showToast(answer.error, 'error');
+  };
+  /** One melee weapon makes the attack at once; with several, the bar asks which. */
+  const takeOpportunity = async (attackerId: string, targetId: string) => {
+    const answer = await socket.listCombatActions(attackerId);
+    if (!answer.ok) return showToast(answer.error, 'error');
+    const melee = answer.actions.filter((action) => action.attack?.kind === 'melee' && !action.spell);
+    if (melee.length === 0) return showToast('It has no melee attack to make', 'error');
+    if (melee.length === 1) return strike(attackerId, targetId, melee[0].index);
+    setWeapons({ attackerId, targetId, actions: melee });
+  };
 
   const speed = acting ? (tokenSpeed(acting)?.feet ?? null) : null;
   const movement =
@@ -196,6 +224,45 @@ export default function TurnBar() {
           {token.id === actingId ? 'Reaction used' : `${tokenDisplayName(token)}: reaction used`}
         </label>
       ))}
+
+      {offers.map(({ attacker, target }) => {
+        const choosing = weapons?.attackerId === attacker.id && weapons.targetId === target.id ? weapons.actions : null;
+        const names = `${tokenDisplayName(attacker)} on ${tokenDisplayName(target)}`;
+        return (
+          <span
+            key={`${attacker.id}:${target.id}`}
+            className="flex items-center gap-1"
+            role="group"
+            aria-label={`Opportunity Attack: ${names}`}
+          >
+            {choosing ? (
+              <>
+                <span>With:</span>
+                {choosing.map((action) => (
+                  <Button
+                    key={action.index}
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void strike(attacker.id, target.id, action.index)}
+                  >
+                    {action.name}
+                  </Button>
+                ))}
+              </>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Swords}
+                title="It left the attacker's reach: one melee attack, with the attacker's reaction"
+                onClick={() => void takeOpportunity(attacker.id, target.id)}
+              >
+                Opportunity Attack: {names}
+              </Button>
+            )}
+          </span>
+        );
+      })}
 
       {features.length > 0 && (
         <span className="relative">

@@ -27,7 +27,8 @@ import { CombatActionsSchema, CombatAttackSchema, CombatDeathSaveSchema, CombatS
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
-import { DODGING, type Ability } from '../../rules/dnd/conditions';
+import { canAct, DODGING, readConditions, type Ability } from '../../rules/dnd/conditions';
+import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
 import type { HitPoints } from '../../rules/dnd/damage';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
@@ -248,6 +249,79 @@ async function spendAction(io: Server, campaignId: string, tokenId: string, name
   await resendInitiativeState(io, campaignId);
 }
 
+/** A combatant's reaction is spent; what it was offered to spend it on goes with it. */
+async function spendReaction(io: Server, campaignId: string, tokenId: string): Promise<void> {
+  const combat = getCombatState(campaignId);
+  if (combat.active && combat.combatants.some((c) => c.tokenId === tokenId)) {
+    combat.reactionsSpent = [...combat.reactionsSpent.filter((id) => id !== tokenId), tokenId];
+    setCombatState(campaignId, combat);
+  }
+  await resendInitiativeState(io, campaignId);
+}
+
+/**
+ * After the acting combatant has moved on its own turn: offer an Opportunity
+ * Attack to each combatant on the other side whose reach it has left, that
+ * can see it, can act, has its reaction and has a melee attack to make. A
+ * creature that took the Disengage action provokes none. `from` is where the
+ * mover stood; `tokens` are the map's tokens after the move.
+ */
+export async function offerOpportunityAttacks(
+  io: Server,
+  campaignId: string,
+  map: { id: string; tileHeights: unknown; feetPerSquare: number; diagonalRule: string },
+  tokens: Token[],
+  moverId: string,
+  from: { x: number; y: number }
+): Promise<void> {
+  const before = getCombatState(campaignId);
+  if (!someoneActing(before) || before.currentTokenId !== moverId || before.turn?.action === 'Disengage') return;
+  const mover = tokens.find((t) => t.id === moverId);
+  const moverSide = mover ? sideOf({ type: mover.type ?? 'npc', disposition: mover.disposition ?? null }) : null;
+  if (!mover || !moverSide || readConditions(mover.conditions ?? []).has.has('invisible')) return;
+
+  const candidates = before.combatants
+    .filter((c) => c.tokenId !== moverId && c.mapId === map.id && !before.reactionsSpent.includes(c.tokenId))
+    .map((c) => tokens.find((t) => t.id === c.tokenId))
+    .filter((token): token is Token => {
+      if (!token || token.layer !== mover.layer) return false;
+      const side = sideOf({ type: token.type ?? 'npc', disposition: token.disposition ?? null });
+      const state = readConditions(token.conditions ?? []);
+      // A player's creature cannot see a token hidden from the players.
+      const unseen = state.has.has('blinded') || (side === 'party' && hiddenFromPlayers(mover));
+      return side !== null && side !== moverSide && canAct(state) && !unseen && !(token.hp && token.hp.current <= 0);
+    });
+  if (candidates.length === 0) return;
+
+  const sheets = await Promise.all(candidates.map((token) => sheetOf(token, campaignId)));
+  const bystanders = candidates.flatMap((token, index) => {
+    const sheet = sheets[index];
+    if (sheet && (extractCharacterHp(DND, sheet)?.current ?? 1) <= 0) return [];
+    const reaches = actionsOf(token, sheet)
+      .filter((action) => action.source !== 'spell' && action.attack?.kind === 'melee')
+      .map((action) => action.attack?.reachFeet ?? 5);
+    return reaches.length > 0 ? [{ id: token.id, standing: standing(token), reachFeet: Math.max(...reaches) }] : [];
+  });
+  const board = {
+    heights: readTileHeights(map.tileHeights),
+    feetPerSquare: map.feetPerSquare,
+    diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+  };
+  const provoked = leavesReachOf(standing({ ...mover, position: from }), standing(mover), bystanders, board);
+  if (provoked.length === 0) return;
+
+  // Read again after the awaits: the turn may have passed on, or a reaction been spent.
+  const combat = getCombatState(campaignId);
+  if (!someoneActing(combat) || combat.currentTokenId !== moverId || combat.turn?.action === 'Disengage') return;
+  const fresh = provoked.filter(
+    (attackerId) => !combat.reactionsSpent.includes(attackerId) && !combat.opportunities.some((o) => o.attackerId === attackerId)
+  );
+  if (fresh.length === 0) return;
+  combat.opportunities = [...combat.opportunities, ...fresh.map((attackerId) => ({ attackerId, targetId: moverId, from }))];
+  setCombatState(campaignId, combat);
+  await resendInitiativeState(io, campaignId);
+}
+
 interface LoggedRoll {
   expression: string;
   total: number;
@@ -405,7 +479,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both, applies the damage to the target's hit points and records the roll in the dice log. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both, applies the damage to the target's hit points and records the roll in the dice log. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -415,7 +489,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, action: actionIndex, mode, slotLevel } = parsed.data;
+      const { attackerId, targetId, action: actionIndex, mode, slotLevel, opportunity } = parsed.data;
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -452,9 +526,21 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         );
       }
 
+      // An Opportunity Attack is the one the target's movement offered: one
+      // melee attack, made with the reaction, that finds the target where it
+      // stood right before it left the attacker's reach.
+      const offer = opportunity ? turnNow.opportunities.find((o) => o.attackerId === attackerId && o.targetId === targetId) : undefined;
+      if (opportunity) {
+        if (!offer) return refuseRequest(socket, ack, `${attackerToken.name} has no Opportunity Attack to make against ${targetToken.name}`);
+        if (!weapon || action.attack?.kind !== 'melee') {
+          return refuseRequest(socket, ack, 'An Opportunity Attack is one melee attack with a weapon or an Unarmed Strike');
+        }
+      }
+      const target = combatant(targetToken, targetSheet, turnNow.dodging);
+
       const result = resolveAttack({
         attacker: combatant(attackerToken, attackerSheet),
-        target: combatant(targetToken, targetSheet, turnNow.dodging),
+        target: offer ? { ...target, standing: standing({ ...targetToken, position: offer.from }) } : target,
         action,
         board: {
           heights: readTileHeights(map.tileHeights),
@@ -473,7 +559,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
-      await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
+      if (offer) await spendReaction(io, campaignId, attackerId);
+      else await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
       // An attack by or on a token the players are not shown goes to the DM alone.
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, result.summary, secret);
