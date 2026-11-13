@@ -645,6 +645,7 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
       state.currentTokenId = state.combatants[0].tokenId;
       state.turn = freshTurn();
       state.reactionsSpent = [];
+      state.dodging = [];
       setCombatState(socket.campaignId, state);
       await broadcastInitiativeState(socket.campaignId);
       logger.info('initiative.start', { campaignId: socket.campaignId, first: state.combatants[0].name });
@@ -714,7 +715,7 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
   }
 
   /**
-   * TURN.UPDATE — Record what the acting combatant has spent of its turn (movement in feet, Dash, its action, its bonus action), or whether a combatant's reaction is spent. The DM, or the player who controls that token.
+   * TURN.UPDATE — Record what the acting combatant has spent of its turn (movement in feet, Dash, its action, its bonus action), or whether a combatant's reaction is spent. Taking Dodge as the action makes the combatant dodge until its next turn starts: attack rolls against it have Disadvantage and its Dexterity saving throws Advantage. The DM, or the player who controls that token.
    */
   socket.on('turn.update', async (data: unknown) => {
     try {
@@ -744,6 +745,11 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
         // Attacks are those of the Attack action: another action, or none, has made none.
         if (spent.action !== undefined && spent.action !== 'Attack' && spent.attacks === undefined) turn.attacks = 0;
         state.turn = turn;
+        // Taking the Dodge action is what makes a creature dodge; taking it back undoes it.
+        if (spent.action !== undefined) {
+          const others = state.dodging.filter((tokenId) => tokenId !== state.currentTokenId);
+          state.dodging = spent.action === 'Dodge' ? [...others, state.currentTokenId!] : others;
+        }
       }
       if (reaction && state.combatants.some((c) => c.tokenId === reaction.tokenId)) {
         const others = state.reactionsSpent.filter((tokenId) => tokenId !== reaction.tokenId);

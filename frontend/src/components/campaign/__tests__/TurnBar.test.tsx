@@ -279,4 +279,18 @@ describe('what the character’s features give its turn', () => {
     await waitFor(() => expect(h.listCombatActions).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: 'Features' })).not.toBeInTheDocument();
   });
+
+  it('says the acting combatant is dodging once it has taken the Dodge action', () => {
+    as('DM', 'dm-1');
+    fight({ turn: { ...fresh, action: 'Dodge' }, dodging: ['hero'] });
+    render(<TurnBar />);
+    expect(screen.getByText('Dodging: attacks against it have Disadvantage')).toBeInTheDocument();
+  });
+
+  it('does not say so of one that is not', () => {
+    as('DM', 'dm-1');
+    fight({ turn: { ...fresh, action: 'Dodge' }, dodging: ['ogre'] });
+    render(<TurnBar />);
+    expect(screen.queryByText(/^Dodging/)).not.toBeInTheDocument();
+  });
 });

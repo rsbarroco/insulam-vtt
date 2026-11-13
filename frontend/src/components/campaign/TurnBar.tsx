@@ -154,6 +154,11 @@ export default function TurnBar() {
               )}
             </select>
           </label>
+          {combat.dodging.includes(actingId) && (
+            <span title="Until its next turn starts, unless it is Incapacitated or its Speed is 0">
+              Dodging: attacks against it have Disadvantage
+            </span>
+          )}
           {turn.action === 'Attack' && turn.attacks > 0 && (
             <span title="Attacks made with the Attack action this turn">
               {attacksAllowed !== null

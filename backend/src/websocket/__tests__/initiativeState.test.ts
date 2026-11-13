@@ -22,6 +22,7 @@ describe('projectCombatState', () => {
     combatants: [entry('hero'), entry('goblin'), entry('hidden')],
     turn: { movementSpent: 15, dashes: 0, action: 'Attack', bonusAction: false, attacks: 0 },
     reactionsSpent: ['goblin', 'hidden'],
+    dodging: ['hero', 'hidden'],
   };
 
   it('shows a player only the combatants whose token they were sent, as they were sent it', () => {
@@ -104,7 +105,7 @@ describe('removeCombatants', () => {
   it('ends the fight when the last combatant is removed', () => {
     setState('c-remove-2', { active: true, round: 3, currentTokenId: 'a', combatants: [combatant('a')] });
     expect(removeCombatants('c-remove-2', () => true)).toBe(true);
-    expect(getState('c-remove-2')).toEqual({ active: false, round: 0, currentTokenId: null, combatants: [], turn: null, reactionsSpent: [] });
+    expect(getState('c-remove-2')).toEqual({ active: false, round: 0, currentTokenId: null, combatants: [], turn: null, reactionsSpent: [], dodging: [] });
   });
   // Deleting the token of the combatant whose turn it is passes the turn on
   // as Next would, as the tracker's Remove does. It used to clear the turn,

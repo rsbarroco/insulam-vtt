@@ -27,7 +27,7 @@ import { CombatActionsSchema, CombatAttackSchema, CombatDeathSaveSchema, CombatS
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
-import type { Ability } from '../../rules/dnd/conditions';
+import { DODGING, type Ability } from '../../rules/dnd/conditions';
 import type { HitPoints } from '../../rules/dnd/damage';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
@@ -116,7 +116,7 @@ function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatA
 }
 
 /** A token as the rules see it. */
-function combatant(token: Token, sheet: Record<string, unknown> | null): Combatant {
+function combatant(token: Token, sheet: Record<string, unknown> | null, dodging: readonly string[] = []): Combatant {
   const block = (token.statBlock ?? null) as { ac?: unknown } | null;
   const sheetAc = sheet && typeof sheet.armorClass === 'number' ? sheet.armorClass : null;
   const blockAc = block && typeof block.ac === 'number' ? block.ac : null;
@@ -126,7 +126,7 @@ function combatant(token: Token, sheet: Record<string, unknown> | null): Combata
     standing: standing(token),
     armorClass: sheet ? sheetAc : blockAc,
     hp: sheet ? extractCharacterHp(DND, sheet) : (token.hp ?? null),
-    conditions: token.conditions ?? [],
+    conditions: dodging.includes(token.id) ? [...(token.conditions ?? []), DODGING] : (token.conditions ?? []),
     exhaustion,
     defences: sheet ? undefined : defencesFromStatBlock((token.statBlock ?? {}) as Parameters<typeof defencesFromStatBlock>[0]),
   };
@@ -454,7 +454,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const result = resolveAttack({
         attacker: combatant(attackerToken, attackerSheet),
-        target: combatant(targetToken, targetSheet),
+        target: combatant(targetToken, targetSheet, turnNow.dodging),
         action,
         board: {
           heights: readTileHeights(map.tileHeights),
@@ -529,7 +529,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const result = resolveSave({
         source: combatant(sourceToken, sourceSheet),
         targets: targetTokens.map((token, index) => ({
-          ...combatant(token, targetSheets[index]),
+          ...combatant(token, targetSheets[index], getCombatState(campaignId).dodging),
           saveBonus: saveBonusOf(token, targetSheets[index], ability),
         })),
         action,

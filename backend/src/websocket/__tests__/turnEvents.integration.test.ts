@@ -157,6 +157,28 @@ describe('turn.update', () => {
     expect((await sent).reactionsSpent).toEqual([]);
   });
 
+  it('makes the combatant dodge when it takes the Dodge action, until it takes it back or its next turn starts', async () => {
+    start();
+    let sent = nextState(dm);
+    player.emit('turn.update', { action: 'Dodge' });
+    expect((await sent).dodging).toEqual([HERO]);
+
+    sent = nextState(dm);
+    player.emit('turn.update', { action: 'Dash', dashes: 1 });
+    expect((await sent).dodging).toEqual([]);
+
+    sent = nextState(dm);
+    player.emit('turn.update', { action: 'Dodge', dashes: 0 });
+    await sent;
+    // It keeps dodging through the ogre's turn, and stops when its own comes round.
+    sent = nextState(dm);
+    player.emit('turn.end', { tokenId: HERO });
+    expect((await sent).dodging).toEqual([HERO]);
+    sent = nextState(dm);
+    dm.emit('turn.end', { tokenId: OGRE });
+    expect(await sent).toMatchObject({ currentTokenId: HERO, dodging: [] });
+  });
+
   it("refuses a player the reaction of a token they do not control", async () => {
     start();
     const refused = nextError(player);
