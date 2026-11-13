@@ -24,7 +24,7 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing, turnSerial, type WeaponMark } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema, CombatConcentrateSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema, CombatConcentrateSchema, CombatHealSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, legendaryUses, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, concentrationSpellsOf, findSpell, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
@@ -37,7 +37,7 @@ import { bardicDie, POINT_RESOURCES, rageDamage, resourcesOf, restoreResources, 
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
-import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
+import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rollDamage, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
@@ -73,6 +73,8 @@ interface ActionSummary {
   multiattack?: MultiattackStep[];
   /** A Legendary Action: the uses the creature has a round, and how many it has taken. */
   legendary?: { max: number; used: number };
+  /** A healing spell, made with `combat.heal`: what it restores at its own level ("2d8+3") and its range. */
+  heal?: { dice: string; rangeFeet: number };
 }
 
 const standing = (token: Token): Standing => ({
@@ -94,6 +96,14 @@ function summarizeAction(action: CombatAction, index: number, slots: Record<numb
   const attack = action.attack;
   return {
     ...(action.recharge ? { recharge: { min: action.recharge, ready: !spent.includes(action.name) } } : {}),
+    ...(action.heal
+      ? {
+          heal: {
+            dice: `${action.heal.roll.count}d${action.heal.roll.sides}${action.heal.bonus < 0 ? '-' : '+'}${Math.abs(action.heal.bonus)}`,
+            rangeFeet: action.rangeFeet ?? 5,
+          },
+        }
+      : {}),
     index,
     name: action.name,
     cost: action.cost,
@@ -2099,6 +2109,93 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.concentrate failed', { err: error });
       refuseRequest(socket, ack, 'Failed to change the concentration');
+    }
+  });
+
+  /**
+   * COMBAT.HEAL — A caster casts one of its healing spells (Cure Wounds, Healing Word, …, by its place in `combat.actions`) on a creature within the spell's range, at a slot level: the server rolls the spell's dice plus the caster's spellcasting modifier, restores that many Hit Points to the creature's sheet or token (a character healed from 0 starts its death saves afresh), spends the slot, spends the action or the Bonus Action on the caster's turn, and records the roll in the dice log. The DM, or the player who controls the caster; a player may not target a hidden token.
+   */
+  socket.on('combat.heal', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.heal', ack)) return;
+      const parsed = CombatHealSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const { casterId, targetId, action: actionIndex, slotLevel } = parsed.data;
+
+      const map = await currentMap(campaignId);
+      if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
+      const tokens = readTokens(map.tokens);
+      const caster = tokens.find((t) => t.id === casterId);
+      if (!caster || !canControlToken(socket.role, caster.controlledBy, socket.userId)) {
+        return refuseRequest(socket, ack, 'You can only act for your own token');
+      }
+      const target = tokens.find((t) => t.id === targetId);
+      if (!target || target.layer !== caster.layer || (socket.role !== 'DM' && hiddenFromPlayers(target))) {
+        return refuseRequest(socket, ack, 'That creature is not on the map');
+      }
+      const sheet = await sheetOf(caster, campaignId);
+      const listed = actionsOf(caster, sheet)[actionIndex];
+      if (!listed?.heal) return refuseRequest(socket, ack, 'That is not a healing spell the caster has');
+      const cast = castWithSlot(sheet as SheetSpellcasting | null, listed, slotLevel);
+      if ('error' in cast) return refuseRequest(socket, ack, cast.error);
+      const action = cast.action;
+      const heal = action.heal ?? listed.heal;
+      const board = {
+        heights: readTileHeights(map.tileHeights),
+        feetPerSquare: map.feetPerSquare,
+        diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+      };
+      const reach = action.rangeFeet ?? 5;
+      if (target.id !== caster.id && distanceFeet(standing(caster), standing(target), board) > reach) {
+        return refuseRequest(socket, ack, `${target.name} is beyond the ${reach} ft range of ${action.name}`);
+      }
+      const combat = getCombatState(campaignId);
+      const ownTurn = someoneActing(combat) && combat.currentTokenId === casterId && combat.turn !== null;
+      if (ownTurn && action.cost === 'bonusAction' && combat.turn!.bonusAction && socket.role !== 'DM') {
+        return refuseRequest(socket, ack, `${caster.name} has used its Bonus Action this turn`);
+      }
+
+      if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, caster.characterId!, cast.slotLevel))) {
+        return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
+      }
+      const rolled = rollDamage({ count: heal.roll.count, sides: heal.roll.sides, bonus: heal.bonus });
+      await healToken(io, campaignId, map.id, target, rolled.total);
+      if (action.cost === 'bonusAction') {
+        if (ownTurn) spendBonusAction(campaignId, casterId);
+        await resendInitiativeState(io, campaignId);
+      } else await spendAction(io, campaignId, casterId, 'Magic');
+
+      const expression = `${heal.roll.count}d${heal.roll.sides}${heal.bonus < 0 ? '-' : '+'}${Math.abs(heal.bonus)}`;
+      const summary = `${action.name} (level ${cast.slotLevel ?? action.spell?.level ?? 0}): ${target.name} regains ${rolled.total} Hit Points`;
+      await logRoll(
+        io,
+        socket,
+        campaignId,
+        {
+          expression,
+          total: rolled.total,
+          breakdown: {
+            expression,
+            rolls: [
+              { type: 'dice' as const, notation: `${heal.roll.count}d${heal.roll.sides}`, count: rolled.dice.length, sides: heal.roll.sides, results: rolled.dice, kept: rolled.dice, total: rolled.dice.reduce((sum, die) => sum + die, 0) },
+              { type: 'modifier' as const, value: heal.bonus },
+            ],
+            total: rolled.total,
+            formula: `[${rolled.dice.join(', ')}] ${heal.bonus < 0 ? '-' : '+'} ${Math.abs(heal.bonus)} = ${rolled.total}`,
+          },
+        },
+        caster.name,
+        summary,
+        hiddenFromPlayers(caster) || hiddenFromPlayers(target)
+      );
+      ack?.({ ok: true, summary, healed: rolled.total });
+      logger.debug('combat.heal', { campaignId, casterId, targetId, healed: rolled.total });
+    } catch (error) {
+      logger.error('combat.heal failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to cast the healing spell');
     }
   });
 

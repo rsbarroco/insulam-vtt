@@ -1697,6 +1697,8 @@ export interface CombatActionSummary {
   multiattack?: Array<{ count: number; choices: number[] }>;
   /** A Legendary Action: the uses the creature has a round, and how many it has taken. */
   legendary?: { max: number; used: number };
+  /** A healing spell, made with `combat.heal`: what it restores at its own level ("2d8+3") and its range. */
+  heal?: { dice: string; rangeFeet: number };
 }
 export type CombatExtraAttack = 'cleave' | 'light';
 /** A feature the turn can offer, with its rule. */
@@ -1793,6 +1795,9 @@ export type CombatStandAck = { ok: true } | { ok: false; error: string };
 
 /** `combat.help`: the helper distracted the creature for its allies' next attack. */
 export type CombatHelpAck = { ok: true; summary: string } | { ok: false; error: string };
+
+/** `combat.heal`: what the healing spell restored. */
+export type CombatHealAck = { ok: true; summary: string; healed: number } | { ok: false; error: string };
 
 /** `combat.concentrate`: concentration started on a spell, or ended. */
 export type CombatConcentrateAck = { ok: true; summary: string } | { ok: false; error: string };

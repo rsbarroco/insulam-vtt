@@ -125,6 +125,16 @@ export const CombatConcentrateSchema = z
   .strict()
   .refine((value) => (value.spell === undefined) !== (value.end === undefined), { message: 'Give a spell to concentrate on, or end' });
 
+/** `combat.heal`: a caster casts one of its healing spells on a creature, at a slot level. */
+export const CombatHealSchema = z
+  .object({
+    casterId: tokenId,
+    targetId: tokenId,
+    action: z.number().int().min(0).max(199),
+    slotLevel: z.number().int().min(1).max(9).optional(),
+  })
+  .strict();
+
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();
 

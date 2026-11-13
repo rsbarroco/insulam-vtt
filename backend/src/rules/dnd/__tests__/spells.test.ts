@@ -6,7 +6,7 @@
  * areas holds on spells whose rules are well known.
  */
 
-import { castWithSlot, slotsLeft, withSlotSpent, spellActionsFromSheet, actionFromSpell, allSpells, filterSpells, findSpell, spellDamage, spellMechanics, SRD_ATTRIBUTION, concentrationSpellsOf } from '../spells';
+import { castWithSlot, slotsLeft, withSlotSpent, spellActionsFromSheet, actionFromSpell, allSpells, filterSpells, findSpell, spellDamage, spellMechanics, SRD_ATTRIBUTION, concentrationSpellsOf, spellHealing } from '../spells';
 
 const spell = (name: string) => {
   const found = findSpell(name);
@@ -227,5 +227,14 @@ describe('concentrationSpellsOf', () => {
         },
       })
     ).toEqual(['Bless']);
+  });
+});
+
+describe('spellHealing', () => {
+  it('reads the dice and the modifier, and the dice a higher slot adds', () => {
+    expect(spellHealing(findSpell('Cure Wounds')!, 1, 3)).toEqual({ roll: { count: 2, sides: 8 }, bonus: 3 });
+    expect(spellHealing(findSpell('Cure Wounds')!, 3, 3)).toEqual({ roll: { count: 6, sides: 8 }, bonus: 3 });
+    expect(spellHealing(findSpell('Mass Healing Word')!, 4, 2)).toEqual({ roll: { count: 3, sides: 4 }, bonus: 2 });
+    expect(spellHealing(findSpell('Fireball')!, 3, 3)).toBeNull();
   });
 });

@@ -76,6 +76,8 @@ export interface CombatAction {
   weapon?: string;
   /** A stat block's "(Recharge 5–6)": the lowest d6 roll that gives it back once used. */
   recharge?: number;
+  /** A healing spell: the dice it restores and the bonus added (the caster's spellcasting modifier). */
+  heal?: { roll: { count: number; sides: number }; bonus: number };
 }
 
 /**

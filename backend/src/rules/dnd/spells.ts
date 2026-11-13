@@ -162,6 +162,25 @@ export interface Caster {
   spellSaveDC: number;
   /** Character level, which is what makes a cantrip stronger. */
   level?: number;
+  /** The spellcasting ability modifier, which a healing spell adds. */
+  abilityModifier?: number;
+}
+
+/**
+ * The healing a spell restores to one creature, cast with a slot of
+ * `slotLevel`: "regains Hit Points equal to 2d8 plus your spellcasting ability
+ * modifier", and "The healing increases by 2d8 for each spell slot level above
+ * 1". Null for a spell that heals some other way.
+ */
+export function spellHealing(spell: Spell, slotLevel: number, modifier: number): { roll: { count: number; sides: number }; bonus: number } | null {
+  const text = spell.description.join(' ');
+  const base = /regains? (?:a number of )?Hit Points equal to (\d+)d(\d+) plus your spellcasting ability modifier/i.exec(text);
+  if (!base) return null;
+  const sides = Number(base[2]);
+  let count = Number(base[1]);
+  const more = /healing increases by (\d+)d(\d+) for each spell slot level above (\d)/i.exec(spell.higherLevels ?? '');
+  if (more && Number(more[2]) === sides) count += Number(more[1]) * Math.max(0, slotLevel - Number(more[3]));
+  return { roll: { count, sides }, bonus: modifier };
 }
 
 /** The damage of a spell cast with a slot of `slotLevel` by a caster of `casterLevel`. */
@@ -196,6 +215,12 @@ export function actionFromSpell(spell: Spell, caster: Caster, slotLevel: number 
   };
   if (mechanics.rangeFeet !== null) action.rangeFeet = mechanics.rangeFeet;
   if (mechanics.area) action.area = mechanics.area;
+  const healing = spellHealing(spell, slotLevel, caster.abilityModifier ?? 0);
+  if (healing) {
+    action.heal = healing;
+    if (action.rangeFeet === undefined) action.rangeFeet = 5;
+    return action;
+  }
   if (mechanics.attack === 'melee') {
     action.attack = { kind: 'melee', bonus: caster.spellAttackBonus, reachFeet: Math.max(5, mechanics.rangeFeet ?? 5), damage };
   } else if (mechanics.attack === 'ranged' && mechanics.rangeFeet !== null) {
@@ -206,9 +231,17 @@ export function actionFromSpell(spell: Spell, caster: Caster, slotLevel: number 
   return action;
 }
 
+/** The spellcasting ability modifier a sheet implies: its spell attack bonus less its Proficiency Bonus. */
+function castingModifier(data: SheetSpellcasting | null | undefined): number {
+  const attack = data?.spellcasting?.spellAttackBonus ?? 0;
+  const proficiency = typeof data?.proficiencyBonus === 'number' ? data.proficiencyBonus : 2 + Math.floor((Math.max(1, data?.level ?? 1) - 1) / 4);
+  return attack - proficiency;
+}
+
 /** The part of a D&D 5e sheet that spells are cast from. */
 export interface SheetSpellcasting {
   level?: number;
+  proficiencyBonus?: number;
   spellcasting?: {
     spellSaveDC?: number;
     spellAttackBonus?: number;
@@ -227,7 +260,7 @@ export interface SheetSpellcasting {
 export function spellActionsFromSheet(data: SheetSpellcasting | null | undefined): CombatAction[] {
   const casting = data?.spellcasting;
   if (!casting || typeof casting.spellAttackBonus !== 'number' || typeof casting.spellSaveDC !== 'number') return [];
-  const caster: Caster = { spellAttackBonus: casting.spellAttackBonus, spellSaveDC: casting.spellSaveDC, level: data?.level };
+  const caster: Caster = { spellAttackBonus: casting.spellAttackBonus, spellSaveDC: casting.spellSaveDC, level: data?.level, abilityModifier: castingModifier(data) };
   const names = [
     ...(casting.cantrips ?? []),
     ...(casting.spells ?? []).filter((entry) => entry.prepared !== false).map((entry) => entry.name),
@@ -288,7 +321,7 @@ export function castWithSlot(
   const level = slotLevel ?? spell.level;
   if (level < spell.level) return { error: `${spell.name} needs a spell slot of level ${spell.level} or higher` };
   if (!slotsLeft(data)[level]) return { error: `No level ${level} spell slot left to cast ${spell.name}` };
-  const caster: Caster = { spellAttackBonus: casting.spellAttackBonus, spellSaveDC: casting.spellSaveDC, level: data?.level };
+  const caster: Caster = { spellAttackBonus: casting.spellAttackBonus, spellSaveDC: casting.spellSaveDC, level: data?.level, abilityModifier: castingModifier(data) };
   return { action: actionFromSpell(spell, caster, level) ?? action, slotLevel: level };
 }
 
