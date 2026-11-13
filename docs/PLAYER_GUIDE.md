@@ -414,7 +414,7 @@ During combat a bar under the map shows the turn of whoever is acting: the movem
 - When you take the Attack action the bar counts your attacks (**Attack 1 of 2** with Extra Attack), and the VTT stops you at the number your features give you.
 - **Features** lists what your character can do with a Bonus Action or a Reaction, with the rule of each; **Use** marks the bonus action or reaction as spent.
 - At 0 hit points, on your turn, the bar shows **Death save**: the VTT rolls it and marks the result on your sheet. A 20 puts you back up with 1 hit point.
-- Pick your **action** from the list. **Dash** adds your speed to your movement for the turn.
+- Pick your **action** from the list. **Dash** adds your speed to your movement for the turn. **Dodge** makes you dodge until your next turn starts: attacks the VTT rolls against you have Disadvantage and your Dexterity saving throws have Advantage, the bar and the initiative tracker say **Dodging**, and you lose it while you are Incapacitated or your Speed is 0. Picking another action instead takes the Dodge back.
 - Tick **Bonus action used** and **Reaction used** as you spend them.
 - Press **End turn** when you are done.
 

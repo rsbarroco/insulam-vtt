@@ -1632,6 +1632,8 @@ export interface CombatState {
   turn: TurnState | null;
   /** tokenIds whose reaction is spent. */
   reactionsSpent: string[];
+  /** tokenIds that took the Dodge action and whose next turn has not started. */
+  dodging: string[];
 }
 
 /** `turn.update`: any of the turn fields, and optionally one combatant's reaction. */

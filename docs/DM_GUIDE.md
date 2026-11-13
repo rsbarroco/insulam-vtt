@@ -930,7 +930,7 @@ Click **End combat** (the circled ✕ beside **Next Turn**) and confirm with **E
 Once combat has started, a bar under the map shows the turn of whoever is acting, by the D&D rules: the **movement** it has left, its **action**, its **bonus action** and its **reaction**. Everyone at the table sees it. You can change it for any combatant; a player can for a token they control.
 
 - **Movement** starts at the token's speed and goes down as the token is moved in the tactical view, by the feet the move cost. A token with no speed just shows the feet it has moved. Moves made in the top-down view are not counted.
-- **Action** is a list of the actions every creature has. Choosing one records it; **Dash** also adds the token's speed to its movement for the turn, and the reach on the map grows with it. **Not taken** gives the action back.
+- **Action** is a list of the actions every creature has. Choosing one records it; **Dash** also adds the token's speed to its movement for the turn, and the reach on the map grows with it. **Dodge** marks the token as **Dodging** in the tracker until its next turn starts: attack rolls the VTT makes against it have Disadvantage (the roll's log line says why) and its Dexterity saving throws have Advantage, unless it is Incapacitated, its Speed is 0, or it cannot see the attacker. **Not taken** gives the action back.
 - **Bonus action used** and **Reaction used** are ticks. A reaction comes back when that combatant's own turn begins. While someone else acts, a player still sees a tick for the reaction of each of their own tokens.
 - **End turn** passes to the next combatant, as **Next** in the tracker does. A player can end their own turn with it, so you do not have to.
 

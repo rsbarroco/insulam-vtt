@@ -5,6 +5,7 @@ import {
   effectiveSpeed,
   readConditions,
   saveModifiers,
+  stillDodging,
   unexpired,
   type ConditionInstance,
 } from '../conditions';
@@ -111,6 +112,32 @@ describe('attackModifiers', () => {
 
   it('carries the attacker Exhaustion as a penalty', () => {
     expect(attack({ attacker: readConditions([], 2) }).penalty).toBe(-4);
+  });
+});
+
+describe('the Dodge action', () => {
+  it('gives attack rolls against a dodging creature Disadvantage', () => {
+    const made = attack({ target: having('Dodging') });
+    expect(made.mode).toBe('disadvantage');
+    expect(made.reasons).toEqual(['Disadvantage: the target is Dodging']);
+  });
+
+  it('does nothing against an attacker the creature cannot see', () => {
+    expect(attack({ attacker: having('Invisible'), target: having('Dodging') }).mode).toBe('advantage');
+    expect(attack({ target: having('Dodging'), unseenAttacker: true }).mode).toBe('advantage');
+    expect(attack({ target: having('Dodging', 'Blinded') }).reasons).toEqual(['Advantage: the target is Blinded']);
+  });
+
+  it.each(['Incapacitated', 'Stunned', 'Grappled', 'Restrained'])('is lost while %s: Incapacitated, or Speed 0', (name) => {
+    expect(stillDodging(having('Dodging', name))).toBe(false);
+    expect(attack({ target: having('Dodging', name) }).reasons).not.toContain('Disadvantage: the target is Dodging');
+    expect(saveModifiers(having('Dodging', name), 'dex').mode).not.toBe('advantage');
+  });
+
+  it('gives Advantage on Dexterity saving throws only', () => {
+    expect(saveModifiers(having('Dodging'), 'dex').mode).toBe('advantage');
+    expect(saveModifiers(having('Dodging'), 'con').mode).toBe('normal');
+    expect(saveModifiers(having(), 'dex').mode).toBe('normal');
   });
 });
 

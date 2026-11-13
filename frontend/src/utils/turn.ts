@@ -10,8 +10,10 @@ import type { TurnState } from '@/types';
 
 /**
  * The actions the 2024 rules give every creature, by name. The name is what
- * the turn records; the VTT applies the effect of one only: Dash adds the
- * creature's speed to its movement for the turn.
+ * the turn records. The VTT applies the effect of two: Dash adds the
+ * creature's speed to its movement for the turn, and Dodge gives attack
+ * rolls against it Disadvantage and its Dexterity saving throws Advantage
+ * until its next turn starts (the server keeps who is dodging).
  */
 export const STANDARD_ACTIONS = [
   'Attack',

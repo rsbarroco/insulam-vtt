@@ -43,6 +43,8 @@ export interface ConditionState {
   has: ReadonlySet<Condition>;
   /** 0 to 6. */
   exhaustion: number;
+  /** It took the Dodge action and its next turn has not started. Not a condition, but carried like one. */
+  dodging: boolean;
 }
 
 const ALIASES: Readonly<Record<string, Condition>> = { exhausted: 'exhaustion' };
@@ -54,8 +56,10 @@ const ALIASES: Readonly<Record<string, Condition>> = { exhausted: 'exhaustion' }
  */
 export function readConditions(names: readonly string[], exhaustion?: number): ConditionState {
   const has = new Set<Condition>();
+  let dodging = false;
   for (const name of names) {
     const key = name.trim().toLowerCase();
+    if (key === DODGING) dodging = true;
     const condition = ALIASES[key] ?? (CONDITIONS as readonly string[]).find((known) => known === key);
     if (condition) has.add(condition as Condition);
   }
@@ -68,7 +72,18 @@ export function readConditions(names: readonly string[], exhaustion?: number): C
   const clamped = Math.max(0, Math.min(MAX_EXHAUSTION, Math.floor(level)));
   if (clamped > 0) has.add('exhaustion');
   else has.delete('exhaustion');
-  return { has, exhaustion: clamped };
+  return { has, exhaustion: clamped, dodging };
+}
+
+/** The name a dodging creature carries among its conditions. */
+export const DODGING = 'dodging';
+
+/**
+ * Whether a creature that took the Dodge action still has its benefits: it
+ * loses them while Incapacitated or while its Speed is 0.
+ */
+export function stillDodging(state: ConditionState): boolean {
+  return state.dodging && canAct(state) && effectiveSpeed(30, state) > 0;
 }
 
 /** An Incapacitated creature takes no action, Bonus Action or Reaction. */
@@ -144,6 +159,9 @@ export function attackModifiers(situation: AttackSituation): AttackModifiers {
   if (attacker.has.has('restrained')) dis('the attacker is Restrained');
   if (attacker.has.has('invisible') || situation.unseenAttacker) adv('the target cannot see the attacker');
 
+  // Dodging helps only against an attacker the target can see.
+  const unseen = attacker.has.has('invisible') || situation.unseenAttacker || target.has.has('blinded');
+  if (stillDodging(target) && !unseen) dis('the target is Dodging');
   if (target.has.has('blinded')) adv('the target is Blinded');
   if (target.has.has('invisible')) dis('the target is Invisible');
   if (target.has.has('paralyzed')) adv('the target is Paralyzed');
@@ -179,7 +197,7 @@ export function saveModifiers(state: ConditionState, ability: Ability): SaveModi
   const physical = ability === 'str' || ability === 'dex';
   const helpless = (['paralyzed', 'petrified', 'stunned', 'unconscious'] as const).some((c) => state.has.has(c));
   return {
-    mode: rollMode(false, ability === 'dex' && state.has.has('restrained')),
+    mode: rollMode(ability === 'dex' && stillDodging(state), ability === 'dex' && state.has.has('restrained')),
     penalty: d20Penalty(state),
     autoFail: physical && helpless,
   };

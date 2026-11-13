@@ -194,6 +194,7 @@ function CombatantRow({
   // (the input's blur) leaves it where the click put it.
   const refocusValue = useRef(false);
   const name = tokenDisplayName(entry);
+  const dodging = useGameStore((state) => state.combat.dodging.includes(entry.tokenId));
 
   useEffect(() => {
     if (editing) {
@@ -317,6 +318,14 @@ function CombatantRow({
         ) : (
           <div className={`text-sm font-medium truncate ${isActive ? 'text-accent-ink' : 'text-brand-ink'}`}>
             {name}
+          </div>
+        )}
+        {dodging && (
+          <div
+            className="text-xs text-ink-muted"
+            title="Took the Dodge action: attack rolls against it have Disadvantage and it makes Dexterity saving throws with Advantage, until its next turn starts"
+          >
+            Dodging
           </div>
         )}
         {entry.hp && (

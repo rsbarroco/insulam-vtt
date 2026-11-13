@@ -24,7 +24,7 @@ const token = (id: string) => ({ id, name: id, imageUrl: '' });
 const spent = { movementSpent: 15, dashes: 1, action: 'Dash', bonusAction: true, attacks: 0 };
 const fight = (over: Partial<CombatState> = {}): CombatState => ({
   active: true, round: 1, currentTokenId: 'a', combatants: [entry('a'), entry('b'), entry('c')],
-  turn: { ...spent }, reactionsSpent: ['b', 'c'], ...over,
+  turn: { ...spent }, reactionsSpent: ['b', 'c'], dodging: [], ...over,
 });
 
 describe('freshTurn', () => {
@@ -40,6 +40,12 @@ describe('advanceTurn', () => {
     expect(state.currentTokenId).toBe('b');
     expect(state.round).toBe(1);
     expect(state.turn).toEqual(freshTurn());
+  });
+
+  it('ends the Dodge of the combatant whose turn begins, and nobody else’s', () => {
+    const state = fight({ dodging: ['a', 'b'] });
+    advanceTurn(state);
+    expect(state.dodging).toEqual(['a']);
   });
 
   it('gives the combatant whose turn begins its reaction back, and nobody else', () => {

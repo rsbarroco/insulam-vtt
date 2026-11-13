@@ -51,6 +51,12 @@ export interface CombatState {
   turn: TurnState | null;
   /** tokenIds whose reaction is spent. A combatant's comes back at the start of its turn. */
   reactionsSpent: string[];
+  /**
+   * tokenIds that took the Dodge action on their last turn: attack rolls
+   * against one have Disadvantage and it makes Dexterity saving throws with
+   * Advantage, until its next turn starts.
+   */
+  dodging: string[];
 }
 
 /** Whether a fight is under way with a combatant acting. */
@@ -78,6 +84,7 @@ export function advanceTurn(state: CombatState): void {
   }
   state.turn = freshTurn();
   state.reactionsSpent = state.reactionsSpent.filter((tokenId) => tokenId !== state.currentTokenId);
+  state.dodging = state.dodging.filter((tokenId) => tokenId !== state.currentTokenId);
 }
 
 const campaignStates = new Map<string, CombatState>();
@@ -131,6 +138,7 @@ function defaultState(): CombatState {
     combatants: [],
     turn: null,
     reactionsSpent: [],
+    dodging: [],
   };
 }
 
@@ -139,8 +147,8 @@ export function getState(campaignId: string): CombatState {
 }
 
 /** A combat state as it may be handed in: the turn fields may be left out. */
-export type CombatStateInput = Omit<CombatState, 'turn' | 'reactionsSpent'> &
-  Partial<Pick<CombatState, 'turn' | 'reactionsSpent'>>;
+export type CombatStateInput = Omit<CombatState, 'turn' | 'reactionsSpent' | 'dodging'> &
+  Partial<Pick<CombatState, 'turn' | 'reactionsSpent' | 'dodging'>>;
 
 export function setState(campaignId: string, input: CombatStateInput): void {
   const listed = new Set(input.combatants.map((c) => c.tokenId));
@@ -151,6 +159,7 @@ export function setState(campaignId: string, input: CombatStateInput): void {
     // A turn stored before attacks were counted has made none.
     turn: input.active && input.currentTokenId ? { ...freshTurn(), ...(input.turn ?? {}) } : null,
     reactionsSpent: (input.reactionsSpent ?? []).filter((tokenId) => listed.has(tokenId)),
+    dodging: input.active ? (input.dodging ?? []).filter((tokenId) => listed.has(tokenId)) : [],
   };
   campaignStates.set(campaignId, state);
   bump(campaignId);
@@ -253,6 +262,9 @@ export function withoutCombatants(state: CombatState, gone: (entry: CombatantEnt
     reactionsSpent: state.reactionsSpent.filter(
       (tokenId) => kept.some((c) => c.tokenId === tokenId) && !(passedOn && tokenId === currentTokenId)
     ),
+    dodging: state.dodging.filter(
+      (tokenId) => kept.some((c) => c.tokenId === tokenId) && !(passedOn && tokenId === currentTokenId)
+    ),
   };
 }
 
@@ -324,5 +336,6 @@ export function projectCombatState(
     combatants,
     turn: currentTokenId ? state.turn : null,
     reactionsSpent: state.reactionsSpent.filter((tokenId) => listed.has(tokenId)),
+    dodging: state.dodging.filter((tokenId) => listed.has(tokenId)),
   };
 }

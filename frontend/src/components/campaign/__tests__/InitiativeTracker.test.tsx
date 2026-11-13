@@ -70,6 +70,18 @@ describe('the active-turn banner', () => {
   });
 });
 
+describe('a combatant that took the Dodge action', () => {
+  it('is marked as dodging, and the others are not', () => {
+    seat.role = 'DM';
+    useGameStore.getState().setCombatState({
+      active: true, round: 1, currentTokenId: 'g', dodging: ['h'],
+      combatants: [entry('h', 'Hero', 18), entry('g', 'Goblin', 12)],
+    });
+    render(<InitiativeTracker />);
+    expect(screen.getAllByText('Dodging')).toHaveLength(1);
+  });
+});
+
 describe('the tracker from the keyboard', () => {
   const threeReady = () => useGameStore.getState().setCombatState({
     active: false, round: 0, currentTokenId: null,

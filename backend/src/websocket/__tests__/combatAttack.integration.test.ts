@@ -190,6 +190,20 @@ describe('combat.attack', () => {
     expect(await heroHp()).toBe(18);
   });
 
+  it('rolls with Disadvantage against a creature that took the Dodge action', async () => {
+    setState(campaignId, {
+      active: true, round: 1, currentTokenId: HERO, dodging: [OGRE],
+      combatants: [entry(HERO, 'Hero', 18), entry(OGRE, 'Ogre', 9)],
+    });
+    // Two d20s, 17 and 2: the lower stands, and 2 + 5 misses AC 11.
+    rolls = [17, 2];
+
+    const answer = await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: 0 });
+
+    expect(answer).toMatchObject({ ok: true, hit: false, reasons: ['Disadvantage: the target is Dodging'] });
+    clearState(campaignId);
+  });
+
   it('changes nothing on a miss, and still logs the roll', async () => {
     rolls = [2];
     const logged = waitForEvent<{ result: number }>(dm, 'dice.rolled');
