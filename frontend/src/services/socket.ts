@@ -19,6 +19,7 @@ import type {
   CombatAttackAck,
   CombatAttackEvent,
   CombatDeathSaveAck,
+  CombatFallAck,
   CombatSaveAck,
   CombatSaveEvent,
   ChatMessageBroadcast,
@@ -759,6 +760,11 @@ class SocketClient {
   /** Have the server roll the targets' saving throws against an action, and apply what it does. */
   resolveSave(save: CombatSaveEvent): Promise<CombatSaveAck> {
     return this.askFor<CombatSaveAck>('combat.save', save, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  }
+
+  /** Have the server roll a fall's damage for a token, apply it and land the token Prone. */
+  resolveFall(tokenId: string, feet: number): Promise<CombatFallAck> {
+    return this.askFor<CombatFallAck>('combat.fall', { tokenId, feet }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** Have the server roll a death saving throw for the character a token is bound to. */

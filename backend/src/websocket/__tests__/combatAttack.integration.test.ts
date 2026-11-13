@@ -460,3 +460,42 @@ describe('the Attack action and what features give it', () => {
     expect((await swing()).ok).toBe(true);
   });
 });
+
+describe('combat.fall', () => {
+  const ogre = async () => readTokens((await prisma.map.findUniqueOrThrow({ where: { id: mapId } })).tokens).find((t) => t.id === OGRE);
+
+  it('rolls 1d6 for every 10 feet, takes it from the token and lands it Prone', async () => {
+    rolls = [4, 2, 6];
+    const logged = waitForEvent<{ purpose: string; result: number; expression: string; characterName: string }>(dm, 'dice.rolled');
+
+    const answer = await ask(dm, 'combat.fall', { tokenId: OGRE, feet: 30 });
+
+    expect(answer).toMatchObject({ ok: true, dealt: 12, summary: 'Ogre falls 30 ft: 12 bludgeoning damage, Prone' });
+    expect(await ogre()).toMatchObject({ hp: { current: 47, max: 59, temp: 0 }, conditions: ['Prone'] });
+    expect(await logged).toMatchObject({ expression: '3d6', result: 12, characterName: 'Ogre', purpose: answer.summary });
+  });
+
+  it('takes it from a character’s sheet, for the player who controls the token', async () => {
+    rolls = [5, 5];
+    const hpSent = waitForEvent<{ characterId: string; hp: { current: number } }>(player, 'character.hp.updated');
+
+    const answer = await ask(player, 'combat.fall', { tokenId: HERO, feet: 25 });
+
+    expect(answer).toMatchObject({ ok: true, dealt: 10 });
+    expect(await hpSent).toMatchObject({ characterId: heroCharacterId, hp: { current: 20 } });
+    const hero = readTokens((await prisma.map.findUniqueOrThrow({ where: { id: mapId } })).tokens).find((t) => t.id === HERO);
+    expect(hero?.conditions).toEqual(['Prone']);
+  });
+
+  it('does not make a creature that is Prone already Prone twice', async () => {
+    await ask(dm, 'combat.fall', { tokenId: OGRE, feet: 10 });
+    await ask(dm, 'combat.fall', { tokenId: OGRE, feet: 10 });
+    expect((await ogre())?.conditions).toEqual(['Prone']);
+  });
+
+  it('refuses a player another creature’s fall, and a fall too short to hurt', async () => {
+    expect((await ask(player, 'combat.fall', { tokenId: OGRE, feet: 30 })).error).toBe('You can only act for your own token');
+    expect((await ask(dm, 'combat.fall', { tokenId: OGRE, feet: 5 })).ok).toBe(false);
+    expect((await ogre())?.hp?.current).toBe(59);
+  });
+});
