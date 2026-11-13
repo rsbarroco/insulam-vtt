@@ -20,6 +20,7 @@ const h = vi.hoisted(() => ({
   standUp: vi.fn(),
   resolveCheck: vi.fn(),
   useFeature: vi.fn(),
+  concentrate: vi.fn(),
   listCombatActions: vi.fn(),
   showToast: vi.fn(),
 }));
@@ -34,6 +35,7 @@ const socket = {
   standUp: (...args: unknown[]) => h.standUp(...args),
   resolveCheck: (...args: unknown[]) => h.resolveCheck(...args),
   useFeature: (...args: unknown[]) => h.useFeature(...args),
+  concentrate: (...args: unknown[]) => h.concentrate(...args),
   listCombatActions: (...args: unknown[]) => h.listCombatActions(...args),
 };
 vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({ socket }) }));
@@ -592,6 +594,26 @@ describe('a readied attack', () => {
     await waitFor(() =>
       expect(h.resolveAttack).toHaveBeenCalledWith({ attackerId: 'hero', targetId: 'ogre', action: 0, readied: true })
     );
+  });
+});
+
+describe('concentration', () => {
+  it('starts on a spell the sheet has, and shows and ends one held', async () => {
+    as('PLAYER', 'player-1');
+    h.concentrate.mockReset().mockResolvedValue({ ok: true, summary: 'Hero concentrates on Bless' });
+    h.listCombatActions.mockResolvedValue({ ok: true, actions: [], attacksPerAction: 1, features: [], resources: [], concentrationSpells: ['Bless', 'Haste'] });
+    fight();
+    const { unmount } = render(<TurnBar />);
+    fireEvent.change(await screen.findByLabelText('Concentration spell'), { target: { value: 'Haste' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Concentrate' }));
+    await waitFor(() => expect(h.concentrate).toHaveBeenCalledWith('hero', { spell: 'Haste' }));
+    unmount();
+
+    fight({ marks: [{ kind: 'concentration', attackerId: 'hero', targetId: 'hero', action: 'Bless', turnEndsLeft: 1 }] });
+    render(<TurnBar />);
+    expect(await screen.findByText('Concentrating: Bless')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'End concentration' }));
+    await waitFor(() => expect(h.concentrate).toHaveBeenCalledWith('hero', { end: true }));
   });
 });
 

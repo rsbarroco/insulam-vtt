@@ -6,7 +6,7 @@
  * areas holds on spells whose rules are well known.
  */
 
-import { castWithSlot, slotsLeft, withSlotSpent, spellActionsFromSheet, actionFromSpell, allSpells, filterSpells, findSpell, spellDamage, spellMechanics, SRD_ATTRIBUTION } from '../spells';
+import { castWithSlot, slotsLeft, withSlotSpent, spellActionsFromSheet, actionFromSpell, allSpells, filterSpells, findSpell, spellDamage, spellMechanics, SRD_ATTRIBUTION, concentrationSpellsOf } from '../spells';
 
 const spell = (name: string) => {
   const found = findSpell(name);
@@ -210,5 +210,22 @@ describe('spell slots', () => {
     expect(sheet.spellcasting.slots['3'].expended).toBe(1);
     expect(withSlotSpent(spent!, 3)).toBeNull();
     expect(withSlotSpent(sheet, 2)).toBeNull();
+  });
+});
+
+describe('concentrationSpellsOf', () => {
+  it('lists the ready spells that need Concentration', () => {
+    expect(
+      concentrationSpellsOf({
+        spellcasting: {
+          cantrips: ['Fire Bolt'],
+          spells: [
+            { name: 'Bless', level: 1, prepared: true },
+            { name: 'Haste', level: 3, prepared: false },
+            { name: 'Magic Missile', level: 1, prepared: true },
+          ],
+        },
+      })
+    ).toEqual(['Bless']);
   });
 });

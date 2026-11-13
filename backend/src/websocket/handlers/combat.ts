@@ -24,9 +24,9 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing, turnSerial, type WeaponMark } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema, CombatConcentrateSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, legendaryUses, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
-import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
+import { castWithSlot, concentrationSpellsOf, findSpell, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import { canAct, DODGING, effectiveSpeed, RAGING, readConditions, saveModifiers, type Ability } from '../../rules/dnd/conditions';
 import { rollDie, savingThrow } from '../../rules/dnd/d20';
@@ -37,7 +37,7 @@ import { bardicDie, POINT_RESOURCES, rageDamage, resourcesOf, restoreResources, 
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
-import { adjustedDamage, applyDamage, DAMAGE_TYPES, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
+import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
@@ -234,6 +234,8 @@ async function applyDealt(
 ): Promise<string[]> {
   const notes: string[] = [];
   const onTokens = new Map<string, HitPoints>();
+  // Where each damaged creature's Hit Points end up, for its concentration.
+  const after: Array<{ token: Token; sheet: Record<string, unknown> | null; dealt: number; current: number }> = [];
   for (const hit of hits) {
     if (hit.dealt <= 0) continue;
     const characterId = hit.token.characterId;
@@ -265,6 +267,7 @@ async function applyDealt(
       });
       if (applied) io.to(campaignId).emit('character.hp.updated', { characterId, hp: applied.hp });
       if (applied?.endured) notes.push(`${hit.token.name} endures (Relentless Endurance): 1 Hit Point`);
+      if (applied) after.push({ token: hit.token, sheet: hit.sheet, dealt: hit.dealt, current: applied.hp.current });
       if (applied?.sheetChanged) {
         const changed = applied.sheetChanged;
         await bestEffort('sheet after a failed death save', () =>
@@ -273,8 +276,10 @@ async function applyDealt(
       }
     } else if (hit.hp) {
       onTokens.set(hit.token.id, hit.hp);
+      after.push({ token: hit.token, sheet: hit.sheet, dealt: hit.dealt, current: hit.hp.current });
     }
   }
+  notes.push(...keepConcentration(campaignId, after));
   if (onTokens.size === 0) return notes;
   const updated = await withMapsLocked([mapId], async (tx) => {
     const fresh = await tx.map.findUnique({ where: { id: mapId } });
@@ -990,6 +995,62 @@ function saveBreakdown(result: SaveResult, action: CombatAction): LoggedRoll {
   };
 }
 
+/** The spell a creature concentrates on, or null. */
+function concentrationOf(campaignId: string, tokenId: string): string | null {
+  return getCombatState(campaignId).marks.find((mark) => mark.kind === 'concentration' && mark.attackerId === tokenId)?.action ?? null;
+}
+
+/** A creature concentrates on a spell, ending its concentration on any other. */
+function startConcentration(campaignId: string, tokenId: string, spell: string): void {
+  const combat = getCombatState(campaignId);
+  if (!combat.active) return;
+  combat.marks = [
+    ...combat.marks.filter((mark) => !(mark.kind === 'concentration' && mark.attackerId === tokenId)),
+    { kind: 'concentration', attackerId: tokenId, targetId: tokenId, action: spell, turnEndsLeft: 1 },
+  ];
+  setCombatState(campaignId, combat);
+}
+
+function endConcentration(campaignId: string, tokenId: string): void {
+  const combat = getCombatState(campaignId);
+  combat.marks = combat.marks.filter((mark) => !(mark.kind === 'concentration' && mark.attackerId === tokenId));
+  setCombatState(campaignId, combat);
+}
+
+/**
+ * A concentrating creature that takes damage makes a Constitution save
+ * against DC 10 or half the damage, up to 30, and loses its concentration on
+ * a failure, or at once at 0 Hit Points. The lines say what happened.
+ */
+function keepConcentration(
+  campaignId: string,
+  damaged: ReadonlyArray<{ token: Token; sheet: Record<string, unknown> | null; dealt: number; current: number }>
+): string[] {
+  const lines: string[] = [];
+  for (const { token, sheet, dealt, current } of damaged) {
+    const spell = concentrationOf(campaignId, token.id);
+    if (!spell || dealt <= 0) continue;
+    if (current <= 0) {
+      endConcentration(campaignId, token.id);
+      lines.push(`${token.name} loses concentration on ${spell} (0 Hit Points)`);
+      continue;
+    }
+    const dc = concentrationDC(dealt);
+    const modifiers = saveModifiers(readConditions(token.conditions ?? [], typeof sheet?.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined), 'con');
+    const outcome = savingThrow(
+      { bonus: (saveBonusOf(token, sheet, 'con') ?? 0) + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
+      hasLuck(sheet) ? lucky(rollDie) : rollDie
+    );
+    const rolled = outcome.roll ? `${outcome.roll.total} vs DC ${dc}` : `DC ${dc}`;
+    if (outcome.success) lines.push(`${token.name} keeps concentration on ${spell} (${rolled})`);
+    else {
+      endConcentration(campaignId, token.id);
+      lines.push(`${token.name} loses concentration on ${spell} (${rolled})`);
+    }
+  }
+  return lines;
+}
+
 /** The Legendary Actions a creature has taken since its last turn. */
 function legendarySpent(campaignId: string, tokenId: string): number {
   return getCombatState(campaignId).marks.filter((mark) => mark.kind === 'legendary' && mark.attackerId === tokenId).length;
@@ -1188,6 +1249,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           features: featureOptions(features),
           // The class features it spends and gets back on a rest, with what is left.
           resources: sheet ? resourcesOf(sheet).map(({ name, max, used }) => ({ name, max, used })) : [],
+          // The spell it concentrates on, and those it could.
+          concentration: concentrationOf(socket.campaignId, token.id),
+          concentrationSpells: sheet ? concentrationSpellsOf(sheet as SheetSpellcasting) : [],
           // What a creature notices without looking: 10 plus its Wisdom (Perception) bonus.
           passivePerception: (() => {
             const bonus = skillBonusOf(token, sheet, 'perception');
@@ -1419,6 +1483,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const endured = await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
       spendRecharge(campaignId, attackerId, action);
+      // A concentration spell cast starts its concentration, ending any other.
+      const concentrating = action.spell ? findSpell(action.name) : null;
+      if (concentrating?.concentration) startConcentration(campaignId, attackerId, concentrating.name);
       if (vexed || sapped || helped) useMarks(campaignId, [vexed, sapped, helped]);
       if (ready) {
         const now = getCombatState(campaignId);
@@ -1992,6 +2059,50 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
+   * COMBAT.CONCENTRATE — A token's caster starts concentrating on a spell its sheet has ready that needs Concentration (one it cast by hand, a buff the VTT does not roll), ending its concentration on any other; or, with `end: true`, ends its concentration. During combat. A concentration spell cast through `combat.attack` or `combat.save` starts concentration by itself, and damage makes the caster save to keep it. The DM, or the player who controls the token.
+   */
+  socket.on('combat.concentrate', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.concentrate', ack)) return;
+      const parsed = CombatConcentrateSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const { tokenId, spell, end } = parsed.data;
+
+      const map = await currentMap(campaignId);
+      if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
+      const token = readTokens(map.tokens).find((t) => t.id === tokenId);
+      if (!token || !canControlToken(socket.role, token.controlledBy, socket.userId)) {
+        return refuseRequest(socket, ack, 'You can only act for your own token');
+      }
+      if (!getCombatState(campaignId).active) return refuseRequest(socket, ack, 'Concentration is kept during combat');
+      let summary: string;
+      if (end) {
+        const was = concentrationOf(campaignId, tokenId);
+        if (!was) return refuseRequest(socket, ack, `${token.name} is not concentrating`);
+        endConcentration(campaignId, tokenId);
+        summary = `${token.name} ends concentration on ${was}`;
+      } else {
+        const sheet = await sheetOf(token, campaignId);
+        const known = sheet ? concentrationSpellsOf(sheet as SheetSpellcasting) : [];
+        const chosen = known.find((name) => name.toLowerCase() === spell!.toLowerCase());
+        if (!chosen) return refuseRequest(socket, ack, `${token.name} has no concentration spell called ${spell}`);
+        const was = concentrationOf(campaignId, tokenId);
+        startConcentration(campaignId, tokenId, chosen);
+        summary = `${token.name} concentrates on ${chosen}${was && was !== chosen ? `, ending ${was}` : ''}`;
+      }
+      await resendInitiativeState(io, campaignId);
+      ack?.({ ok: true, summary });
+      logger.debug('combat.concentrate', { campaignId, tokenId, end: end === true });
+    } catch (error) {
+      logger.error('combat.concentrate failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to change the concentration');
+    }
+  });
+
+  /**
    * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions and cover, applies full, half or no damage to each one's hit points and records the roll in the dice log. The DM, or the player who controls the acting token; a player may not target a hidden token.
    */
   socket.on('combat.save', async (data: unknown, callback?: unknown) => {
@@ -2071,6 +2182,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       spendRecharge(campaignId, sourceId, action);
+      const concentrating = action.spell ? findSpell(action.name) : null;
+      if (concentrating?.concentration) startConcentration(campaignId, sourceId, concentrating.name);
       const endured = await applyDealt(
         io,
         campaignId,
