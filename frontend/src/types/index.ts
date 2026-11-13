@@ -1803,6 +1803,9 @@ export type CombatStandAck = { ok: true } | { ok: false; error: string };
 /** `combat.help`: the helper distracted the creature for its allies' next attack. */
 export type CombatHelpAck = { ok: true; summary: string } | { ok: false; error: string };
 
+/** `combat.undo`: what was undone, and how many actions are left to undo. */
+export type CombatUndoAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
+
 /** `combat.heal`: what the healing spell restored. */
 export type CombatHealAck = { ok: true; summary: string; healed: number } | { ok: false; error: string };
 

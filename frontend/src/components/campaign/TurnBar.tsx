@@ -12,7 +12,7 @@
 // ============================================
 
 import { useEffect, useState } from 'react';
-import { Footprints, HeartPulse, SkipForward, Sparkles, Swords } from 'lucide-react';
+import { Footprints, HeartPulse, SkipForward, Sparkles, Swords, Undo2 } from 'lucide-react';
 import { useCampaign } from '@/contexts/CampaignContext';
 import { useWebSocket } from '@/contexts/WebSocketContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -509,6 +509,20 @@ export default function TurnBar() {
           onClick={() => void rollDeathSave()}
         >
           Death save
+        </Button>
+      )}
+
+      {isDM && (
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={Undo2}
+          title="Undo the last attack, save, heal, fall or feature the server resolved: Hit Points, conditions, sheets and the turn go back"
+          onClick={() =>
+            void socket.undoCombat().then((answer) => showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'info' : 'error'))
+          }
+        >
+          Undo
         </Button>
       )}
 

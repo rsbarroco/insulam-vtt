@@ -137,6 +137,9 @@ export const CombatHealSchema = z
   })
   .strict();
 
+/** `combat.undo`: no payload; the last resolved combat action is undone. */
+export const CombatUndoSchema = z.object({}).strict();
+
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();
 

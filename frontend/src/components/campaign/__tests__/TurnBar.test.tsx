@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   resolveCheck: vi.fn(),
   useFeature: vi.fn(),
   concentrate: vi.fn(),
+  undoCombat: vi.fn(),
   listCombatActions: vi.fn(),
   showToast: vi.fn(),
 }));
@@ -36,6 +37,7 @@ const socket = {
   resolveCheck: (...args: unknown[]) => h.resolveCheck(...args),
   useFeature: (...args: unknown[]) => h.useFeature(...args),
   concentrate: (...args: unknown[]) => h.concentrate(...args),
+  undoCombat: (...args: unknown[]) => h.undoCombat(...args),
   listCombatActions: (...args: unknown[]) => h.listCombatActions(...args),
 };
 vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({ socket }) }));
@@ -614,6 +616,27 @@ describe('concentration', () => {
     expect(await screen.findByText('Concentrating: Bless')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'End concentration' }));
     await waitFor(() => expect(h.concentrate).toHaveBeenCalledWith('hero', { end: true }));
+  });
+});
+
+describe('undo', () => {
+  it('is offered to the DM and asks the server', async () => {
+    as('DM', 'dm-1');
+    h.undoCombat.mockReset().mockResolvedValue({ ok: true, summary: 'Undone: Longsword vs Ogre', left: 0 });
+    h.listCombatActions.mockResolvedValue({ ok: true, actions: [], attacksPerAction: 1, features: [], resources: [] });
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(h.undoCombat).toHaveBeenCalled());
+  });
+
+  it('is not offered to a player', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({ ok: true, actions: [], attacksPerAction: 1, features: [], resources: [] });
+    fight();
+    render(<TurnBar />);
+    await screen.findByRole('button', { name: 'End turn' });
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
   });
 });
 
