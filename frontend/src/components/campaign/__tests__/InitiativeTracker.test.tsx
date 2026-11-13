@@ -82,6 +82,22 @@ describe('a combatant that took the Dodge action', () => {
   });
 });
 
+describe('a combatant a weapon mastery marked', () => {
+  it('says what it carries', () => {
+    seat.role = 'DM';
+    useGameStore.getState().setCombatState({
+      active: true, round: 1, currentTokenId: 'g',
+      marks: [
+        { kind: 'sap', attackerId: 'h', targetId: 'g', turnEndsLeft: 1 },
+        { kind: 'slow', attackerId: 'h', targetId: 'g', turnEndsLeft: 1 },
+      ],
+      combatants: [entry('h', 'Hero', 18), entry('g', 'Goblin', 12)],
+    });
+    render(<InitiativeTracker />);
+    expect(screen.getByText('Sapped · Slowed')).toBeInTheDocument();
+  });
+});
+
 describe('the tracker from the keyboard', () => {
   const threeReady = () => useGameStore.getState().setCombatState({
     active: false, round: 0, currentTokenId: null,

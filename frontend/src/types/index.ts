@@ -1636,6 +1636,16 @@ export interface CombatState {
   dodging: string[];
   /** The Opportunity Attacks the acting combatant's movement has offered this turn. */
   opportunities: OpportunityOffer[];
+  /** What a weapon's mastery left on a creature: Sap, Slow or Vex, until it is used or runs out. */
+  marks: WeaponMark[];
+}
+
+/** A lasting weapon mastery on a creature, as the server keeps it. */
+export interface WeaponMark {
+  kind: 'sap' | 'slow' | 'vex';
+  attackerId: string;
+  targetId: string;
+  turnEndsLeft: number;
 }
 
 /** An Opportunity Attack on offer: who may attack whom. Where the target stood is the server's to keep. */

@@ -12,7 +12,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { prisma } from '../../config/database';
 import { toJson, readTokens } from '../../utils/prisma-json';
 import { createWsTestServer, WsTestServer } from '../../__tests__/helpers/websocket-test-server';
-import { clearState } from '../initiativeState';
+import { clearState, getState, setState, type CombatantEntry } from '../initiativeState';
 import * as d20 from '../../rules/dnd/d20';
 
 jest.setTimeout(20000);
@@ -149,11 +149,14 @@ const armed = (useMastery: boolean, feature = true) =>
           { name: 'Maul', attackBonus: 5, damageRoll: '2d6+3', damageType: 'bludgeoning', useMastery },
           { name: 'Greatsword', attackBonus: 5, damageRoll: '2d6+3', damageType: 'slashing', useMastery },
           { name: 'Pike', attackBonus: 5, damageRoll: '1d10+3', damageType: 'piercing', useMastery },
+          { name: 'Mace', attackBonus: 5, damageRoll: '1d6+3', damageType: 'bludgeoning', useMastery },
+          { name: 'Rapier', attackBonus: 5, damageRoll: '1d8+3', damageType: 'piercing', useMastery },
+          { name: 'Club', attackBonus: 5, damageRoll: '1d4+3', damageType: 'bludgeoning', useMastery },
         ],
       }),
     },
   });
-const MAUL = 0, GREATSWORD = 1, PIKE = 2;
+const MAUL = 0, GREATSWORD = 1, PIKE = 2, MACE = 3, RAPIER = 4, CLUB = 5;
 
 describe('weapon masteries', () => {
   it('topples a target that fails its Constitution save: DC 8 + 3 + 2', async () => {
@@ -203,5 +206,65 @@ describe('weapon masteries', () => {
     rolls = [2];
     expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: GREATSWORD })).summary).not.toMatch(/Graze/);
     expect((await tokenOf(OGRE))?.hp?.current).toBe(59);
+  });
+});
+
+describe('lasting masteries', () => {
+  const entry = (tokenId: string, name: string, initiative: number): CombatantEntry => ({
+    tokenId, mapId, name, imageUrl: '', initiative, hp: null, type: 'npc', disposition: null,
+  });
+  const fight = (currentTokenId: string) =>
+    setState(campaignId, { active: true, round: 1, currentTokenId, combatants: [entry(HERO, 'Hero', 18), entry(OGRE, 'Ogre', 9)] });
+
+  it('saps a hit target: its next attack roll has Disadvantage, and the Sap goes', async () => {
+    await armed(true);
+    fight(HERO);
+    rolls = [15, 3];
+    expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: MACE })).summary).toMatch(
+      /; Sap: Ogre has Disadvantage on its next attack roll$/
+    );
+    expect(getState(campaignId).marks).toEqual([{ kind: 'sap', attackerId: HERO, targetId: OGRE, turnEndsLeft: 1 }]);
+
+    // The ogre's greatclub: 18 and 4, the lower stands.
+    rolls = [18, 4];
+    const back = await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: 0 });
+    expect(back).toMatchObject({ ok: true, hit: false, reasons: ['Disadvantage: Sapped'] });
+    expect(getState(campaignId).marks).toEqual([]);
+  });
+
+  it('vexes a damaged target: the next attack against it has Advantage', async () => {
+    await armed(true);
+    fight(HERO);
+    rolls = [15, 4];
+    await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: RAPIER });
+    expect(getState(campaignId).marks).toEqual([{ kind: 'vex', attackerId: HERO, targetId: OGRE, turnEndsLeft: 2 }]);
+
+    // The DM may go past the one attack the hero's Attack action gives.
+    rolls = [3, 17, 4];
+    const next = await ask(dm, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: GREATSWORD });
+    expect(next).toMatchObject({ hit: true, reasons: [expect.stringMatching(/^Advantage: Vex/)] });
+    expect(getState(campaignId).marks).toEqual([]);
+  });
+
+  it('slows a damaged target until the attacker’s next turn starts', async () => {
+    await armed(true);
+    fight(HERO);
+    rolls = [15, 2];
+    await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: CLUB });
+    expect(getState(campaignId).marks).toEqual([{ kind: 'slow', attackerId: HERO, targetId: OGRE, turnEndsLeft: 1 }]);
+
+    player.emit('turn.end', { tokenId: HERO });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(getState(campaignId).marks).toHaveLength(1);
+    dm.emit('turn.end', { tokenId: OGRE });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(getState(campaignId).marks).toEqual([]);
+  });
+
+  it('keeps nothing out of combat', async () => {
+    await armed(true);
+    rolls = [15, 3];
+    await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: MACE });
+    expect(getState(campaignId).marks).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { actionChange, formatFeet, movementBudget, movementLeft, STANDARD_ACTIONS } from '../turn';
+import { actionChange, formatFeet, markLabels, movementBudget, movementLeft, slowedSpeed, STANDARD_ACTIONS } from '../turn';
 
 describe('movement on a turn', () => {
   it('is the speed, once more for each Dash', () => {
@@ -57,5 +57,26 @@ describe('formatFeet', () => {
 describe('STANDARD_ACTIONS', () => {
   it('lists Dash, which the bar gives an effect', () => {
     expect(STANDARD_ACTIONS).toContain('Dash');
+  });
+});
+
+describe('weapon marks', () => {
+  const marks = [
+    { kind: 'slow' as const, attackerId: 'a', targetId: 'ogre', turnEndsLeft: 1 },
+    { kind: 'slow' as const, attackerId: 'b', targetId: 'ogre', turnEndsLeft: 1 },
+    { kind: 'sap' as const, attackerId: 'a', targetId: 'ogre', turnEndsLeft: 1 },
+    { kind: 'vex' as const, attackerId: 'a', targetId: 'wolf', turnEndsLeft: 2 },
+  ];
+
+  it('takes 10 feet off a Slowed creature, once however many slowed it, never below 0', () => {
+    expect(slowedSpeed(40, marks, 'ogre')).toBe(30);
+    expect(slowedSpeed(5, marks, 'ogre')).toBe(0);
+    expect(slowedSpeed(40, marks, 'wolf')).toBe(40);
+  });
+
+  it('names what a creature carries', () => {
+    expect(markLabels(marks, 'ogre')).toEqual(['Sapped', 'Slowed']);
+    expect(markLabels(marks, 'wolf')).toEqual(['Vexed']);
+    expect(markLabels(marks, 'hero')).toEqual([]);
   });
 });

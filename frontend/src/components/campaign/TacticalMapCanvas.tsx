@@ -42,7 +42,7 @@ import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import Button from '@/components/ui/Button';
 import AttackMenu from './AttackMenu';
 import { areaCells, standsIn, type AreaOfEffect } from '@/utils/boardArea';
-import { formatFeet, movementLeft } from '@/utils/turn';
+import { formatFeet, movementLeft, slowedSpeed } from '@/utils/turn';
 import { useTokenImages } from './map/useTokenImages';
 import { cachedTokenImage, placeholderColor, DOWNED_TOKEN_ALPHA } from './map/layers/drawTokens';
 import {
@@ -393,7 +393,9 @@ export default function TacticalMapCanvas() {
   // from its stat block, or set on it by the DM. What is in the way is what
   // this viewer can see.
   const reachToken = held ?? (brushMode ? null : hoverToken);
-  const fullSpeed = reachToken ? movingSpeed(reachToken) : null;
+  const ownSpeed = reachToken ? movingSpeed(reachToken) : null;
+  // A Slow mastery on the creature takes 10 feet off.
+  const fullSpeed = ownSpeed === null || !reachToken ? ownSpeed : slowedSpeed(ownSpeed, combat.marks, reachToken.id);
   // On its own turn in combat a token has what is left of its movement.
   const actingTurn =
     reachToken && combat.active && combat.currentTokenId === reachToken.id ? combat.turn : null;

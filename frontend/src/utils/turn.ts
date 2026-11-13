@@ -6,7 +6,7 @@
 // `turn`); nothing here or there enforces them.
 // ============================================
 
-import type { TurnState } from '@/types';
+import type { CombatState, TurnState } from '@/types';
 
 /**
  * The actions the 2024 rules give every creature, by name. The name is what
@@ -58,6 +58,23 @@ export function actionChange(
   const isDash = action === DASH;
   const dashes = turn.dashes + (isDash && !wasDash ? 1 : 0) - (wasDash && !isDash ? 1 : 0);
   return { action, dashes: Math.max(0, dashes) };
+}
+
+/** What a Slow mastery takes from a creature's Speed: 10 feet, however many weapons slowed it. */
+export const SLOW_FEET = 10;
+
+/** A Speed with any Slow on the creature taken off, never below 0. */
+export function slowedSpeed(speed: number, marks: CombatState['marks'], tokenId: string): number {
+  return marks.some((mark) => mark.kind === 'slow' && mark.targetId === tokenId) ? Math.max(0, speed - SLOW_FEET) : speed;
+}
+
+/** The marks a creature carries, as the tracker names them. */
+export function markLabels(marks: CombatState['marks'], tokenId: string): string[] {
+  const labels: string[] = [];
+  if (marks.some((mark) => mark.kind === 'sap' && mark.targetId === tokenId)) labels.push('Sapped');
+  if (marks.some((mark) => mark.kind === 'slow' && mark.targetId === tokenId)) labels.push('Slowed');
+  if (marks.some((mark) => mark.kind === 'vex' && mark.targetId === tokenId)) labels.push('Vexed');
+  return labels;
 }
 
 /** Feet as the bar shows them: whole, or with a half. */

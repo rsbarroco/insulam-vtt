@@ -26,6 +26,7 @@ import {
   formatFeet,
   movementBudget,
   movementLeft,
+  slowedSpeed,
   STANDARD_ACTIONS,
 } from '@/utils/turn';
 import Button from '@/components/ui/Button';
@@ -144,7 +145,8 @@ export default function TurnBar() {
     setWeapons({ attackerId, targetId, actions: melee });
   };
 
-  const speed = acting ? movingSpeed(acting) : null;
+  const baseSpeed = acting ? movingSpeed(acting) : null;
+  const speed = baseSpeed === null ? null : slowedSpeed(baseSpeed, combat.marks, actingId);
   // Prone: it crawls, or gets up for half its Speed.
   const prone = acting !== null && isProne(acting);
   const standCost = speed === null ? 0 : standUpCost(speed);

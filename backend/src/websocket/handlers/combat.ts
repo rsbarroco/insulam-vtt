@@ -20,7 +20,7 @@ import { canControlToken } from '../../services/permissions';
 import { ackFrom, refuseRequest, type SocketAck } from '../ack';
 import { broadcastMapData, withinCeiling, type Token } from '../shared';
 import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } from '../utils';
-import { getState as getCombatState, setState as setCombatState, someoneActing } from '../initiativeState';
+import { getState as getCombatState, setState as setCombatState, someoneActing, type WeaponMark } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
 import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
@@ -298,7 +298,7 @@ async function applyMastery(
   attackerSheet: Record<string, unknown> | null,
   targetToken: Token,
   targetSheet: Record<string, unknown> | null,
-  result: { outcome: { hit: boolean } },
+  result: { outcome: { hit: boolean }; dealt: number },
   defences: Defences | undefined
 ): Promise<string | null> {
   if (!action.mastery || !action.weapon || !attackerSheet || !hasWeaponMastery(readFeatures(attackerSheet))) return null;
@@ -308,7 +308,7 @@ async function applyMastery(
   });
   const effect = masteryEffect(
     action.mastery,
-    result.outcome,
+    { hit: result.outcome.hit, dealt: result.dealt },
     { modifier, proficiencyBonus: proficiencyBonusOf(attackerToken, attackerSheet) },
     { squares: targetToken.size?.width ?? 1 },
     action.weapon,
@@ -325,7 +325,15 @@ async function applyMastery(
     await giveCondition(io, campaignId, map.id, targetToken.id, 'Prone');
     return `Topple: ${targetToken.name} fails (Constitution ${rolled} vs DC ${effect.dc}) and is Prone`;
   }
-  if (effect.kind === 'push') {
+  if (effect.kind === 'mark') {
+    addMark(campaignId, { kind: effect.mark, attackerId: attackerToken.id, targetId: targetToken.id });
+    return effect.mark === 'sap'
+      ? `Sap: ${targetToken.name} has Disadvantage on its next attack roll`
+      : effect.mark === 'slow'
+        ? `Slow: ${targetToken.name}'s Speed is 10 ft less`
+        : `Vex: ${attackerToken.name} has Advantage on its next attack roll against ${targetToken.name}`;
+  }
+    if (effect.kind === 'push') {
     const moved = await pushToken(io, campaignId, map, attackerToken, targetToken, effect.squares);
     return moved ? `Push: ${targetToken.name} is pushed ${effect.squares * map.feetPerSquare} ft` : `Push: ${targetToken.name} has nowhere to be pushed`;
   }
@@ -335,6 +343,32 @@ async function applyMastery(
   const hp = targetSheet ? null : targetToken.hp ? applyDamage(targetToken.hp, [{ amount: dealt, type: 'force' }]).hp : null;
   await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt, hp }]);
   return `Graze: ${targetToken.name} takes ${dealt} ${effect.type} damage`;
+}
+
+/**
+ * Keep a lasting mastery in the fight. A Vex made on the attacker's own turn
+ * runs to the end of its next one; one made off its turn, to the end of the
+ * coming one. A creature is Slowed by one weapon at most, and a new mark of a
+ * kind replaces the attacker's old one on the same target. The table hears of
+ * it with the next send of the combat state.
+ */
+function addMark(campaignId: string, mark: { kind: 'sap' | 'slow' | 'vex'; attackerId: string; targetId: string }): void {
+  const combat = getCombatState(campaignId);
+  if (!combat.active) return;
+  const own = combat.currentTokenId === mark.attackerId;
+  const others = combat.marks.filter(
+    (kept) =>
+      !(kept.kind === mark.kind && kept.targetId === mark.targetId && (mark.kind === 'slow' || kept.attackerId === mark.attackerId))
+  );
+  combat.marks = [...others, { ...mark, turnEndsLeft: mark.kind === 'vex' && own ? 2 : 1 }];
+  setCombatState(campaignId, combat);
+}
+
+/** The marks an attack roll used: they go. */
+function useMarks(campaignId: string, used: ReadonlyArray<WeaponMark | undefined>): void {
+  const combat = getCombatState(campaignId);
+  combat.marks = combat.marks.filter((mark) => !used.some((gone) => gone && gone.kind === mark.kind && gone.attackerId === mark.attackerId && gone.targetId === mark.targetId));
+  setCombatState(campaignId, combat);
 }
 
 /** Take a condition off a token of the map, and tell the table. */
@@ -717,7 +751,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
       const target = combatant(targetToken, targetSheet, turnNow.dodging);
 
+      // A Vex the attacker holds on this target, and a Sap on the attacker, are used by this roll.
+      const vexed = turnNow.marks.find((mark) => mark.kind === 'vex' && mark.attackerId === attackerId && mark.targetId === targetId);
+      const sapped = turnNow.marks.find((mark) => mark.kind === 'sap' && mark.targetId === attackerId);
+      const extraReasons = [
+        ...(vexed ? [`Advantage: Vex (${attackerToken.name}'s last hit)`] : []),
+        ...(sapped ? ['Disadvantage: Sapped'] : []),
+      ];
+
       const result = resolveAttack({
+        extraReasons,
         attacker: combatant(attackerToken, attackerSheet),
         target: offer ? { ...target, standing: standing({ ...targetToken, position: offer.from }) } : target,
         action,
@@ -738,6 +781,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
+      if (vexed || sapped) useMarks(campaignId, [vexed, sapped]);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
       if (offer) await spendReaction(io, campaignId, attackerId);
       else await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
