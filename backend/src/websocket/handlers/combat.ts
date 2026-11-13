@@ -25,7 +25,7 @@ import { getState as getCombatState, setState as setCombatState, someoneActing, 
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
 import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema } from '../../validators/combat';
-import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
+import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, legendaryUses, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import { canAct, DODGING, effectiveSpeed, RAGING, readConditions, saveModifiers, type Ability } from '../../rules/dnd/conditions';
@@ -71,6 +71,8 @@ interface ActionSummary {
   recharge?: { min: number; ready: boolean };
   /** A stat block's Multiattack: how many attacks, and which actions (by index) each may be. */
   multiattack?: MultiattackStep[];
+  /** A Legendary Action: the uses the creature has a round, and how many it has taken. */
+  legendary?: { max: number; used: number };
 }
 
 const standing = (token: Token): Standing => ({
@@ -988,6 +990,33 @@ function saveBreakdown(result: SaveResult, action: CombatAction): LoggedRoll {
   };
 }
 
+/** The Legendary Actions a creature has taken since its last turn. */
+function legendarySpent(campaignId: string, tokenId: string): number {
+  return getCombatState(campaignId).marks.filter((mark) => mark.kind === 'legendary' && mark.attackerId === tokenId).length;
+}
+
+/**
+ * Why a creature cannot take a Legendary Action now, or null. In a fight it
+ * takes one after another creature's turn, not on its own, while it has uses
+ * left this round; outside one nothing counts them.
+ */
+function legendaryRefusal(campaignId: string, token: Token): string | null {
+  const combat = getCombatState(campaignId);
+  if (!combat.active) return null;
+  if (combat.currentTokenId === token.id) return `${token.name} takes Legendary Actions after another creature's turn, not on its own`;
+  const max = legendaryUses(token.statBlock as Parameters<typeof legendaryUses>[0]);
+  if (legendarySpent(campaignId, token.id) >= max) return `${token.name} has no Legendary Action uses left this round`;
+  return null;
+}
+
+/** One Legendary Action taken: a use gone until the creature's turn starts. */
+function spendLegendary(campaignId: string, tokenId: string): void {
+  const combat = getCombatState(campaignId);
+  if (!combat.active) return;
+  combat.marks = [...combat.marks, { kind: 'legendary', attackerId: tokenId, targetId: tokenId, turnEndsLeft: 1 }];
+  setCombatState(campaignId, combat);
+}
+
 /** The "(Recharge …)" actions a creature has spent in the fight, by name. */
 function spentRecharges(campaignId: string, tokenId: string): string[] {
   return getCombatState(campaignId)
@@ -1145,10 +1174,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           actions: actionsOf(token, sheet).map((action, index, all) => {
             const summary = summarizeAction(action, index, slots, spentRecharges(socket.campaignId!, token.id));
             const steps =
-              action.source === 'statBlock' && /^multiattack/i.test(action.name)
+              action.source === 'statBlock' && (/^multiattack/i.test(action.name) || action.cost === 'legendary')
                 ? multiattackSteps(action.text ?? '', all.map((entry) => entry.name))
                 : null;
-            return steps ? { ...summary, multiattack: steps } : summary;
+            const legendary =
+              action.cost === 'legendary'
+                ? { max: legendaryUses(token.statBlock as Parameters<typeof legendaryUses>[0]), used: legendarySpent(socket.campaignId!, token.id) }
+                : null;
+            return { ...summary, ...(steps ? { multiattack: steps } : {}), ...(legendary ? { legendary } : {}) };
           }),
           // A stat block's Multiattack says how many attacks it makes; a character's features do.
           attacksPerAction: sheet ? attacksPerAction(features) : null,
@@ -1179,7 +1212,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied } = parsed.data;
+      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary } = parsed.data;
       if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
       if (readied && (opportunity || extra)) return refuseRequest(socket, ack, 'A readied attack is made on its own');
       // A readied attack is the one readied: its action, against its target, while the mark lasts.
@@ -1208,6 +1241,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!listed) return refuseRequest(socket, ack, 'That action is not one the attacker has');
       if (listed.recharge && spentRecharges(campaignId, attackerId).includes(listed.name)) {
         return refuseRequest(socket, ack, `${attackerToken.name}'s ${listed.name} has not recharged`);
+      }
+      // A Legendary Action: the action itself, or the attack one of them makes ("makes one Tentacle attack").
+      const legendaryTaken =
+        listed.cost === 'legendary' ? listed : legendary !== undefined ? actionsOf(attackerToken, attackerSheet)[legendary] : undefined;
+      if (legendary !== undefined && legendaryTaken?.cost !== 'legendary') return refuseRequest(socket, ack, 'That is not a Legendary Action the attacker has');
+      if (legendaryTaken) {
+        const refusal = legendaryRefusal(campaignId, attackerToken);
+        if (refusal) return refuseRequest(socket, ack, refusal);
       }
       const cast = castWithSlot(attackerSheet as SheetSpellcasting | null, listed, slotLevel);
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
@@ -1405,14 +1446,19 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           }
         }
       }
-      if (offer || ready) await spendReaction(io, campaignId, attackerId);
+      if (legendaryTaken) {
+        spendLegendary(campaignId, attackerId);
+        await resendInitiativeState(io, campaignId);
+      } else if (offer || ready) await spendReaction(io, campaignId, attackerId);
       else if (extra === 'light' && !nicked) {
         spendBonusAction(campaignId, attackerId);
         await resendInitiativeState(io, campaignId);
       } else if (!extra) await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
       // An attack by or on a token the players are not shown goes to the DM alone.
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
-      const extraLabel = ready
+      const extraLabel = legendaryTaken
+        ? `Legendary Action: ${legendaryTaken.name}`
+        : ready
         ? `readied: ${ready.trigger}`
         : extra === 'cleave'
           ? 'Cleave'
@@ -1980,6 +2026,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (listed.recharge && spentRecharges(campaignId, sourceId).includes(listed.name)) {
         return refuseRequest(socket, ack, `${sourceToken.name}'s ${listed.name} has not recharged`);
       }
+      if (listed.cost === 'legendary') {
+        const refusal = legendaryRefusal(campaignId, sourceToken);
+        if (refusal) return refuseRequest(socket, ack, refusal);
+      }
       const cast = castWithSlot(sourceSheet as SheetSpellcasting | null, listed, slotLevel);
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
       let action = cast.action;
@@ -2053,7 +2103,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
                 ? `: ${only.name} is pushed 5 ft`
                 : `: ${only.name} has nowhere to be pushed`;
       }
-      if (action.unarmed) await spendAction(io, campaignId, sourceId, 'Attack', true);
+      if (listed.cost === 'legendary') {
+        spendLegendary(campaignId, sourceId);
+        await resendInitiativeState(io, campaignId);
+      } else if (action.unarmed) await spendAction(io, campaignId, sourceId, 'Attack', true);
       else await spendAction(io, campaignId, sourceId, action.source === 'spell' ? 'Magic' : action.name);
       const secret = hiddenFromPlayers(sourceToken) || targetTokens.some(hiddenFromPlayers);
       await logRoll(io, socket, campaignId, saveBreakdown(result, action), sourceToken.name, summary, secret);

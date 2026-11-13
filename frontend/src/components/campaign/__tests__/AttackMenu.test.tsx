@@ -191,4 +191,60 @@ describe('AttackMenu extra attacks', () => {
     );
     expect(socket.resolveAttack.mock.calls.map(([call]) => call.action)).toEqual([1, 1, 2]);
   });
+
+  it('makes a Legendary Action’s attack as that action, and shows its uses', async () => {
+    const tentacle = {
+      index: 0,
+      name: 'Tentacle',
+      cost: 'action' as const,
+      attack: { kind: 'melee' as const, bonus: 9, damage: '2d6+5' },
+      spell: null,
+      save: null,
+    };
+    const socket = {
+      listCombatActions: vi.fn().mockResolvedValue({
+        ok: true,
+        actions: [
+          tentacle,
+          {
+            index: 1,
+            name: 'Lash',
+            cost: 'legendary',
+            attack: null,
+            spell: null,
+            save: null,
+            multiattack: [{ count: 1, choices: [0] }],
+            legendary: { max: 3, used: 1 },
+          },
+        ],
+      }),
+      resolveAttack: vi.fn().mockResolvedValue({ ok: true, summary: 'hit', hit: true }),
+      resolveSave: vi.fn(),
+      help: vi.fn(),
+      ready: vi.fn(),
+    };
+    render(
+      <AttackMenu
+        socket={socket as unknown as typeof socketService}
+        attacker={{ id: 'aboleth', name: 'Aboleth' }}
+        target={{ id: 'hero', name: 'Hero' }}
+        situation={null}
+        style={{}}
+        caughtBy={() => []}
+        onAim={() => {}}
+        onResolved={() => {}}
+        onClose={() => {}}
+      />
+    );
+    expect(await screen.findByText(/Legendary, 2\/3 left/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Make them all' }));
+    await waitFor(() =>
+      expect(socket.resolveAttack).toHaveBeenCalledWith({
+        attackerId: 'aboleth',
+        targetId: 'hero',
+        action: 0,
+        legendary: 1,
+      })
+    );
+  });
 });

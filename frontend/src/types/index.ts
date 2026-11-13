@@ -1642,7 +1642,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1695,6 +1695,8 @@ export interface CombatActionSummary {
   recharge?: { min: number; ready: boolean };
   /** A stat block's Multiattack: how many attacks, and which actions (by index) each may be. */
   multiattack?: Array<{ count: number; choices: number[] }>;
+  /** A Legendary Action: the uses the creature has a round, and how many it has taken. */
+  legendary?: { max: number; used: number };
 }
 export type CombatExtraAttack = 'cleave' | 'light';
 /** A feature the turn can offer, with its rule. */
@@ -1732,6 +1734,8 @@ export interface CombatAttackEvent {
   extra?: CombatExtraAttack;
   /** The attack the attacker readied against this target, made now with its reaction. */
   readied?: true;
+  /** The stat block Legendary Action (by index) this attack is made for: it spends one use. */
+  legendary?: number;
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }

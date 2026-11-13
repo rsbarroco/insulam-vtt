@@ -106,6 +106,9 @@ const devilBlock = {
       description: 'Melee Attack Roll: +7, reach 5 ft. Hit: 8 (1d8 + 4) Slashing damage.',
     },
   ],
+  legendaryActions: [{ name: 'Lash', description: 'The devil makes one Claw attack.' }],
+  notes:
+    'Legendary Actions: Legendary Action Uses: 2. Immediately after another creature’s turn, the devil can expend a use.',
 };
 const freshTokens = () => [
   token(HERO, 'Hero', 1, { controlledBy: playerId, characterId: heroCharacterId, type: 'player' }),
@@ -301,5 +304,39 @@ describe('Recharge', () => {
       name: 'Multiattack',
       multiattack: [{ count: 2, choices: [2] }],
     });
+  });
+
+  it('takes Legendary Actions after another creature’s turn, as many as its uses, back at its own turn', async () => {
+    setState(campaignId, {
+      active: true,
+      round: 1,
+      currentTokenId: HERO,
+      combatants: [entry(HERO, 'Hero', 20), entry(DEVIL, 'Chain Devil', 10)],
+    });
+    const lash = () =>
+      ask(dm, 'combat.attack', { attackerId: DEVIL, targetId: HERO, action: 2, legendary: 3 });
+    rolls = [15, 4];
+    expect((await lash()).summary).toContain('Legendary Action: Lash');
+    rolls = [15, 4];
+    expect((await lash()).ok).toBe(true);
+    expect((await lash()).error).toBe('Chain Devil has no Legendary Action uses left this round');
+    const listed = (await ask(dm, 'combat.actions', { tokenId: DEVIL })) as unknown as {
+      actions: Array<{
+        name: string;
+        legendary?: { max: number; used: number };
+        multiattack?: unknown;
+      }>;
+    };
+    expect(listed.actions[3]).toMatchObject({
+      name: 'Lash',
+      legendary: { max: 2, used: 2 },
+      multiattack: [{ count: 1, choices: [2] }],
+    });
+
+    await next(); // the devil's turn starts: its uses come back, and it takes none on its own turn
+    expect(getState(campaignId).marks).toEqual([]);
+    expect((await lash()).error).toBe(
+      "Chain Devil takes Legendary Actions after another creature's turn, not on its own"
+    );
   });
 });
