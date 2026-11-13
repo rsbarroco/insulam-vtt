@@ -25,7 +25,7 @@ import type {
   CombatFeatureAck,
   CombatFeatureName,
   CombatRestAck,
-  CombatStandAck,
+  CombatStandAck, CombatHelpAck,
   CombatSaveAck,
   CombatSaveEvent,
   ChatMessageBroadcast,
@@ -792,6 +792,11 @@ class SocketClient {
       ...(touch ? { targetId: touch.targetId, ...(touch.cure ? { cure: touch.cure } : {}) } : {}),
     };
     return this.askFor<CombatFeatureAck>('combat.feature', payload, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  }
+
+  /** The acting token takes the Help action against a creature within 5 feet: an ally's next attack on it has Advantage. */
+  help(helperId: string, targetId: string): Promise<CombatHelpAck> {
+    return this.askFor<CombatHelpAck>('combat.help', { helperId, targetId }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** A Prone token stands up: the server takes the condition off it. */

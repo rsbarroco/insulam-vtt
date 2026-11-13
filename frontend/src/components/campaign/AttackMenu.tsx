@@ -240,6 +240,14 @@ export default function AttackMenu({
     );
   };
 
+  /** The Help action: distract the target, so an ally's next attack on it has Advantage. */
+  const help = async () => {
+    setBusy(true);
+    const answer = await socket.help(attacker.id, target.id);
+    setBusy(false);
+    onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: true } : answer);
+  };
+
   return (
     <div
       role="dialog"
@@ -314,7 +322,17 @@ export default function AttackMenu({
         </>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-between gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          title={`The Help action: distract ${target.name} (within 5 feet) so an ally's next attack roll against it has Advantage, until your next turn.`}
+          onClick={() => void help()}
+        >
+          Help against it
+        </Button>
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>
           Cancel
         </Button>

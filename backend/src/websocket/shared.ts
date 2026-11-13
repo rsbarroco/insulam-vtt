@@ -267,6 +267,7 @@ export const SOCKET_CEILINGS = {
   'combat.deathSave': turnEvents,
   'combat.fall': turnEvents,
   'combat.stand': turnEvents,
+  'combat.help': turnEvents,
   'combat.check': turnEvents,
   'combat.rest': turnEvents,
   'combat.feature': turnEvents,

@@ -24,7 +24,7 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing, turnSerial, type WeaponMark } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
@@ -373,7 +373,7 @@ async function applyMastery(
  * kind replaces the attacker's old one on the same target. The table hears of
  * it with the next send of the combat state.
  */
-function addMark(campaignId: string, mark: { kind: 'sap' | 'slow' | 'vex' | 'rage'; attackerId: string; targetId: string }): void {
+function addMark(campaignId: string, mark: { kind: WeaponMark['kind']; attackerId: string; targetId: string }): void {
   const combat = getCombatState(campaignId);
   if (!combat.active) return;
   const own = combat.currentTokenId === mark.attackerId;
@@ -1054,8 +1054,18 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       // A Vex the attacker holds on this target, and a Sap on the attacker, are used by this roll.
       const vexed = turnNow.marks.find((mark) => mark.kind === 'vex' && mark.attackerId === attackerId && mark.targetId === targetId);
       const sapped = turnNow.marks.find((mark) => mark.kind === 'sap' && mark.targetId === attackerId);
+      // A Help an ally of the attacker gave against this target: the attacker's side, not the attacker itself.
+      const helped = turnNow.marks.find((mark) => {
+        if (mark.kind !== 'help' || mark.targetId !== targetId || mark.attackerId === attackerId) return false;
+        const helper = tokens.find((t) => t.id === mark.attackerId);
+        const helperSide = helper ? sideOf({ type: helper.type ?? 'npc', disposition: helper.disposition ?? null }) : null;
+        const ownSide = sideOf({ type: attackerToken.type ?? 'npc', disposition: attackerToken.disposition ?? null });
+        return helperSide !== null && helperSide === ownSide;
+      });
+      const helperName = helped ? (tokens.find((t) => t.id === helped.attackerId)?.name ?? 'an ally') : null;
       const extraReasons = [
         ...(vexed ? [`Advantage: Vex (${attackerToken.name}'s last hit)`] : []),
+        ...(helped ? [`Advantage: Help (${helperName})`] : []),
         ...(sapped ? ['Disadvantage: Sapped'] : []),
       ];
 
@@ -1119,7 +1129,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
-      if (vexed || sapped) useMarks(campaignId, [vexed, sapped]);
+      if (vexed || sapped || helped) useMarks(campaignId, [vexed, sapped, helped]);
       if (result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) useSneakAttack(campaignId, attackerId);
       if (attackerRaging && turnNow.currentTokenId === attackerId) keepRaging(campaignId, attackerId);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
@@ -1547,6 +1557,65 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.stand failed', { err: error });
       refuseRequest(socket, ack, 'Failed to stand the token up');
+    }
+  });
+
+  /**
+   * COMBAT.HELP — The acting combatant takes the Help action to assist an attack: it distracts an enemy within 5 feet of it, and the next attack roll one of its allies makes against that enemy has Advantage, until the helper's next turn starts. The server spends the helper's action and keeps the help as a mark of kind `help`. On the helper's own turn, with its action not yet taken; the DM may overrule both. The DM, or the player who controls the helper.
+   */
+  socket.on('combat.help', async (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      const campaignId = socket.campaignId;
+      if (!withinCeiling(socket, 'combat.help', ack)) return;
+      const parsed = CombatHelpSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const { helperId, targetId } = parsed.data;
+
+      const map = await currentMap(campaignId);
+      if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
+      const tokens = readTokens(map.tokens);
+      const helper = tokens.find((t) => t.id === helperId);
+      if (!helper || !canControlToken(socket.role, helper.controlledBy, socket.userId)) {
+        return refuseRequest(socket, ack, 'You can only act for your own token');
+      }
+      const target = tokens.find((t) => t.id === targetId);
+      if (!target || target.id === helperId || target.layer !== helper.layer || (socket.role !== 'DM' && hiddenFromPlayers(target))) {
+        return refuseRequest(socket, ack, 'That creature is not on the map');
+      }
+      const combat = getCombatState(campaignId);
+      if (!combat.active) return refuseRequest(socket, ack, 'Help is given during combat');
+      const ownTurn = someoneActing(combat) && combat.currentTokenId === helperId && combat.turn !== null;
+      if (socket.role !== 'DM') {
+        if (!ownTurn) return refuseRequest(socket, ack, 'Help is an action on the helper’s own turn');
+        if (combat.turn!.action !== null) return refuseRequest(socket, ack, `${helper.name} has taken its action this turn`);
+      }
+      if (!canAct(readConditions(helper.conditions ?? []))) return refuseRequest(socket, ack, `${helper.name} is Incapacitated`);
+      const board = {
+        heights: readTileHeights(map.tileHeights),
+        feetPerSquare: map.feetPerSquare,
+        diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+      };
+      if (distanceFeet(standing(helper), standing(target), board) > 5) {
+        return refuseRequest(socket, ack, `${target.name} is more than 5 feet from ${helper.name}`);
+      }
+
+      addMark(campaignId, { kind: 'help', attackerId: helperId, targetId });
+      if (ownTurn) {
+        const now = getCombatState(campaignId);
+        if (now.turn) {
+          now.turn = { ...now.turn, action: 'Help' };
+          setCombatState(campaignId, now);
+        }
+      }
+      await resendInitiativeState(io, campaignId);
+      const summary = `${helper.name} helps against ${target.name}: an ally's next attack roll against it has Advantage`;
+      ack?.({ ok: true, summary });
+      logger.debug('combat.help', { campaignId, helperId, targetId });
+    } catch (error) {
+      logger.error('combat.help failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to give the help');
     }
   });
 
