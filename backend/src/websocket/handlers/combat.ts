@@ -40,7 +40,7 @@ import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS,
 import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rollDamage, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
-import { attacksPerAction, featureOptions, readFeatures } from '../../rules/dnd/featureEffects';
+import { attacksPerAction, featureOptions, hasFeature, readFeatures } from '../../rules/dnd/featureEffects';
 import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
@@ -189,6 +189,7 @@ function combatant(token: Token, sheet: Record<string, unknown> | null, dodging:
   const sheetAc = sheet && typeof sheet.armorClass === 'number' ? sheet.armorClass : null;
   const blockAc = block && typeof block.ac === 'number' ? block.ac : null;
   const exhaustion = sheet && typeof sheet.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined;
+  const features = sheet ? readFeatures(sheet) : [];
   // A character's species gives its resistances; a stat block writes its own.
   const resisted = sheet ? speciesResistances(sheet) : [];
   const own = sheet
@@ -206,6 +207,8 @@ function combatant(token: Token, sheet: Record<string, unknown> | null, dodging:
     scores: sheet ? { str: scoreOf(sheet, 'strength'), dex: scoreOf(sheet, 'dexterity') } : undefined,
     defences: raging ? withRageResistance(own) : own,
     ...(sheet && hasLuck(sheet) ? { lucky: true } : {}),
+    ...(features.length > 0 && hasFeature(features, 'Danger Sense') ? { dangerSense: true } : {}),
+    ...(features.length > 0 && hasFeature(features, 'Evasion') ? { evasion: true } : {}),
   };
 }
 
@@ -1229,7 +1232,9 @@ async function repeatSavesAtTurnEnd(io: Server, socket: AuthenticatedSocket, cam
   for (const mark of due) {
     const ability = mark.save!.ability as Ability;
     const dc = mark.save!.dc;
-    const modifiers = saveModifiers(readConditions(token.conditions ?? [], typeof sheet?.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined), ability);
+    const modifiers = saveModifiers(readConditions(token.conditions ?? [], typeof sheet?.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined), ability, {
+      dangerSense: hasFeature(readFeatures(sheet), 'Danger Sense'),
+    });
     const outcome = savingThrow(
       { bonus: (saveBonusOf(token, sheet, ability) ?? 0) + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
       hasLuck(sheet) ? lucky(rollDie) : rollDie
