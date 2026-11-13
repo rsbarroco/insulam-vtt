@@ -198,6 +198,8 @@ export default function AttackMenu({
   const [trigger, setTrigger] = useState('');
   const [canReckless, setCanReckless] = useState(false);
   const [reckless, setReckless] = useState(false);
+  const [smiteSlots, setSmiteSlots] = useState<number[]>([]);
+  const [smite, setSmite] = useState(0);
 
   useEffect(() => {
     let current = true;
@@ -206,6 +208,7 @@ export default function AttackMenu({
       if (answer.ok) {
         setActions(answer.actions);
         setCanReckless(answer.reckless === true);
+        setSmiteSlots(answer.divineSmite ?? []);
       } else setProblem(answer.error);
     });
     return () => {
@@ -285,6 +288,7 @@ export default function AttackMenu({
         ...slot,
         ...(extra ? { extra } : {}),
         ...(reckless ? { reckless: true as const } : {}),
+        ...(smite > 0 && !action.spell ? { smite } : {}),
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -464,6 +468,26 @@ export default function AttackMenu({
                 onChange={(event) => setReckless(event.target.checked)}
               />
               Attack recklessly
+            </label>
+          )}
+          {anyAttackRoll && smiteSlots.length > 0 && (
+            <label
+              className="flex items-center justify-between gap-2 text-sm text-ink"
+              title="Divine Smite with a melee weapon or Unarmed Strike: a Bonus Action and a spell slot, spent only if the attack hits. 2d8 Radiant, 1d8 more for each slot level above 1 and against a Fiend or Undead."
+            >
+              Divine Smite on a hit
+              <select
+                value={smite}
+                onChange={(event) => setSmite(Number(event.target.value))}
+                className="input-cozy text-sm py-1"
+              >
+                <option value={0}>No smite</option>
+                {smiteSlots.map((level) => (
+                  <option key={level} value={level}>
+                    Level {level} slot
+                  </option>
+                ))}
+              </select>
             </label>
           )}
           {anyAttackRoll && (
