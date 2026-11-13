@@ -83,6 +83,12 @@ describe('actionFromSheetAttack', () => {
     });
   });
 
+  it('marks a Finesse weapon, from the SRD or as the sheet writes it', () => {
+    expect(actionFromSheetAttack({ name: 'Rapier', attackBonus: 5, damageRoll: '1d8+3', damageType: 'piercing' }).attack?.finesse).toBe(true);
+    expect(actionFromSheetAttack({ name: 'Sting', attackBonus: 5, damageRoll: '1d4', properties: ['Finesse', 'Light'] }).attack?.finesse).toBe(true);
+    expect(actionFromSheetAttack({ name: 'Longsword', attackBonus: 5, damageRoll: '1d8+3' }).attack?.finesse).toBeUndefined();
+  });
+
   it('keeps the properties a sheet wrote, even for an SRD weapon', () => {
     expect(
       actionFromSheetAttack({ name: 'Longbow', attackBonus: 5, damageRoll: '1d8', range: 30, properties: ['Thrown'] }).attack?.kind
