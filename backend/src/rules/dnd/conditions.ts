@@ -123,6 +123,8 @@ export interface AttackSituation {
   fearInSight?: boolean;
   /** The target cannot see the attacker, for a reason other than its own conditions. */
   unseenAttacker?: boolean;
+  /** The attacker cannot see the target, for a reason other than its own conditions (darkness). */
+  unseenTarget?: boolean;
 }
 
 export interface AttackModifiers {
@@ -158,6 +160,7 @@ export function attackModifiers(situation: AttackSituation): AttackModifiers {
   if (attacker.has.has('prone')) dis('the attacker is Prone');
   if (attacker.has.has('restrained')) dis('the attacker is Restrained');
   if (attacker.has.has('invisible') || situation.unseenAttacker) adv('the target cannot see the attacker');
+  if (situation.unseenTarget && !attacker.has.has('blinded') && !target.has.has('invisible')) dis('the attacker cannot see the target');
 
   // Dodging helps only against an attacker the target can see.
   const unseen = attacker.has.has('invisible') || situation.unseenAttacker || target.has.has('blinded');

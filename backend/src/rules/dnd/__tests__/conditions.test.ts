@@ -115,6 +115,21 @@ describe('attackModifiers', () => {
   });
 });
 
+describe('creatures that cannot see each other', () => {
+  it('gives Disadvantage to an attacker who cannot see its target', () => {
+    expect(attack({ unseenTarget: true }).reasons).toEqual(['Disadvantage: the attacker cannot see the target']);
+  });
+
+  it('cancels with the Advantage of an attacker its target cannot see', () => {
+    expect(attack({ unseenTarget: true, unseenAttacker: true }).mode).toBe('normal');
+  });
+
+  it('says it once for an attacker already Blinded, or a target already Invisible', () => {
+    expect(attack({ attacker: having('Blinded'), unseenTarget: true }).reasons).toEqual(['Disadvantage: the attacker is Blinded']);
+    expect(attack({ target: having('Invisible'), unseenTarget: true }).reasons).toEqual(['Disadvantage: the target is Invisible']);
+  });
+});
+
 describe('the Dodge action', () => {
   it('gives attack rolls against a dodging creature Disadvantage', () => {
     const made = attack({ target: having('Dodging') });

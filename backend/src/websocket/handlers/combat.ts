@@ -8,6 +8,7 @@
  * view shows them with. The roll is recorded in the dice log like any other.
  */
 
+import { creatureSees } from '../../utils/spirit-layer';
 import { Server } from 'socket.io';
 import { AuthenticatedSocket, type AuthenticatedFields } from '../auth';
 import { prisma } from '../../config/database';
@@ -444,7 +445,19 @@ async function spendReaction(io: Server, campaignId: string, tokenId: string): P
 export async function offerOpportunityAttacks(
   io: Server,
   campaignId: string,
-  map: { id: string; tileHeights: unknown; feetPerSquare: number; diagonalRule: string },
+  map: {
+    id: string;
+    tileHeights: unknown;
+    feetPerSquare: number;
+    diagonalRule: string;
+    lightingEnabled?: boolean;
+    wallSegments?: unknown;
+    lights?: unknown;
+    width?: number;
+    height?: number;
+    gridSize?: number;
+    globalIllumination?: boolean;
+  },
   tokens: Token[],
   moverId: string,
   from: { x: number; y: number }
@@ -463,7 +476,21 @@ export async function offerOpportunityAttacks(
       const side = sideOf({ type: token.type ?? 'npc', disposition: token.disposition ?? null });
       const state = readConditions(token.conditions ?? []);
       // A player's creature cannot see a token hidden from the players.
-      const unseen = state.has.has('blinded') || (side === 'party' && hiddenFromPlayers(mover));
+      // In the dark, a creature that cannot see the mover where it ends up is offered nothing.
+      const dark =
+        map.lightingEnabled === true &&
+        map.width !== undefined &&
+        map.height !== undefined &&
+        map.gridSize !== undefined &&
+        !creatureSees(token, mover, {
+          wallSegments: map.wallSegments,
+          lights: map.lights,
+          width: map.width,
+          height: map.height,
+          gridSize: map.gridSize,
+          globalIllumination: map.globalIllumination ?? false,
+        });
+      const unseen = dark || state.has.has('blinded') || (side === 'party' && hiddenFromPlayers(mover));
       return side !== null && side !== moverSide && canAct(state) && !unseen && !(token.hp && token.hp.current <= 0);
     });
   if (candidates.length === 0) return;
@@ -692,7 +719,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both, applies the damage to the target's hit points and records the roll in the dice log. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), applies the damage to the target's hit points and records the roll in the dice log. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -759,7 +786,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ...(sapped ? ['Disadvantage: Sapped'] : []),
       ];
 
+      // On a lit map, darkness decides who sees whom, as the views draw it.
+      const lit = map.lightingEnabled
+        ? {
+            attacker: !creatureSees(targetToken, attackerToken, map),
+            target: !creatureSees(attackerToken, offer ? { ...targetToken, position: offer.from } : targetToken, map),
+          }
+        : undefined;
+
       const result = resolveAttack({
+        unseen: lit,
         extraReasons,
         attacker: combatant(attackerToken, attackerSheet),
         target: offer ? { ...target, standing: standing({ ...targetToken, position: offer.from }) } : target,
