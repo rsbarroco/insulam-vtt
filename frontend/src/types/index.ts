@@ -1730,6 +1730,8 @@ export type CombatActionsAck =
       divineSmite?: number[];
       /** A Barbarian's Brutal Strike, on a turn it attacks recklessly. */
       brutalStrike?: boolean;
+      /** A Rogue's Cunning Strike effects it can use with a Sneak Attack. */
+      cunningStrike?: Array<'poison' | 'trip' | 'withdraw'>;
     }
   | { ok: false; error: string };
 
@@ -1755,6 +1757,8 @@ export interface CombatAttackEvent {
   smite?: number;
   /** Brutal Strike: give up Advantage on this Strength attack for an extra die and this effect on a hit. */
   brutal?: 'forceful' | 'hamstring';
+  /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
+  cunning?: 'poison' | 'trip' | 'withdraw';
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }

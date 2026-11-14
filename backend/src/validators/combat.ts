@@ -34,6 +34,8 @@ export const CombatAttackSchema = z
     smite: z.number().int().min(1).max(9).optional(),
     /** Brutal Strike on a Reckless Attack turn: give up Advantage on this Strength attack for an extra die and this effect on a hit. */
     brutal: z.enum(['forceful', 'hamstring']).optional(),
+    /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
+    cunning: z.enum(['poison', 'trip', 'withdraw']).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
