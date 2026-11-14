@@ -63,9 +63,14 @@ export function actionChange(
 /** What a Slow mastery takes from a creature's Speed: 10 feet, however many weapons slowed it. */
 export const SLOW_FEET = 10;
 
-/** A Speed with any Slow on the creature taken off, never below 0. */
+/** What a Barbarian's Hamstring Blow takes from a creature's Speed: 15 feet. */
+export const HAMSTRING_FEET = 15;
+
+/** A Speed with any Slow and Hamstring Blow on the creature taken off, never below 0. */
 export function slowedSpeed(speed: number, marks: CombatState['marks'], tokenId: string): number {
-  return marks.some((mark) => mark.kind === 'slow' && mark.targetId === tokenId) ? Math.max(0, speed - SLOW_FEET) : speed;
+  const slow = marks.some((mark) => mark.kind === 'slow' && mark.targetId === tokenId) ? SLOW_FEET : 0;
+  const hamstring = marks.some((mark) => mark.kind === 'hamstring' && mark.targetId === tokenId) ? HAMSTRING_FEET : 0;
+  return Math.max(0, speed - slow - hamstring);
 }
 
 /** The marks a creature carries, as the tracker names them. */
@@ -73,6 +78,7 @@ export function markLabels(marks: CombatState['marks'], tokenId: string): string
   const labels: string[] = [];
   if (marks.some((mark) => mark.kind === 'sap' && mark.targetId === tokenId)) labels.push('Sapped');
   if (marks.some((mark) => mark.kind === 'slow' && mark.targetId === tokenId)) labels.push('Slowed');
+  if (marks.some((mark) => mark.kind === 'hamstring' && mark.targetId === tokenId)) labels.push('Hamstrung');
   if (marks.some((mark) => mark.kind === 'vex' && mark.targetId === tokenId)) labels.push('Vexed');
   if (marks.some((mark) => mark.kind === 'rage' && mark.targetId === tokenId)) labels.push('Raging');
   if (marks.some((mark) => mark.kind === 'help' && mark.targetId === tokenId)) labels.push('Distracted');

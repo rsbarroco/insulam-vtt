@@ -70,6 +70,8 @@ export interface AttackRequest {
   greatWeapon?: boolean;
   /** Damage spells cast on a hit add, whatever the roll's mode: Divine Smite. Their dice are doubled on a Critical Hit. */
   hitDamage?: ReadonlyArray<{ label: string; damage: DamageComponent }>;
+  /** A feature that gives up any Advantage on this roll and refuses one with Disadvantage, by name: "Brutal Strike". */
+  forgoAdvantage?: string;
   /** A reaction of the target's that takes a rolled amount off a hit with one of its damage types: Deflect Attacks. */
   reduceDamage?: DamageReduction;
   /** A reaction of the target's that halves a hit's damage (round down), by name: "Uncanny Dodge". */
@@ -153,6 +155,15 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   reasons.push(...(request.extraReasons ?? []));
   if (request.mode === 'advantage') reasons.push('Advantage: granted by the table');
   if (request.mode === 'disadvantage') reasons.push('Disadvantage: imposed by the table');
+  // Brutal Strike: any Advantage is given up, and a roll with Disadvantage cannot be chosen.
+  if (request.forgoAdvantage) {
+    if (reasons.some((reason) => reason.startsWith('Disadvantage'))) {
+      return refuse(`${request.forgoAdvantage} is not used on a roll with Disadvantage`);
+    }
+    const kept = reasons.filter((reason) => !reason.startsWith('Advantage'));
+    if (kept.length < reasons.length) kept.push(`Forgoes Advantage: ${request.forgoAdvantage}`);
+    reasons.splice(0, reasons.length, ...kept);
+  }
   const mode = rollMode(
     reasons.some((reason) => reason.startsWith('Advantage')),
     reasons.some((reason) => reason.startsWith('Disadvantage'))

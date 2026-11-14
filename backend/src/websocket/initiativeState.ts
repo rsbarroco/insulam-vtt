@@ -95,10 +95,11 @@ export interface CombatState {
  * Uncanny: the Rogue (both ids) holds its reaction for Uncanny Dodge, until a
  * hit uses it or it lets it go. Deflect: the same, for a Monk's Deflect Attacks.
  * Indomitable: the Fighter (both ids) holds a use of Indomitable for its next
- * failed saving throw.
+ * failed saving throw. Hamstring: the Barbarian's Hamstring Blow takes 15 feet
+ * off the target's Speed until the start of the Barbarian's next turn.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;

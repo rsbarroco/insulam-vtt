@@ -1644,7 +1644,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1728,6 +1728,8 @@ export type CombatActionsAck =
       reckless?: boolean;
       /** Divine Smite: the spell slot levels it could be cast with on a hit; empty without it. */
       divineSmite?: number[];
+      /** A Barbarian's Brutal Strike, on a turn it attacks recklessly. */
+      brutalStrike?: boolean;
     }
   | { ok: false; error: string };
 
@@ -1751,6 +1753,8 @@ export interface CombatAttackEvent {
   reckless?: true;
   /** Divine Smite on a hit, with a spell slot of this level: spent only if the attack hits. */
   smite?: number;
+  /** Brutal Strike: give up Advantage on this Strength attack for an extra die and this effect on a hit. */
+  brutal?: 'forceful' | 'hamstring';
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
