@@ -1726,14 +1726,10 @@ export type CombatActionsAck =
       concentrationSpells?: string[];
       /** A Barbarian's Reckless Attack, decided with the first attack roll of its turn. */
       reckless?: boolean;
-      /** Divine Smite: the spell slot levels it could be cast with on a hit; empty without it. */
-      divineSmite?: number[];
       /** A Barbarian's Brutal Strike, on a turn it attacks recklessly. */
       brutalStrike?: boolean;
       /** A Rogue's Cunning Strike effects it can use with a Sneak Attack. */
       cunningStrike?: Array<'poison' | 'trip' | 'withdraw'>;
-      /** A Monk's Stunning Strike, for a Focus Point on a hit. */
-      stunningStrike?: boolean;
     }
   | { ok: false; error: string };
 
@@ -1755,14 +1751,10 @@ export interface CombatAttackEvent {
   legendary?: number;
   /** Attack recklessly: Advantage on Strength attacks, and attacks against it, until its next turn. */
   reckless?: true;
-  /** Divine Smite on a hit, with a spell slot of this level: spent only if the attack hits. */
-  smite?: number;
   /** Brutal Strike: give up Advantage on this Strength attack for an extra die and this effect on a hit. */
   brutal?: 'forceful' | 'hamstring';
   /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
   cunning?: 'poison' | 'trip' | 'withdraw';
-  /** Stunning Strike on a hit with a Monk weapon or an Unarmed Strike: 1 Focus Point, spent only on a hit. */
-  stun?: true;
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }

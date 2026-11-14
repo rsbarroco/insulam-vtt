@@ -1,4 +1,4 @@
-import { resolveAttack, withReaction, type AttackRequest, type Combatant } from '../resolveAttack';
+import { resolveAttack, withExtraDamage, withReaction, type AttackRequest, type Combatant } from '../resolveAttack';
 import type { CombatAction } from '../actions';
 import type { RollDie } from '../d20';
 
@@ -300,5 +300,24 @@ describe('a roll that forgoes its Advantage', () => {
     expect(refusal(resolveAttack(request({ mode: 'disadvantage', forgoAdvantage: 'Brutal Strike' })))).toBe(
       'Brutal Strike is not used on a roll with Disadvantage'
     );
+  });
+});
+
+describe('damage added once the hit is known', () => {
+  const smite = { label: 'Divine Smite (level 1)', damage: { roll: { count: 2, sides: 8 }, type: 'radiant' as const } };
+
+  it('adds the dice, doubled on a Critical Hit, against the target’s defences', () => {
+    const hit = withExtraDamage(ok(resolveAttack(request(), dice(12, 6))), creature('Ogre', 3), 'Longsword', smite, dice(3, 4));
+    expect(hit).toMatchObject({ dealt: 16, bonuses: ['Divine Smite (level 1)'] });
+    expect(hit.hp?.current).toBe(4);
+    const crit = withExtraDamage(ok(resolveAttack(request(), dice(20, 1, 1))), creature('Ogre', 3), 'Longsword', smite, dice(1, 1, 1, 1));
+    expect(crit.dealt).toBe(9);
+    const resistant = creature('Ogre', 3, { defences: { resistances: ['radiant'] } });
+    expect(withExtraDamage(ok(resolveAttack(request({ target: resistant }), dice(12, 6))), resistant, 'Longsword', smite, dice(3, 4)).dealt).toBe(12);
+  });
+
+  it('leaves a miss as it is', () => {
+    const miss = ok(resolveAttack(request(), dice(2)));
+    expect(withExtraDamage(miss, creature('Ogre', 3), 'Longsword', smite)).toBe(miss);
   });
 });

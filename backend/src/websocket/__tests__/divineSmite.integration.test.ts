@@ -1,6 +1,7 @@
 /**
- * Divine Smite over the socket: asked with the attack, it adds its Radiant
- * dice on a hit and only then spends the spell slot and the Bonus Action.
+ * Divine Smite over the socket: once a melee hit is known (and whether it is
+ * a Critical Hit), the Paladin's player is asked which slot to smite with;
+ * the Radiant dice are added, and the slot and the Bonus Action spent.
  *
  * The fixtures are those of areaPoint.integration.test.ts: the hero has two
  * level 3 slots and one level 4.
@@ -253,12 +254,19 @@ const fight = (turn: Record<string, unknown> = {}) =>
     ],
     turn: { movementSpent: 0, dashes: 0, action: null, bonusAction: false, attacks: 0, ...turn },
   });
-interface Listed {
-  actions: Array<{ index: number; name: string }>;
-  divineSmite: number[];
-}
-const listed = async () => (await ask(player, 'combat.actions', { tokenId: HERO })) as unknown as Listed;
-const indexOf = async (name: string) => (await listed()).actions.find((action) => action.name === name)!.index;
+/** Answer the next question the player is asked with `choice`; what was asked comes back. */
+const answerWith = (choice: string | null) => {
+  const asked: Array<{ promptId: string; text: string; options: string[] }> = [];
+  player.once('combat.prompt', (offer: { promptId: string; text: string; options: string[] }) => {
+    asked.push(offer);
+    player.emit('combat.react', { promptId: offer.promptId, choice }, () => undefined);
+  });
+  return asked;
+};
+const indexOf = async (name: string) => {
+  const listed = (await ask(player, 'combat.actions', { tokenId: HERO })) as unknown as { actions: Array<{ index: number; name: string }> };
+  return listed.actions.find((action) => action.name === name)!.index;
+};
 const asPaladin = () =>
   prisma.character.update({
     where: { id: heroCharacterId },
@@ -270,33 +278,54 @@ const slotsSpent = async (level: string) => {
   };
   return sheet.spellcasting.slots[level].expended;
 };
+const swing = async () => ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: await indexOf('Longsword') });
 
 describe('Divine Smite', () => {
-  it('is offered with the slots the Paladin has', async () => {
-    await asPaladin();
-    expect((await listed()).divineSmite).toEqual([3, 4]);
-  });
-
-  it('adds 4d8 Radiant with a level 3 slot on a hit, spending the slot and the Bonus Action', async () => {
+  it('is asked after the hit, with the slots left, and adds 4d8 Radiant with a level 3 slot', async () => {
     fight();
     await asPaladin();
+    const asked = answerWith('Divine Smite (level 3)');
     // 15 + 5 hits AC 11; 1d8 + 3 = 7, and 4d8 of 1s = 4.
     rolls = [15, 4, 1, 1, 1, 1];
-    const hit = await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: await indexOf('Longsword'), smite: 3 });
-    expect(hit.ok).toBe(true);
+    const hit = await swing();
+    expect(asked).toEqual([
+      expect.objectContaining({ text: 'Hero hits Ogre with Longsword for 7 damage.', options: ['Divine Smite (level 3)', 'Divine Smite (level 4)'] }),
+    ]);
     expect(hit.dealt).toBe(11);
+    expect(hit.summary).toContain('Divine Smite (level 3)');
     expect(await slotsSpent('3')).toBe(1);
     expect(getState(campaignId).turn?.bonusAction).toBe(true);
   });
 
-  it('spends nothing on a miss', async () => {
+  it('doubles its dice on a Critical Hit, which the question names', async () => {
     fight();
     await asPaladin();
-    rolls = [1];
-    const miss = await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: await indexOf('Longsword'), smite: 3 });
-    expect(miss.hit).toBe(false);
+    const asked = answerWith('Divine Smite (level 3)');
+    // A 20: 2d8 + 3 for the sword (4 + 4 + 3), 8d8 of 1s for the smite.
+    rolls = [20, 4, 4, 1, 1, 1, 1, 1, 1, 1, 1];
+    const hit = await swing();
+    expect(asked[0].text).toBe('Hero lands a Critical Hit on Ogre with Longsword for 11 damage.');
+    expect(hit.dealt).toBe(19);
+  });
+
+  it('spends nothing when declined, and is not asked on a miss or with the Bonus Action spent', async () => {
+    fight();
+    await asPaladin();
+    answerWith(null);
+    rolls = [15, 4];
+    expect((await swing()).dealt).toBe(7);
     expect(await slotsSpent('3')).toBe(0);
-    expect(getState(campaignId).turn?.bonusAction).toBe(false);
+
+    // A new turn for each swing: the hero makes one attack with the Attack action.
+    fight();
+    const asked = answerWith('Divine Smite (level 3)');
+    rolls = [1];
+    expect((await swing()).hit).toBe(false);
+    fight({ bonusAction: true });
+    rolls = [15, 4];
+    expect((await swing()).dealt).toBe(7);
+    expect(asked).toEqual([]);
+    player.removeAllListeners('combat.prompt');
   });
 
   it('adds 1d8 against an Undead', async () => {
@@ -304,28 +333,8 @@ describe('Divine Smite', () => {
     await asPaladin();
     const tokens = freshTokens().map((t) => (t.id === OGRE ? { ...t, statBlock: { ...ogreBlock, creatureType: 'Large Undead' } } : t));
     await prisma.map.update({ where: { id: mapId }, data: { tokens: toJson(tokens) } });
+    answerWith('Divine Smite (level 3)');
     rolls = [15, 4, 1, 1, 1, 1, 1];
-    const hit = await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: await indexOf('Longsword'), smite: 3 });
-    expect(hit.dealt).toBe(12);
-  });
-
-  it('refuses what the rules do not allow', async () => {
-    fight();
-    await asPaladin();
-    const sword = await indexOf('Longsword');
-    expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: sword, smite: 1 })).error).toBe(
-      'No level 1 spell slot left for Divine Smite'
-    );
-    expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: await indexOf('Fire Bolt'), smite: 3 })).error).toBe(
-      'Divine Smite follows a hit with a Melee weapon or an Unarmed Strike'
-    );
-    fight({ bonusAction: true });
-    expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: sword, smite: 3 })).error).toBe(
-      'Hero has used its Bonus Action this turn'
-    );
-    await prisma.character.update({ where: { id: heroCharacterId }, data: { data: toJson(heroSheet()) } });
-    expect((await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: sword, smite: 3 })).error).toBe(
-      'Hero has no Divine Smite prepared'
-    );
+    expect((await swing()).dealt).toBe(12);
   });
 });

@@ -30,14 +30,10 @@ export const CombatAttackSchema = z
     legendary: z.number().int().min(0).max(199).optional(),
     /** A Barbarian's Reckless Attack, decided with the first attack roll of its turn. */
     reckless: z.literal(true).optional(),
-    /** Divine Smite on a hit, with a spell slot of this level: spent only if the attack hits. */
-    smite: z.number().int().min(1).max(9).optional(),
     /** Brutal Strike on a Reckless Attack turn: give up Advantage on this Strength attack for an extra die and this effect on a hit. */
     brutal: z.enum(['forceful', 'hamstring']).optional(),
     /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
     cunning: z.enum(['poison', 'trip', 'withdraw']).optional(),
-    /** Stunning Strike on a hit with a Monk weapon or an Unarmed Strike: 1 Focus Point, spent only on a hit. */
-    stun: z.literal(true).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
