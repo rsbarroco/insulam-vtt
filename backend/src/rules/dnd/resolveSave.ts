@@ -14,15 +14,13 @@ import { lucky } from './species';
 import { coverBetween, distanceFeet, type Cover } from '../../utils/boardSight';
 import type { CombatAction } from './actions';
 import { canAct, readConditions, saveModifiers, type Ability } from './conditions';
-import { coverBonus, rollDie, savingThrow, type RollDie, type SaveOutcome } from './d20';
+import { coverBonus, rollDie, savingThrow, type RollDie, type SaveInput, type SaveOutcome } from './d20';
 import { adjustedDamage, applyDamage, halfDamage, rollDamage, type DamageType, type HitPoints, type RolledDamage } from './damage';
 import type { AttackRefusal, AttackRequest, Combatant } from './resolveAttack';
 
 export interface SaveTarget extends Combatant {
   /** What the creature adds to a save with the action's ability. Null when nothing gives one. */
   saveBonus: number | null;
-  /** A Fighter's Indomitable held ready: a failed save is rerolled with this bonus (the Fighter level). */
-  indomitable?: number;
 }
 
 export interface SaveRequest {
@@ -30,6 +28,15 @@ export interface SaveRequest {
   targets: readonly SaveTarget[];
   action: CombatAction;
   board: AttackRequest['board'];
+  /**
+   * What was rolled already, to work the result out again once a reaction
+   * changed a save (a Fighter's Indomitable): the damage as rolled, and each
+   * target's save as it stands, with the first roll of one rolled again.
+   */
+  fixed?: {
+    damage: SaveResult['damage'];
+    saves: ReadonlyArray<{ outcome: SaveOutcome; first?: SaveOutcome }>;
+  };
 }
 
 export interface TargetSaveResult {
@@ -45,6 +52,8 @@ export interface TargetSaveResult {
   evaded?: boolean;
   /** Indomitable rerolled a failed save: the first roll; `outcome` is the reroll, which stands. */
   rerolled?: SaveOutcome;
+  /** What the save was rolled with, for a feature that rolls it again. */
+  rolledWith: SaveInput;
 }
 
 export interface SaveResult {
@@ -99,18 +108,17 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
     covers.push(cover);
   }
 
-  const damage = profile.damage.map((component) => ({ type: component.type, rolled: rollDamage(component.roll, false, roll) }));
+  const damage = request.fixed?.damage ?? profile.damage.map((component) => ({ type: component.type, rolled: rollDamage(component.roll, false, roll) }));
 
   const results = targets.map((target, index): TargetSaveResult => {
     const state = readConditions(target.conditions, target.exhaustion);
     const modifiers = saveModifiers(state, profile.ability, { dangerSense: target.dangerSense });
     const cover = profile.ability === 'dex' && covers[index] !== 'total' ? coverBonus(covers[index]) : 0;
-    const input = { bonus: target.saveBonus! + modifiers.penalty + cover, dc: profile.dc, mode: modifiers.mode, autoFail: modifiers.autoFail };
-    const die = target.lucky ? lucky(roll) : roll;
-    const first = savingThrow(input, die);
-    // Indomitable: a failed save that was rolled is rolled again with the Fighter level added; the new roll stands.
-    const rerolled = !first.success && first.roll !== null && target.indomitable !== undefined ? first : undefined;
-    const outcome = rerolled ? savingThrow({ ...input, bonus: input.bonus + target.indomitable! }, die) : first;
+    const input: SaveInput = { bonus: target.saveBonus! + modifiers.penalty + cover, dc: profile.dc, mode: modifiers.mode, autoFail: modifiers.autoFail };
+    // A save rolled again (Indomitable) stands as rolled; on a second pass the others are not rolled anew.
+    const fixed = request.fixed?.saves[index];
+    const rerolled = fixed?.first;
+    const outcome = fixed?.outcome ?? savingThrow(input, target.lucky ? lucky(roll) : roll);
     // Evasion: a Dexterity save for half damage gives none on a success and half on a failure.
     const evades = target.evasion === true && profile.ability === 'dex' && profile.halfOnSuccess === true && canAct(state);
     const dealt = damage.reduce((sum, entry) => {
@@ -142,6 +150,7 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
       instantDeath,
       ...(evades && damage.length > 0 ? { evaded: true } : {}),
       ...(rerolled ? { rerolled } : {}),
+      rolledWith: input,
     };
   });
 

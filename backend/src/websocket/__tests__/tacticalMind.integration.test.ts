@@ -1,7 +1,7 @@
 /**
- * A Fighter's Tactical Mind over the socket: held with `combat.feature`, the
- * next failed ability check adds 1d10, and a use of Second Wind is spent only
- * if the check then succeeds.
+ * A Fighter's Tactical Mind over the socket: once an ability check has failed,
+ * the Fighter's player is asked, and may add 1d10; a use of Second Wind is
+ * spent only if the check then succeeds.
  *
  * The fixtures are those of areaPoint.integration.test.ts.
  *
@@ -13,7 +13,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { prisma } from '../../config/database';
 import { toJson } from '../../utils/prisma-json';
 import { createWsTestServer, WsTestServer } from '../../__tests__/helpers/websocket-test-server';
-import { clearState, getState, setState, type CombatantEntry } from '../initiativeState';
+import { clearState, setState, type CombatantEntry } from '../initiativeState';
 import * as d20 from '../../rules/dnd/d20';
 
 jest.setTimeout(20000);
@@ -258,39 +258,53 @@ const asFighter = () =>
     where: { id: heroCharacterId },
     data: { data: toJson({ ...heroSheet(['Tactical Mind (Fighter 2)']), class: 'Fighter', level: 2 }) },
   });
-const hold = () => ask(player, 'combat.feature', { tokenId: HERO, feature: 'Tactical Mind' });
+/** Answer the next question the player is asked with `choice`; what was asked comes back. */
+const answerWith = (choice: string | null) => {
+  const asked: Array<{ promptId: string; text: string; options: string[] }> = [];
+  player.once('combat.prompt', (offer: { promptId: string; text: string; options: string[] }) => {
+    asked.push(offer);
+    player.emit('combat.react', { promptId: offer.promptId, choice }, () => undefined);
+  });
+  return asked;
+};
 const used = async () =>
   ((await prisma.character.findUnique({ where: { id: heroCharacterId } }))!.data as { featureUses?: Record<string, number> })
     .featureUses?.['Second Wind'] ?? 0;
 const check = () => ask(player, 'combat.check', { tokenId: HERO, ability: 'str', dc: 15 });
 
 describe('Tactical Mind', () => {
-  it('turns a failed check into a success with 1d10, spending a use of Second Wind', async () => {
+  it('is asked after a failed check, and turns it into a success with 1d10, spending a use of Second Wind', async () => {
     fight();
     await asFighter();
-    expect((await hold()).summary).toBe('Hero holds Tactical Mind ready');
+    const asked = answerWith('Tactical Mind');
     // 5 + 3 = 8 fails DC 15; + 9 = 17.
     rolls = [5, 9];
     const answer = await check();
+    expect(asked).toEqual([expect.objectContaining({ options: ['Tactical Mind'], text: 'Hero fails the Strength check (8 vs DC 15).' })]);
     expect(answer).toMatchObject({ ok: true, success: true, total: 17 });
     expect(answer.summary).toContain('Tactical Mind +9: 17, success');
     expect(await used()).toBe(1);
-    expect(getState(campaignId).marks.some((mark) => mark.kind === 'tactical')).toBe(false);
   });
 
-  it('spends nothing, and stays held, when the check still fails', async () => {
+  it('spends nothing when the check still fails, or when the player declines', async () => {
     fight();
     await asFighter();
-    await hold();
+    answerWith('Tactical Mind');
     rolls = [2, 3];
-    const answer = await check();
-    expect(answer).toMatchObject({ success: false, total: 8 });
+    expect(await check()).toMatchObject({ success: false, total: 8 });
+    answerWith(null);
+    rolls = [2];
+    expect(await check()).toMatchObject({ success: false, total: 5 });
     expect(await used()).toBe(0);
-    expect(getState(campaignId).marks.some((mark) => mark.kind === 'tactical')).toBe(true);
   });
 
-  it('is refused to a sheet without it', async () => {
+  it('is not asked of a sheet without it', async () => {
     fight();
-    expect((await hold()).error).toBe('Hero has no Tactical Mind');
+    await prisma.character.update({ where: { id: heroCharacterId }, data: { data: toJson({ ...heroSheet(), class: 'Fighter', level: 2 }) } });
+    const asked = answerWith('Tactical Mind');
+    rolls = [2];
+    await check();
+    expect(asked).toEqual([]);
+    player.removeAllListeners('combat.prompt');
   });
 });

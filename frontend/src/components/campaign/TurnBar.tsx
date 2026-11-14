@@ -76,7 +76,6 @@ export default function TurnBar() {
     passivePerception: number | null;
     resources: CombatResource[];
     concentrationSpells: string[];
-    tacticalMind: boolean;
   } | null>(null);
   // Asked again after a feature is used, so its uses left are the sheet's.
   const [listed, setListed] = useState(0);
@@ -106,7 +105,6 @@ export default function TurnBar() {
               passivePerception: answer.passivePerception ?? null,
               resources: answer.resources ?? [],
               concentrationSpells: answer.concentrationSpells ?? [],
-              tacticalMind: answer.tacticalMind === true,
             }
           : null
       );
@@ -186,11 +184,6 @@ export default function TurnBar() {
       }),
   ];
   const raging = combat.marks.some((mark) => mark.kind === 'rage' && mark.attackerId === actingId);
-  const indomitable = resource('Indomitable');
-  const secondWind = resource('Second Wind');
-  const tacticalMind = canAct && known?.tacticalMind === true && secondWind !== null;
-  const holding = (kind: 'indomitable' | 'tactical') =>
-    combat.marks.some((mark) => mark.kind === kind && mark.attackerId === actingId);
 
   // The Opportunity Attacks this viewer may take: the attacker is theirs.
   const offers = combat.opportunities.flatMap((offer) => {
@@ -402,43 +395,6 @@ export default function TurnBar() {
         />
       )}
 
-      {tacticalMind && secondWind && (
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          aria-pressed={holding('tactical')}
-          disabled={!holding('tactical') && secondWind.used >= secondWind.max}
-          title="Tactical Mind: hold a use of Second Wind for your next failed ability check: 1d10 is added, and the use is spent only if the check then succeeds"
-          onClick={() =>
-            void socket.useFeature(actingId, 'Tactical Mind').then((answer) => {
-              showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
-            })
-          }
-        >
-          {holding('tactical') ? 'Let Tactical Mind go' : 'Hold Tactical Mind'}
-        </Button>
-      )}
-
-      {canAct && indomitable && (
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          aria-pressed={holding('indomitable')}
-          disabled={!holding('indomitable') && indomitable.used >= indomitable.max}
-          title="Indomitable: hold a use for your next failed saving throw, rerolled with your Fighter level added"
-          onClick={() =>
-            void socket.useFeature(actingId, 'Indomitable').then((answer) => {
-              showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
-            })
-          }
-        >
-          {holding('indomitable')
-            ? 'Let Indomitable go'
-            : `Hold Indomitable (${indomitable.max - indomitable.used}/${indomitable.max})`}
-        </Button>
-      )}
 
       {canAct && (
         <ConcentrationControl

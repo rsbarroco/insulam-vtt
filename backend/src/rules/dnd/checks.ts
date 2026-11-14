@@ -93,8 +93,6 @@ export interface CheckRequest {
   ability?: Ability;
   /** A Halfling's Luck: a 1 on the d20 is rolled again. */
   lucky?: boolean;
-  /** A Fighter's Tactical Mind held ready: a failed check adds 1d10, which may turn it into a success. */
-  tacticalMind?: boolean;
 }
 
 export interface CheckResult {
@@ -119,27 +117,33 @@ export function resolveCheck(request: CheckRequest, roll: RollDie = rollDie): Ch
     modifiers.disadvantage || request.mode === 'disadvantage'
   );
   const rolled = rollD20(request.bonus + modifiers.penalty, mode, request.lucky ? lucky(roll) : roll);
-  let success = request.dc === undefined ? null : rolled.total >= request.dc;
-  let total = rolled.total;
-  let verdict =
+  const success = request.dc === undefined ? null : rolled.total >= request.dc;
+  const verdict =
     success === null
       ? `${rolled.total}`
       : `${rolled.total} vs DC ${request.dc}: ${success ? 'success' : 'failure'}`;
-  // Tactical Mind: a failed check adds 1d10; the use is spent only if that turns it into a success.
-  let tactical: CheckResult['tacticalMind'];
-  if (success === false && request.tacticalMind) {
-    const extra = roll(10);
-    total = rolled.total + extra;
-    success = total >= request.dc!;
-    tactical = { rolled: extra, success };
-    verdict += `; Tactical Mind +${extra}: ${total}, ${success ? 'success' : 'still a failure'}`;
-  }
   return {
     roll: rolled,
-    total,
+    total: rolled.total,
     success,
     reasons,
-    ...(tactical ? { tacticalMind: tactical } : {}),
     summary: `${request.name} ${request.label} check: ${verdict}`,
+  };
+}
+
+/**
+ * A failed check with a Fighter's Tactical Mind added once its player chose
+ * it: the 1d10 rolled, which may turn the check into a success.
+ */
+export function withTacticalMind(result: CheckResult, dc: number, rolled: number): CheckResult {
+  if (result.success !== false) return result;
+  const total = result.total + rolled;
+  const success = total >= dc;
+  return {
+    ...result,
+    total,
+    success,
+    tacticalMind: { rolled, success },
+    summary: `${result.summary}; Tactical Mind +${rolled}: ${total}, ${success ? 'success' : 'still a failure'}`,
   };
 }

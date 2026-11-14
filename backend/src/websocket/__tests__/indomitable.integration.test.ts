@@ -1,7 +1,7 @@
 /**
- * A Fighter's Indomitable over the socket: held with `combat.feature`, the
- * next failed save the server rolls is rerolled with the Fighter level added,
- * and the use comes off the sheet.
+ * A Fighter's Indomitable over the socket: once a save the server rolls has
+ * failed, the Fighter's player is asked, and may roll it again with the
+ * Fighter level added; the use comes off the sheet.
  *
  * The fixtures are those of areaPoint.integration.test.ts.
  *
@@ -13,7 +13,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { prisma } from '../../config/database';
 import { toJson } from '../../utils/prisma-json';
 import { createWsTestServer, WsTestServer } from '../../__tests__/helpers/websocket-test-server';
-import { clearState, getState, setState, type CombatantEntry } from '../initiativeState';
+import { clearState, setState, type CombatantEntry } from '../initiativeState';
 import * as d20 from '../../rules/dnd/d20';
 
 jest.setTimeout(20000);
@@ -264,38 +264,56 @@ const asFighter = (level: number) =>
     where: { id: heroCharacterId },
     data: { data: toJson({ ...heroSheet(), class: 'Fighter', level }) },
   });
-const hold = () => ask(player, 'combat.feature', { tokenId: HERO, feature: 'Indomitable' });
+/** Answer the next question the player is asked with `choice`; what was asked comes back. */
+const answerWith = (choice: string | null) => {
+  const asked: Array<{ promptId: string; text: string; options: string[] }> = [];
+  player.once('combat.prompt', (offer: { promptId: string; text: string; options: string[] }) => {
+    asked.push(offer);
+    player.emit('combat.react', { promptId: offer.promptId, choice }, () => undefined);
+  });
+  return asked;
+};
 const used = async () =>
   ((await prisma.character.findUnique({ where: { id: heroCharacterId } }))!.data as { featureUses?: Record<string, number> })
     .featureUses?.Indomitable ?? 0;
 
 describe('Indomitable', () => {
-  it('rerolls the next failed save with the Fighter level, spending a use', async () => {
+  it('is asked after a failed save, and rolls it again with the Fighter level when taken', async () => {
     fight();
     await asFighter(9);
-    expect((await hold()).summary).toBe('Hero holds Indomitable ready');
+    const asked = answerWith('Indomitable');
     // 4 + 6 = 10 thunder; 2 + 4 = 6 fails, then 3 + 4 + 9 = 16 saves.
     rolls = [4, 6, 2, 3];
     const answer = await ask(dm, 'combat.save', { sourceId: OGRE, targetIds: [HERO], action: await stomp() });
+    expect(asked).toEqual([expect.objectContaining({ options: ['Indomitable'], text: 'Hero fails the dexterity save against Stomp (6 vs DC 13).' })]);
     expect(answer.targets?.[0]).toMatchObject({ saved: true, total: 16, dealt: 5 });
     expect(answer.summary).toContain('Hero fails (6), Indomitable: saves (16)');
     expect(await used()).toBe(1);
-    expect(getState(campaignId).marks.some((mark) => mark.kind === 'indomitable')).toBe(false);
   });
 
-  it('is not used by a save that succeeds', async () => {
+  it('spends nothing when the player declines, and is not asked after a save that succeeds', async () => {
     fight();
     await asFighter(9);
-    await hold();
+    answerWith(null);
+    rolls = [4, 6, 2];
+    const declined = await ask(dm, 'combat.save', { sourceId: OGRE, targetIds: [HERO], action: await stomp() });
+    expect(declined.targets?.[0]).toMatchObject({ saved: false, dealt: 10 });
+    expect(await used()).toBe(0);
+
+    const asked = answerWith('Indomitable');
     rolls = [4, 6, 15];
     await ask(dm, 'combat.save', { sourceId: OGRE, targetIds: [HERO], action: await stomp() });
-    expect(await used()).toBe(0);
-    expect(getState(campaignId).marks.some((mark) => mark.kind === 'indomitable')).toBe(true);
+    expect(asked).toEqual([]);
+    player.removeAllListeners('combat.prompt');
   });
 
-  it('is refused below Fighter 9', async () => {
+  it('is not asked below Fighter 9', async () => {
     fight();
     await asFighter(8);
-    expect((await hold()).error).toBe('Hero has no Indomitable');
+    const asked = answerWith('Indomitable');
+    rolls = [4, 6, 2];
+    await ask(dm, 'combat.save', { sourceId: OGRE, targetIds: [HERO], action: await stomp() });
+    expect(asked).toEqual([]);
+    player.removeAllListeners('combat.prompt');
   });
 });
