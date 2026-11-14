@@ -47,6 +47,7 @@ import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack'
 import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd/smites';
 import { deflectReduction } from '../../rules/dnd/reactions';
 import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
+import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
@@ -1058,6 +1059,32 @@ async function logRoll(
 }
 
 /** What a creature adds to a save: its sheet's total, or its stat block's bonus, modifier or ability score. */
+/**
+ * The best Aura of Protection a creature stands in: a Paladin on its side (or
+ * itself), on its layer, within 10 feet, able to act and above 0 Hit Points.
+ * What it adds to the creature's saves and whose it is.
+ */
+async function auraFor(campaignId: string, mapId: string, target: Token): Promise<{ bonus: number; from: string | null }> {
+  const map = await prisma.map.findUnique({ where: { id: mapId } });
+  if (!map) return { bonus: 0, from: null };
+  const board = {
+    heights: readTileHeights(map.tileHeights),
+    feetPerSquare: map.feetPerSquare,
+    diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+  };
+  const side = sideOf({ type: target.type ?? 'npc', disposition: target.disposition ?? null });
+  let best = { bonus: 0, from: null as string | null };
+  for (const token of readTokens(map.tokens)) {
+    if (!token.characterId || token.layer !== target.layer || (token.hp && token.hp.current <= 0)) continue;
+    const ally = token.id === target.id || (side !== null && sideOf({ type: token.type ?? 'npc', disposition: token.disposition ?? null }) === side);
+    if (!ally || !canAct(readConditions(token.conditions ?? []))) continue;
+    if (distanceFeet(standing(token), standing(target), board) > AURA_FEET) continue;
+    const bonus = auraOfProtectionBonus(await sheetOf(token, campaignId));
+    if (bonus > best.bonus) best = { bonus, from: token.name };
+  }
+  return best;
+}
+
 function saveBonusOf(token: Token, sheet: Record<string, unknown> | null, ability: Ability): number | null {
   const full = ABILITY_FULL[ability];
   if (sheet) {
@@ -1310,8 +1337,9 @@ async function repeatSavesAtTurnEnd(io: Server, socket: AuthenticatedSocket, cam
     const modifiers = saveModifiers(readConditions(token.conditions ?? [], typeof sheet?.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined), ability, {
       dangerSense: hasFeature(readFeatures(sheet), 'Danger Sense'),
     });
+    const aura = await auraFor(campaignId, map.id, token);
     const outcome = savingThrow(
-      { bonus: (saveBonusOf(token, sheet, ability) ?? 0) + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
+      { bonus: (saveBonusOf(token, sheet, ability) ?? 0) + aura.bonus + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
       hasLuck(sheet) ? lucky(rollDie) : rollDie
     );
     const label = `${ABILITY_FULL[ability][0].toUpperCase()}${ABILITY_FULL[ability].slice(1)}`;
@@ -1813,7 +1841,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (!result.dropped) {
           const dc = monkSaveDC(attackerSheet);
           const modifiers = saveModifiers(readConditions(targetToken.conditions ?? []), 'con');
-          const save = savingThrow({ bonus: (saveBonusOf(targetToken, targetSheet, 'con') ?? 0) + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail });
+          const aura = await auraFor(campaignId, map.id, targetToken);
+          const save = savingThrow({ bonus: (saveBonusOf(targetToken, targetSheet, 'con') ?? 0) + aura.bonus + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail });
           const rolled = save.roll ? `${save.roll.total}` : 'no roll';
           if (save.success) {
             const now = getCombatState(campaignId);
@@ -1837,9 +1866,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const cunningLines: string[] = [];
       if (cunning && attackerSheet && result.outcome.hit && result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) {
         const dc = cunningStrikeDC(attackerSheet);
+        const aura = await auraFor(campaignId, map.id, targetToken);
         const saveAgainst = (ability: Ability) => {
           const modifiers = saveModifiers(readConditions(targetToken.conditions ?? []), ability);
-          return savingThrow({ bonus: (saveBonusOf(targetToken, targetSheet, ability) ?? 0) + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail });
+          return savingThrow({ bonus: (saveBonusOf(targetToken, targetSheet, ability) ?? 0) + aura.bonus + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail });
         };
         const rolledOf = (save: ReturnType<typeof savingThrow>) => (save.roll ? `${save.roll.total}` : 'no roll');
         if (cunning === 'poison' && !result.dropped) {
@@ -2666,7 +2696,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions and cover, applies full, half or no damage to each one's hit points and records the roll in the dice log. The DM, or the player who controls the acting token; a player may not target a hidden token.
+   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions, cover and the best Aura of Protection it stands in, applies full, half or no damage to each one's hit points and records the roll in the dice log. The DM, or the player who controls the acting token; a player may not target a hidden token.
    */
   socket.on('combat.save', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2735,11 +2765,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
       const ability = action.save!.ability;
       const involved = new Set([sourceId, ...targetIds]);
+      // Aura of Protection: each target adds the best aura it stands in.
+      const auras = await Promise.all(targetTokens.map((token) => auraFor(campaignId, map.id, token)));
       const result = resolveSave({
         source: combatant(sourceToken, sourceSheet),
         targets: targetTokens.map((token, index) => ({
           ...combatant(token, targetSheets[index], getCombatState(campaignId).dodging, isRaging(campaignId, token.id)),
-          saveBonus: saveBonusOf(token, targetSheets[index], ability),
+          saveBonus: (() => {
+            const own = saveBonusOf(token, targetSheets[index], ability);
+            return own === null ? null : own + auras[index].bonus;
+          })(),
           ...indomitableFor(campaignId, token, targetSheets[index]),
         })),
         action,
@@ -2782,7 +2817,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         }
       }
       // What a failed save against an Unarmed Strike leaves the target with.
-      let summary = [result.summary, ...riders, ...endured].join('; ');
+      const auraLines = auras.flatMap((aura, index) =>
+        aura.bonus > 0 && aura.from ? [`${targetTokens[index].name} adds +${aura.bonus} (${aura.from}'s Aura of Protection)`] : []
+      );
+      let summary = [result.summary, ...auraLines, ...riders, ...endured].join('; ');
       if (action.unarmed && !result.targets[0].outcome.success) {
         const [only] = targetTokens;
         if (action.unarmed === 'grapple') await giveCondition(io, campaignId, map.id, only.id, 'Grappled');
