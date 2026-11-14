@@ -46,6 +46,7 @@ import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd/smites';
 import { deflectReduction } from '../../rules/dnd/reactions';
+import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
@@ -1381,6 +1382,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           reckless: sheet ? hasFeature(features, 'Reckless Attack') : false,
           // A Barbarian's Brutal Strike, on a turn it attacks recklessly.
           brutalStrike: sheet ? hasFeature(features, 'Brutal Strike') : false,
+          // A Rogue's Cunning Strike effects it can use: Poison only with a Poisoner's Kit.
+          cunningStrike:
+            sheet && hasFeature(features, 'Cunning Strike')
+              ? (['poison', 'trip', 'withdraw'] as const).filter((effect) => effect !== 'poison' || hasPoisonersKit(sheet))
+              : [],
           // Divine Smite: the slot levels it could be cast with, when the sheet has it ready.
           divineSmite: sheet && hasDivineSmite(sheet as SheetSpellcasting) ? Object.keys(slots).map(Number) : [],
           // The class features it spends and gets back on a rest, with what is left.
@@ -1402,7 +1408,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1412,7 +1418,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, smite, brutal } = parsed.data;
+      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, smite, brutal, cunning } = parsed.data;
       if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
       if (readied && (opportunity || extra)) return refuseRequest(socket, ack, 'A readied attack is made on its own');
       // A readied attack is the one readied: its action, against its target, while the mark lasts.
@@ -1626,9 +1632,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             canAct(readConditions(t.conditions ?? [])) &&
             distanceFeet(standing(t), targetStanding, boardOf) <= 5
         );
+      // Cunning Strike: the dice its effect costs come off the Sneak Attack before the roll.
+      if (cunning) {
+        if (!attackerSheet || !hasFeature(readFeatures(attackerSheet), 'Cunning Strike')) {
+          return refuseRequest(socket, ack, `${attackerToken.name} has no Cunning Strike`);
+        }
+        if (sneakDice < CUNNING_COST[cunning]) return refuseRequest(socket, ack, 'Cunning Strike needs a Sneak Attack to forgo dice from');
+        if (cunning === 'poison' && !hasPoisonersKit(attackerSheet)) {
+          return refuseRequest(socket, ack, 'The Poison effect needs a Poisoner’s Kit in the inventory');
+        }
+      }
+      const sneakRolled = cunning ? sneakDice - CUNNING_COST[cunning] : sneakDice;
       const sneakAttack = (rolled: 'normal' | 'advantage' | 'disadvantage') => {
-        const damage = sneakAttackDamage(sneakDice, action, rolled, allyBesideTarget);
-        return damage ? { label: `Sneak Attack (${sneakDice}d6)`, damage } : null;
+        // With every die forgone, a Sneak Attack still counts as dealt: the effect needs it.
+        const damage = sneakAttackDamage(Math.max(1, sneakRolled), action, rolled, allyBesideTarget);
+        if (!damage) return null;
+        return { label: `Sneak Attack (${sneakRolled}d6${cunning ? `, Cunning Strike: ${CUNNING_LABELS[cunning]}` : ''})`, damage: sneakRolled > 0 ? damage : { ...damage, roll: { ...damage.roll, count: 0 } } };
       };
 
       // On a lit map, darkness decides who sees whom, as the views draw it.
@@ -1742,6 +1761,37 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         action.source === 'statBlock' && result.outcome.hit && !result.dropped
           ? await applyRiders(io, campaignId, map.id, attackerToken, targetToken, conditionsOnHit(action.text ?? ''))
           : [];
+      // Cunning Strike: when Sneak Attack was dealt, its effect right after the damage.
+      const cunningLines: string[] = [];
+      if (cunning && attackerSheet && result.outcome.hit && result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) {
+        const dc = cunningStrikeDC(attackerSheet);
+        const saveAgainst = (ability: Ability) => {
+          const modifiers = saveModifiers(readConditions(targetToken.conditions ?? []), ability);
+          return savingThrow({ bonus: (saveBonusOf(targetToken, targetSheet, ability) ?? 0) + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail });
+        };
+        const rolledOf = (save: ReturnType<typeof savingThrow>) => (save.roll ? `${save.roll.total}` : 'no roll');
+        if (cunning === 'poison' && !result.dropped) {
+          const save = saveAgainst('con');
+          if (save.success) cunningLines.push(`Cunning Strike (Poison): ${targetToken.name} saves (Constitution ${rolledOf(save)} vs DC ${dc})`);
+          else {
+            cunningLines.push(`Cunning Strike (Poison): ${targetToken.name} fails (Constitution ${rolledOf(save)} vs DC ${dc})`);
+            cunningLines.push(...(await applyRiders(io, campaignId, map.id, attackerToken, targetToken, [{ condition: 'Poisoned', repeats: true }], { ability: 'con', dc })));
+          }
+        } else if (cunning === 'trip' && !result.dropped) {
+          if (Math.max(targetToken.size?.width ?? 1, targetToken.size?.height ?? 1) > 2) {
+            cunningLines.push(`Cunning Strike (Trip): ${targetToken.name} is too large to trip`);
+          } else {
+            const save = saveAgainst('dex');
+            if (save.success) cunningLines.push(`Cunning Strike (Trip): ${targetToken.name} saves (Dexterity ${rolledOf(save)} vs DC ${dc})`);
+            else {
+              await giveCondition(io, campaignId, map.id, targetToken.id, 'Prone');
+              cunningLines.push(`Cunning Strike (Trip): ${targetToken.name} fails (Dexterity ${rolledOf(save)} vs DC ${dc}) and is Prone`);
+            }
+          }
+        } else if (cunning === 'withdraw') {
+          cunningLines.push(`Cunning Strike (Withdraw): ${attackerToken.name} may move up to half its Speed without provoking Opportunity Attacks`);
+        }
+      }
       // Brutal Strike: used with the roll; on a hit, its effect.
       const brutalLines: string[] = [];
       if (brutal) {
@@ -1797,7 +1847,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
               ? 'Light extra attack, with Nick'
               : 'Light extra attack, a Bonus Action'
             : null;
-      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...brutalLines, ...riders, ...endured].join('; ');
+      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...brutalLines, ...cunningLines, ...riders, ...endured].join('; ');
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
       commitUndo(campaignId, undo, summary);

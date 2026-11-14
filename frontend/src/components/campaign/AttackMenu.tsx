@@ -201,6 +201,8 @@ export default function AttackMenu({
   const [smiteSlots, setSmiteSlots] = useState<number[]>([]);
   const [smite, setSmite] = useState(0);
   const [canBrutal, setCanBrutal] = useState(false);
+  const [cunningEffects, setCunningEffects] = useState<Array<'poison' | 'trip' | 'withdraw'>>([]);
+  const [cunning, setCunning] = useState<'' | 'poison' | 'trip' | 'withdraw'>('');
   const [brutal, setBrutal] = useState<'' | 'forceful' | 'hamstring'>('');
 
   useEffect(() => {
@@ -212,6 +214,7 @@ export default function AttackMenu({
         setCanReckless(answer.reckless === true);
         setSmiteSlots(answer.divineSmite ?? []);
         setCanBrutal(answer.brutalStrike === true);
+        setCunningEffects(answer.cunningStrike ?? []);
       } else setProblem(answer.error);
     });
     return () => {
@@ -293,6 +296,7 @@ export default function AttackMenu({
         ...(reckless ? { reckless: true as const } : {}),
         ...(smite > 0 && !action.spell ? { smite } : {}),
         ...(brutal && !action.spell ? { brutal } : {}),
+        ...(cunning && !action.spell ? { cunning } : {}),
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -472,6 +476,28 @@ export default function AttackMenu({
                 onChange={(event) => setReckless(event.target.checked)}
               />
               Attack recklessly
+            </label>
+          )}
+          {anyAttackRoll && cunningEffects.length > 0 && (
+            <label
+              className="flex items-center justify-between gap-2 text-sm text-ink"
+              title="Cunning Strike: forgo 1d6 of your Sneak Attack for an effect, if this attack deals Sneak Attack. Saves are against 8 + Dexterity modifier + Proficiency Bonus."
+            >
+              Cunning Strike
+              <select
+                value={cunning}
+                onChange={(event) =>
+                  setCunning(event.target.value as '' | 'poison' | 'trip' | 'withdraw')
+                }
+                className="input-cozy text-sm py-1"
+              >
+                <option value="">No Cunning Strike</option>
+                {cunningEffects.includes('poison') && <option value="poison">Poison (−1d6)</option>}
+                {cunningEffects.includes('trip') && <option value="trip">Trip (−1d6)</option>}
+                {cunningEffects.includes('withdraw') && (
+                  <option value="withdraw">Withdraw (−1d6)</option>
+                )}
+              </select>
             </label>
           )}
           {anyAttackRoll && canBrutal && (
