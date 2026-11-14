@@ -81,6 +81,7 @@ no field there and are kept in its notes.
 `backend/src/rules/dnd/brutalStrike.ts` applies the document's Brutal Strike (Barbarian 9): its extra die and the Forceful and Hamstring Blows.
 `backend/src/rules/dnd/cunningStrike.ts` applies the document's Cunning Strike (Rogue 5): its save DC and its Poison, Trip and Withdraw effects.
 `backend/src/rules/dnd/stunningStrike.ts` applies the document's Stunning Strike (Monk 5): the Monk's save DC and the Monk weapons it follows.
+`backend/src/rules/dnd/auras.ts` applies the document's Aura of Protection (Paladin 6).
 
 `backend/src/rules/dnd/data/srd-5.2.1-rules.json` is the text of the
 document's "Playing the Game" chapter and of its "Rules Glossary", built by
