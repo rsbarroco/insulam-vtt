@@ -93,6 +93,8 @@ export interface CheckRequest {
   ability?: Ability;
   /** A Halfling's Luck: a 1 on the d20 is rolled again. */
   lucky?: boolean;
+  /** A Fighter's Tactical Mind held ready: a failed check adds 1d10, which may turn it into a success. */
+  tacticalMind?: boolean;
 }
 
 export interface CheckResult {
@@ -101,6 +103,8 @@ export interface CheckResult {
   /** Null when no DC was set: the table reads the total. */
   success: boolean | null;
   reasons: string[];
+  /** Tactical Mind's 1d10 on a failed check, and whether it turned the check into a success. */
+  tacticalMind?: { rolled: number; success: boolean };
   /** One line for the log. */
   summary: string;
 }
@@ -115,16 +119,27 @@ export function resolveCheck(request: CheckRequest, roll: RollDie = rollDie): Ch
     modifiers.disadvantage || request.mode === 'disadvantage'
   );
   const rolled = rollD20(request.bonus + modifiers.penalty, mode, request.lucky ? lucky(roll) : roll);
-  const success = request.dc === undefined ? null : rolled.total >= request.dc;
-  const verdict =
+  let success = request.dc === undefined ? null : rolled.total >= request.dc;
+  let total = rolled.total;
+  let verdict =
     success === null
       ? `${rolled.total}`
       : `${rolled.total} vs DC ${request.dc}: ${success ? 'success' : 'failure'}`;
+  // Tactical Mind: a failed check adds 1d10; the use is spent only if that turns it into a success.
+  let tactical: CheckResult['tacticalMind'];
+  if (success === false && request.tacticalMind) {
+    const extra = roll(10);
+    total = rolled.total + extra;
+    success = total >= request.dc!;
+    tactical = { rolled: extra, success };
+    verdict += `; Tactical Mind +${extra}: ${total}, ${success ? 'success' : 'still a failure'}`;
+  }
   return {
     roll: rolled,
-    total: rolled.total,
+    total,
     success,
     reasons,
+    ...(tactical ? { tacticalMind: tactical } : {}),
     summary: `${request.name} ${request.label} check: ${verdict}`,
   };
 }

@@ -1435,6 +1435,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           brutalStrike: sheet ? hasFeature(features, 'Brutal Strike') : false,
           // A Rogue's Cunning Strike effects it can use: Poison only with a Poisoner's Kit.
           stunningStrike: sheet ? hasFeature(features, 'Stunning Strike') : false,
+          // A Fighter's Tactical Mind, held for its next failed ability check.
+          tacticalMind: sheet ? hasFeature(features, 'Tactical Mind') : false,
           cunningStrike:
             sheet && hasFeature(features, 'Cunning Strike')
               ? (['poison', 'trip', 'withdraw'] as const).filter((effect) => effect !== 'poison' || hasPoisonersKit(sheet))
@@ -2058,7 +2060,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ? `${ABILITY_CHECK_NAMES[SKILL_CHECKS[skill].ability]} (${SKILL_CHECKS[skill].name})`
         : ABILITY_CHECK_NAMES[ability!];
       const used = skill ? SKILL_CHECKS[skill].ability : ability!;
-      const result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet) });
+      // Tactical Mind held ready, with a use of Second Wind left.
+      const secondWind = sheet ? resourcesOf(sheet).find((entry) => entry.name === 'Second Wind') : undefined;
+      const tacticalMind =
+        getCombatState(campaignId).marks.some((mark) => mark.kind === 'tactical' && mark.attackerId === tokenId) &&
+        sheet !== null &&
+        hasFeature(readFeatures(sheet), 'Tactical Mind') &&
+        secondWind !== undefined &&
+        secondWind.used < secondWind.max;
+      const result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet), tacticalMind });
+      // It turned the failure into a success: the use of Second Wind is spent and the hold let go.
+      if (result.tacticalMind?.success) {
+        const now = getCombatState(campaignId);
+        now.marks = now.marks.filter((mark) => !(mark.kind === 'tactical' && mark.attackerId === tokenId));
+        setCombatState(campaignId, now);
+        await spendSheetUse(campaignId, token, 'Second Wind');
+      }
 
       const hidden = hide === true && result.success === true;
       if (hidden) await giveCondition(io, campaignId, map.id, tokenId, 'Invisible');
@@ -2194,7 +2211,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Uncanny Dodge` holds the Rogue's reaction ready, or lets it go: the next hit from an attacker it can see deals half damage and spends it. `Indomitable` holds a Fighter's use for its next failed save in `combat.save`, rerolled with its Fighter level added. `Deflect Attacks` does the same for a Monk: the next hit that deals Bludgeoning, Piercing or Slashing damage is reduced by 1d10 + its Dexterity modifier + its Monk level. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Uncanny Dodge` holds the Rogue's reaction ready, or lets it go: the next hit from an attacker it can see deals half damage and spends it. `Tactical Mind` holds a use of a Fighter's Second Wind for its next failed check in `combat.check`: 1d10 is added, and the use is spent only if the check then succeeds. `Indomitable` holds a Fighter's use for its next failed save in `combat.save`, rerolled with its Fighter level added. `Deflect Attacks` does the same for a Monk: the next hit that deals Bludgeoning, Piercing or Slashing damage is reduced by 1d10 + its Dexterity modifier + its Monk level. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2224,6 +2241,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const combat = getCombatState(campaignId);
       const ownTurn = someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn !== null;
+      // Tactical Mind: a use of Second Wind held for the Fighter's next failed ability check, or let go.
+      if (feature === 'Tactical Mind') {
+        if (!combat.active) return refuseRequest(socket, ack, 'Tactical Mind is held ready during combat');
+        if (!hasFeature(readFeatures(ownSheet), 'Tactical Mind')) return refuseRequest(socket, ack, `${token.name} has no Tactical Mind`);
+        const uses = resourcesOf(ownSheet).find((entry) => entry.name === 'Second Wind');
+        const held = combat.marks.some((mark) => mark.kind === 'tactical' && mark.attackerId === tokenId);
+        if (!held && (!uses || uses.used >= uses.max)) return refuseRequest(socket, ack, 'No uses of Second Wind left until a rest');
+        combat.marks = held
+          ? combat.marks.filter((mark) => !(mark.kind === 'tactical' && mark.attackerId === tokenId))
+          : [...combat.marks, { kind: 'tactical', attackerId: tokenId, targetId: tokenId, turnEndsLeft: 1 }];
+        setCombatState(campaignId, combat);
+        await resendInitiativeState(io, campaignId);
+        const summary = held ? `${token.name} no longer holds Tactical Mind ready` : `${token.name} holds Tactical Mind ready`;
+        ack?.({ ok: true, summary, left: uses ? uses.max - uses.used : 0 });
+        return;
+      }
       // Indomitable: a use held for the Fighter's next failed save the server rolls, or let go.
       if (feature === 'Indomitable') {
         if (!combat.active) return refuseRequest(socket, ack, 'Indomitable is held ready during combat');

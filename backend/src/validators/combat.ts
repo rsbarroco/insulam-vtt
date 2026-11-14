@@ -117,6 +117,7 @@ export const CombatFeatureSchema = z
       'Uncanny Dodge',
       'Deflect Attacks',
       'Indomitable',
+      'Tactical Mind',
     ]),
     /** Cunning Action: the action it takes as a Bonus Action (Hide is `combat.check` with `bonusAction`). */
     as: z.enum(['Dash', 'Disengage']).optional(),
