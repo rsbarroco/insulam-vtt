@@ -100,9 +100,11 @@ export interface CombatState {
  * Stunning: a target that saved against the Monk's Stunning Strike has its
  * Speed halved until the start of the Monk's next turn, and the next attack
  * roll against it has Advantage (`action: 'used'` once that roll is made).
+ * Tactical: the Fighter (both ids) holds a use of Second Wind for its next
+ * failed ability check.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring' | 'stunning';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring' | 'stunning' | 'tactical';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -170,6 +172,7 @@ export function advanceTurn(state: CombatState): void {
       mark.kind === 'uncanny' ||
       mark.kind === 'deflect' ||
       mark.kind === 'indomitable' ||
+      mark.kind === 'tactical' ||
       mark.attackerId !== state.currentTokenId
   );
 }

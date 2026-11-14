@@ -76,6 +76,7 @@ export default function TurnBar() {
     passivePerception: number | null;
     resources: CombatResource[];
     concentrationSpells: string[];
+    tacticalMind: boolean;
   } | null>(null);
   // Asked again after a feature is used, so its uses left are the sheet's.
   const [listed, setListed] = useState(0);
@@ -105,6 +106,7 @@ export default function TurnBar() {
               passivePerception: answer.passivePerception ?? null,
               resources: answer.resources ?? [],
               concentrationSpells: answer.concentrationSpells ?? [],
+              tacticalMind: answer.tacticalMind === true,
             }
           : null
       );
@@ -185,7 +187,9 @@ export default function TurnBar() {
   ];
   const raging = combat.marks.some((mark) => mark.kind === 'rage' && mark.attackerId === actingId);
   const indomitable = resource('Indomitable');
-  const holding = (kind: 'uncanny' | 'deflect' | 'indomitable') =>
+  const secondWind = resource('Second Wind');
+  const tacticalMind = canAct && known?.tacticalMind === true && secondWind !== null;
+  const holding = (kind: 'uncanny' | 'deflect' | 'indomitable' | 'tactical') =>
     combat.marks.some((mark) => mark.kind === kind && mark.attackerId === actingId);
   // The reactions held ready for the next hit: a Rogue's Uncanny Dodge, a Monk's Deflect Attacks.
   const heldReactions = [
@@ -433,6 +437,24 @@ export default function TurnBar() {
               {holding(kind) ? `Let ${feature} go` : `Hold ${feature}`}
             </Button>
           ))}
+
+      {tacticalMind && secondWind && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          aria-pressed={holding('tactical')}
+          disabled={!holding('tactical') && secondWind.used >= secondWind.max}
+          title="Tactical Mind: hold a use of Second Wind for your next failed ability check: 1d10 is added, and the use is spent only if the check then succeeds"
+          onClick={() =>
+            void socket.useFeature(actingId, 'Tactical Mind').then((answer) => {
+              showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
+            })
+          }
+        >
+          {holding('tactical') ? 'Let Tactical Mind go' : 'Hold Tactical Mind'}
+        </Button>
+      )}
 
       {canAct && indomitable && (
         <Button

@@ -1644,7 +1644,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring' | 'stunning';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring' | 'stunning' | 'tactical';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1734,6 +1734,8 @@ export type CombatActionsAck =
       cunningStrike?: Array<'poison' | 'trip' | 'withdraw'>;
       /** A Monk's Stunning Strike, for a Focus Point on a hit. */
       stunningStrike?: boolean;
+      /** A Fighter's Tactical Mind, held for its next failed ability check. */
+      tacticalMind?: boolean;
     }
   | { ok: false; error: string };
 
@@ -1825,7 +1827,8 @@ export type CombatFeatureName =
   | 'Step of the Wind'
   | 'Uncanny Dodge'
   | 'Deflect Attacks'
-  | 'Indomitable';
+  | 'Indomitable'
+  | 'Tactical Mind';
 export type CombatFeatureAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
 
 /** `combat.stand`: a Prone token got up. */

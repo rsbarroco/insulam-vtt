@@ -569,6 +569,22 @@ describe('a rogue', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Hold Indomitable (1/2)' }));
     await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Indomitable'));
   });
+
+  it('holds a Fighter’s Tactical Mind while Second Wind has a use left', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [],
+      resources: [{ name: 'Second Wind', max: 2, used: 0 }],
+      tacticalMind: true,
+    });
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Hold Tactical Mind' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Tactical Mind'));
+  });
 });
 
 describe('the features the server counts', () => {

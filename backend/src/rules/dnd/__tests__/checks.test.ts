@@ -94,3 +94,18 @@ describe('a raging creature', () => {
     expect(resolveCheck(check({ ability: 'dex', conditions: raging }), dice(3)).reasons).toEqual([]);
   });
 });
+
+describe('Tactical Mind', () => {
+  it('adds 1d10 to a failed check, which may turn it into a success', () => {
+    const turned = resolveCheck(check({ dc: 15, tacticalMind: true }), dice(4, 7));
+    expect(turned).toMatchObject({ total: 16, success: true, tacticalMind: { rolled: 7, success: true } });
+    expect(turned.summary).toBe('Hero Dexterity (Stealth) check: 9 vs DC 15: failure; Tactical Mind +7: 16, success');
+    const still = resolveCheck(check({ dc: 15, tacticalMind: true }), dice(2, 3));
+    expect(still).toMatchObject({ total: 10, success: false, tacticalMind: { rolled: 3, success: false } });
+  });
+
+  it('is not used by a check that succeeds, or one with no DC', () => {
+    expect(resolveCheck(check({ dc: 15, tacticalMind: true }), dice(12)).tacticalMind).toBeUndefined();
+    expect(resolveCheck(check({ tacticalMind: true }), dice(2)).tacticalMind).toBeUndefined();
+  });
+});
