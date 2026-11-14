@@ -47,6 +47,8 @@ import type {
   MemberRoleChangedBroadcast,
   HitDiceSpendEvent,
   CombatState,
+  CombatPrompt,
+  CombatReactAck,
   InitiativeAddEvent,
   InitiativeRemoveEvent,
   InitiativeSetEvent,
@@ -79,6 +81,8 @@ type EventCallback<T = unknown> = (data: T) => void;
 const CHAT_ANSWER_TIMEOUT_MS = 10_000;
 /** How long a roll, or a clear of the dice history, waits for its answer. */
 const ROLL_ANSWER_TIMEOUT_MS = 10_000;
+/** A roll that may stop to ask a player for a reaction (30 seconds at most) waits that much longer. */
+const REACTION_ROLL_TIMEOUT_MS = 45_000;
 
 /**
  * A listener as the registry holds it, once its payload type has been erased.
@@ -760,17 +764,17 @@ class SocketClient {
 
   /** Have the server make an attack, apply its damage and log the roll. */
   resolveAttack(attack: CombatAttackEvent): Promise<CombatAttackAck> {
-    return this.askFor<CombatAttackAck>('combat.attack', attack, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+    return this.askFor<CombatAttackAck>('combat.attack', attack, REACTION_ROLL_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** Have the server roll the targets' saving throws against an action, and apply what it does. */
   resolveSave(save: CombatSaveEvent): Promise<CombatSaveAck> {
-    return this.askFor<CombatSaveAck>('combat.save', save, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+    return this.askFor<CombatSaveAck>('combat.save', save, REACTION_ROLL_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** Have the server roll an ability check for a token, against a DC when one is given. */
   resolveCheck(check: CombatCheckEvent): Promise<CombatCheckAck> {
-    return this.askFor<CombatCheckAck>('combat.check', check, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+    return this.askFor<CombatCheckAck>('combat.check', check, REACTION_ROLL_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** A D&D 5e character rests: `short` spends one Hit Point Die and heals, `long` (the DM's) gives everything back. */
@@ -838,6 +842,21 @@ class SocketClient {
 
   onInitiativeState(callback: EventCallback<CombatState>) {
     this.addListener('initiative.state', callback);
+  }
+
+  /** The server asks whether one of this member's creatures takes a reaction. */
+  onCombatPrompt(callback: EventCallback<CombatPrompt>) {
+    this.addListener('combat.prompt', callback);
+  }
+
+  /** A question was answered, or its time ran out: a prompt still on screen goes away. */
+  onCombatPromptClosed(callback: EventCallback<{ promptId: string; choice: string | null }>) {
+    this.addListener('combat.promptClosed', callback);
+  }
+
+  /** Answer a `combat.prompt`: the feature used, or null for none. */
+  react(promptId: string, choice: string | null): Promise<CombatReactAck> {
+    return this.askFor<CombatReactAck>('combat.react', { promptId, choice }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
   // ============================================

@@ -72,10 +72,6 @@ export interface AttackRequest {
   hitDamage?: ReadonlyArray<{ label: string; damage: DamageComponent }>;
   /** A feature that gives up any Advantage on this roll and refuses one with Disadvantage, by name: "Brutal Strike". */
   forgoAdvantage?: string;
-  /** A reaction of the target's that takes a rolled amount off a hit with one of its damage types: Deflect Attacks. */
-  reduceDamage?: DamageReduction;
-  /** A reaction of the target's that halves a hit's damage (round down), by name: "Uncanny Dodge". */
-  halveDamage?: string;
 }
 
 export interface AttackRefusal {
@@ -186,7 +182,6 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   let hp = target.hp;
   let dropped = false;
   let instantDeath = false;
-  let reducedBy: AttackResult['reducedBy'];
   if (outcome.hit) {
     const dieRoll = request.greatWeapon ? atLeastThree(roll) : roll;
     const rollWeapon = () =>
@@ -218,15 +213,6 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
           : adjustedDamage({ amount: entry.rolled.total, type: entry.type }, target.defences ?? {})),
       0
     );
-    // A reaction that halves the hit's damage (Uncanny Dodge), rounded down.
-    if (request.halveDamage) dealt = Math.floor(dealt / 2);
-    // A reaction that takes a roll off the hit (Deflect Attacks), when the hit deals a type it answers.
-    const reduction = request.reduceDamage;
-    if (reduction && damage.some((entry) => entry.type !== null && reduction.types.includes(entry.type))) {
-      const amount = Math.max(0, rollDamage({ count: reduction.roll.count, sides: reduction.roll.sides, bonus: reduction.roll.bonus }, false, roll).total);
-      reducedBy = { label: reduction.label, amount };
-      dealt = Math.max(0, dealt - amount);
-    }
     if (target.hp) {
       // Already adjusted, so applied as it stands.
       const applied = applyDamage(target.hp, [{ amount: dealt, type: 'force' }]);
@@ -248,18 +234,59 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     hp,
     dropped,
     instantDeath,
-    ...(outcome.hit && request.halveDamage ? { halvedBy: request.halveDamage } : {}),
-    ...(reducedBy ? { reducedBy } : {}),
-    summary: summarize(
-      target.name,
-      action.name,
-      outcome,
-      damage,
-      dealt,
-      dropped,
-      instantDeath,
-      outcome.hit && request.halveDamage ? `halved by ${request.halveDamage}` : reducedBy ? `${reducedBy.amount} taken off by ${reducedBy.label}` : undefined
-    ),
+    summary: summarize(target.name, action.name, outcome, damage, dealt, dropped, instantDeath),
+  };
+}
+
+/** A reaction the target takes once a hit is known: halving its damage, or taking a roll off it. */
+export type HitReaction = { kind: 'halve'; label: string } | { kind: 'reduce'; reduction: DamageReduction };
+
+/**
+ * A hit as the target's reaction leaves it: Uncanny Dodge halves the damage
+ * (round down); Deflect Attacks takes its roll off a hit whose damage has a
+ * type it answers, to no less than 0. The target's hit points are worked out
+ * again from what they were before the hit. A miss is left as it is.
+ */
+export function withReaction(
+  result: AttackResult,
+  target: Pick<Combatant, 'name' | 'hp'>,
+  actionName: string,
+  reaction: HitReaction,
+  roll: RollDie = rollDie
+): AttackResult {
+  if (!result.outcome.hit) return result;
+  let dealt = result.dealt;
+  let note: string;
+  let changed: Pick<AttackResult, 'halvedBy' | 'reducedBy'>;
+  if (reaction.kind === 'halve') {
+    dealt = Math.floor(dealt / 2);
+    note = `halved by ${reaction.label}`;
+    changed = { halvedBy: reaction.label };
+  } else {
+    const { reduction } = reaction;
+    if (!result.damage.some((entry) => entry.type !== null && reduction.types.includes(entry.type))) return result;
+    const amount = Math.max(0, rollDamage({ count: reduction.roll.count, sides: reduction.roll.sides, bonus: reduction.roll.bonus }, false, roll).total);
+    dealt = Math.max(0, dealt - amount);
+    note = `${amount} taken off by ${reduction.label}`;
+    changed = { reducedBy: { label: reduction.label, amount } };
+  }
+  let hp = target.hp;
+  let dropped = false;
+  let instantDeath = false;
+  if (target.hp && dealt > 0) {
+    const applied = applyDamage(target.hp, [{ amount: dealt, type: 'force' }]);
+    hp = applied.hp;
+    dropped = applied.dropped;
+    instantDeath = applied.instantDeath;
+  }
+  return {
+    ...result,
+    ...changed,
+    dealt,
+    hp,
+    dropped,
+    instantDeath,
+    summary: summarize(target.name, actionName, result.outcome, result.damage, dealt, dropped, instantDeath, note),
   };
 }
 

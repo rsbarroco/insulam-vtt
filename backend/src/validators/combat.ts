@@ -114,8 +114,6 @@ export const CombatFeatureSchema = z
       'Flurry of Blows',
       'Patient Defense',
       'Step of the Wind',
-      'Uncanny Dodge',
-      'Deflect Attacks',
       'Indomitable',
       'Tactical Mind',
     ]),
@@ -163,6 +161,14 @@ export const CombatHealSchema = z
 
 /** `combat.undo`: no payload; the last resolved combat action is undone. */
 export const CombatUndoSchema = z.object({}).strict();
+
+/** `combat.react`: the answer to a `combat.prompt`, the feature used or null for none. */
+export const CombatReactSchema = z
+  .object({
+    promptId: z.string().uuid('A question is named by its id'),
+    choice: z.string().min(1).max(60).nullable(),
+  })
+  .strict();
 
 /** `combat.stand`: the Prone token that gets up. */
 export const CombatStandSchema = z.object({ tokenId }).strict();

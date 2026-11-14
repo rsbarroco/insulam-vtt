@@ -1644,7 +1644,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring' | 'stunning' | 'tactical';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'indomitable' | 'hamstring' | 'stunning' | 'tactical';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1825,10 +1825,21 @@ export type CombatFeatureName =
   | 'Flurry of Blows'
   | 'Patient Defense'
   | 'Step of the Wind'
-  | 'Uncanny Dodge'
-  | 'Deflect Attacks'
   | 'Indomitable'
   | 'Tactical Mind';
+/** `combat.prompt`: the server asks whether a creature takes a reaction, once a roll is known. */
+export interface CombatPrompt {
+  promptId: string;
+  tokenId: string;
+  tokenName: string;
+  /** What happened: "Ogre hits Hero with Greatclub for 14 damage." */
+  text: string;
+  /** The features it may use; the answer is one of them or none. */
+  options: string[];
+  expiresInMs: number;
+}
+export type CombatReactAck = { ok: true } | { ok: false; error: string };
+
 export type CombatFeatureAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
 
 /** `combat.stand`: a Prone token got up. */

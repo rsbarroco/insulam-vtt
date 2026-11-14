@@ -1,4 +1,4 @@
-import { resolveAttack, type AttackRequest, type Combatant } from '../resolveAttack';
+import { resolveAttack, withReaction, type AttackRequest, type Combatant } from '../resolveAttack';
 import type { CombatAction } from '../actions';
 import type { RollDie } from '../d20';
 
@@ -240,16 +240,17 @@ describe('the feats that change the damage', () => {
 
 describe('a reaction that halves the damage', () => {
   it('halves a hit, rounding down, and says so', () => {
-    const result = ok(resolveAttack(request({ halveDamage: 'Uncanny Dodge' }), dice(12, 6)));
-    expect(result.dealt).toBe(4);
-    expect(result.hp?.current).toBe(16);
-    expect(result.halvedBy).toBe('Uncanny Dodge');
-    expect(result.summary).toBe('Longsword vs Ogre (AC 14): hit, 4 slashing damage (halved by Uncanny Dodge)');
+    const hit = ok(resolveAttack(request(), dice(12, 6)));
+    const dodged = withReaction(hit, creature('Ogre', 3), 'Longsword', { kind: 'halve', label: 'Uncanny Dodge' });
+    expect(dodged.dealt).toBe(4);
+    expect(dodged.hp?.current).toBe(16);
+    expect(dodged.halvedBy).toBe('Uncanny Dodge');
+    expect(dodged.summary).toBe('Longsword vs Ogre (AC 14): hit, 4 slashing damage (halved by Uncanny Dodge)');
   });
 
-  it('is not used by a miss', () => {
-    const result = ok(resolveAttack(request({ halveDamage: 'Uncanny Dodge' }), dice(2)));
-    expect(result.halvedBy).toBeUndefined();
+  it('leaves a miss as it is', () => {
+    const miss = ok(resolveAttack(request(), dice(2)));
+    expect(withReaction(miss, creature('Ogre', 3), 'Longsword', { kind: 'halve', label: 'Uncanny Dodge' })).toBe(miss);
   });
 });
 
@@ -266,21 +267,23 @@ describe('damage a spell adds on a hit', () => {
 });
 
 describe('a reaction that takes damage off a hit', () => {
-  const deflect = { label: 'Deflect Attacks', roll: { count: 1, sides: 10, bonus: 5 }, types: ['bludgeoning', 'piercing', 'slashing'] as const };
+  const deflect = { kind: 'reduce' as const, reduction: { label: 'Deflect Attacks', roll: { count: 1, sides: 10, bonus: 5 }, types: ['bludgeoning', 'piercing', 'slashing'] as const } };
+  const reduce = { ...deflect, reduction: { ...deflect.reduction, types: [...deflect.reduction.types] } };
 
   it('takes the roll off a hit of a type it answers, to no less than 0', () => {
     // 6 + 3 = 9 slashing; 2 + 5 = 7 off.
-    const hit = ok(resolveAttack(request({ reduceDamage: { ...deflect, types: [...deflect.types] } }), dice(12, 6, 2)));
+    const hit = withReaction(ok(resolveAttack(request(), dice(12, 6))), creature('Ogre', 3), 'Longsword', reduce, dice(2));
     expect(hit.dealt).toBe(2);
     expect(hit.reducedBy).toEqual({ label: 'Deflect Attacks', amount: 7 });
     expect(hit.summary).toBe('Longsword vs Ogre (AC 14): hit, 2 slashing damage (7 taken off by Deflect Attacks)');
-    const all = ok(resolveAttack(request({ reduceDamage: { ...deflect, types: [...deflect.types] } }), dice(12, 1, 10)));
+    const all = withReaction(ok(resolveAttack(request(), dice(12, 1))), creature('Ogre', 3), 'Longsword', reduce, dice(10));
     expect(all.dealt).toBe(0);
+    expect(all.hp?.current).toBe(20);
   });
 
   it('does nothing against a type it does not answer', () => {
     const fire: typeof sword = { ...sword, attack: { ...sword.attack!, damage: [{ roll: { count: 1, sides: 8, bonus: 3 }, type: 'fire' }] } };
-    const hit = ok(resolveAttack(request({ action: fire, reduceDamage: { ...deflect, types: [...deflect.types] } }), dice(12, 6, 2)));
+    const hit = withReaction(ok(resolveAttack(request({ action: fire }), dice(12, 6))), creature('Ogre', 3), 'Longsword', reduce, dice(2));
     expect(hit.dealt).toBe(9);
     expect(hit.reducedBy).toBeUndefined();
   });

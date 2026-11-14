@@ -189,23 +189,8 @@ export default function TurnBar() {
   const indomitable = resource('Indomitable');
   const secondWind = resource('Second Wind');
   const tacticalMind = canAct && known?.tacticalMind === true && secondWind !== null;
-  const holding = (kind: 'uncanny' | 'deflect' | 'indomitable' | 'tactical') =>
+  const holding = (kind: 'indomitable' | 'tactical') =>
     combat.marks.some((mark) => mark.kind === kind && mark.attackerId === actingId);
-  // The reactions held ready for the next hit: a Rogue's Uncanny Dodge, a Monk's Deflect Attacks.
-  const heldReactions = [
-    {
-      feature: 'Uncanny Dodge' as const,
-      kind: 'uncanny' as const,
-      title:
-        'Uncanny Dodge: hold your reaction to halve the damage of the next hit from an attacker you can see',
-    },
-    {
-      feature: 'Deflect Attacks' as const,
-      kind: 'deflect' as const,
-      title:
-        'Deflect Attacks: hold your reaction to take 1d10 + Dexterity modifier + Monk level off the next Bludgeoning, Piercing or Slashing hit',
-    },
-  ];
 
   // The Opportunity Attacks this viewer may take: the attacker is theirs.
   const offers = combat.opportunities.flatMap((offer) => {
@@ -416,27 +401,6 @@ export default function TurnBar() {
           onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
         />
       )}
-
-      {canAct &&
-        heldReactions
-          .filter(({ feature }) => features.some((option) => option.name === feature))
-          .map(({ feature, kind, title }) => (
-            <Button
-              key={feature}
-              type="button"
-              variant="secondary"
-              size="sm"
-              aria-pressed={holding(kind)}
-              title={title}
-              onClick={() =>
-                void socket.useFeature(actingId, feature).then((answer) => {
-                  showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
-                })
-              }
-            >
-              {holding(kind) ? `Let ${feature} go` : `Hold ${feature}`}
-            </Button>
-          ))}
 
       {tacticalMind && secondWind && (
         <Button
