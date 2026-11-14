@@ -1,6 +1,7 @@
 /**
- * A Rogue's Uncanny Dodge over the socket: held ready with `combat.feature`,
- * its reaction halves the damage of the next hit from an attacker it can see.
+ * A Rogue's Uncanny Dodge over the socket: once an attack from an attacker it
+ * can see hits it, its player is asked (`combat.prompt`) and may answer
+ * (`combat.react`) to halve the damage with its reaction.
  *
  * The fixtures are those of areaPoint.integration.test.ts.
  *
@@ -13,6 +14,7 @@ import { prisma } from '../../config/database';
 import { toJson } from '../../utils/prisma-json';
 import { createWsTestServer, WsTestServer } from '../../__tests__/helpers/websocket-test-server';
 import { clearState, getState, setState, type CombatantEntry } from '../initiativeState';
+import { setPromptTimeout, PROMPT_TIMEOUT_MS } from '../reactionPrompts';
 import * as d20 from '../../rules/dnd/d20';
 
 jest.setTimeout(20000);
@@ -258,57 +260,93 @@ const greatclub = async () => {
   };
   return listed.actions.find((action) => action.name === 'Greatclub')!.index;
 };
-const asRogue = () =>
+const asRogue = (...features: string[]) =>
   prisma.character.update({
     where: { id: heroCharacterId },
-    data: { data: toJson(heroSheet(['Uncanny Dodge (Rogue 5)'])) },
+    data: { data: toJson(heroSheet(features.length ? features : ['Uncanny Dodge (Rogue 5)'])) },
   });
-const hold = () => ask(player, 'combat.feature', { tokenId: HERO, feature: 'Uncanny Dodge' });
+interface Offer {
+  promptId: string;
+  tokenId: string;
+  text: string;
+  options: string[];
+}
+/** Answer the next question the player is asked with `choice`; what was asked comes back. */
+const answerWith = (choice: string | null) => {
+  const asked: Offer[] = [];
+  player.once('combat.prompt', (offer: Offer) => {
+    asked.push(offer);
+    player.emit('combat.react', { promptId: offer.promptId, choice }, () => undefined);
+  });
+  return asked;
+};
+const hit = async () => ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: await greatclub() });
+
+afterAll(() => setPromptTimeout(PROMPT_TIMEOUT_MS));
 
 describe('Uncanny Dodge', () => {
-  it('halves the next hit, spending the reaction', async () => {
+  it('is asked after the hit, and halves it when the player takes it', async () => {
     fight();
     await asRogue();
-    expect((await hold()).summary).toBe('Hero holds Uncanny Dodge ready');
+    const asked = answerWith('Uncanny Dodge');
     // 15 + 6 hits AC 16; 5 + 5 + 4 = 14, halved to 7.
     rolls = [15, 5, 5];
-    const hit = await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: await greatclub() });
-    expect(hit.dealt).toBe(7);
-    expect(hit.summary).toContain('7 bludgeoning damage (halved by Uncanny Dodge)');
-    const state = getState(campaignId);
-    expect(state.reactionsSpent).toContain(HERO);
-    expect(state.marks.some((mark) => mark.kind === 'uncanny')).toBe(false);
+    const answer = await hit();
+    expect(asked).toEqual([expect.objectContaining({ tokenId: HERO, options: ['Uncanny Dodge'], text: 'Ogre hits Hero with Greatclub for 14 damage.' })]);
+    expect(answer.dealt).toBe(7);
+    expect(answer.summary).toContain('7 bludgeoning damage (halved by Uncanny Dodge)');
+    expect(getState(campaignId).reactionsSpent).toContain(HERO);
 
+    // With its reaction spent it is not asked again.
+    const again = answerWith('Uncanny Dodge');
     rolls = [15, 5, 5];
-    const again = await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: await greatclub() });
-    expect(again.dealt).toBe(14);
+    expect((await hit()).dealt).toBe(14);
+    expect(again).toEqual([]);
+    player.removeAllListeners('combat.prompt');
   });
 
-  it('is let go when asked again, and kept for a miss', async () => {
+  it('takes the full damage, keeping its reaction, when the player declines or does not answer', async () => {
     fight();
     await asRogue();
-    await hold();
+    answerWith(null);
+    rolls = [15, 5, 5];
+    expect((await hit()).dealt).toBe(14);
+    expect(getState(campaignId).reactionsSpent).not.toContain(HERO);
+
+    setPromptTimeout(200);
+    rolls = [15, 5, 5];
+    expect((await hit()).dealt).toBe(14);
+    setPromptTimeout(PROMPT_TIMEOUT_MS);
+  });
+
+  it('is not asked on a miss, or against an attacker the Rogue cannot see', async () => {
+    fight();
+    await asRogue();
+    const asked = answerWith('Uncanny Dodge');
     rolls = [2];
-    const miss = await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: await greatclub() });
-    expect(miss.hit).toBe(false);
-    expect(getState(campaignId).marks.some((mark) => mark.kind === 'uncanny')).toBe(true);
-    expect((await hold()).summary).toBe('Hero no longer holds Uncanny Dodge ready');
-  });
-
-  it('does not work against an attacker the Rogue cannot see', async () => {
-    fight();
-    await asRogue();
-    await hold();
+    expect((await hit()).hit).toBe(false);
     const tokens = freshTokens().map((t) => (t.id === HERO ? { ...t, conditions: ['Blinded'] } : t));
     await prisma.map.update({ where: { id: mapId }, data: { tokens: toJson(tokens) } });
     // The ogre has Advantage against a Blinded target: two d20s.
     rolls = [15, 15, 5, 5];
-    const hit = await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: await greatclub() });
-    expect(hit.dealt).toBe(14);
+    expect((await hit()).dealt).toBe(14);
+    expect(asked).toEqual([]);
+    player.removeAllListeners('combat.prompt');
   });
 
-  it('is refused to a sheet without it', async () => {
+  it('offers Deflect Attacks beside it to a Rogue who is also a Monk, and refuses an answer for someone else', async () => {
     fight();
-    expect((await hold()).error).toBe('Hero has no Uncanny Dodge');
+    await asRogue('Uncanny Dodge', 'Deflect Attacks');
+    const asked: Offer[] = [];
+    player.once('combat.prompt', (offer: Offer) => {
+      asked.push(offer);
+      // The DM may answer for any token; a stranger's answer to a question that is gone is refused.
+      dm.emit('combat.react', { promptId: offer.promptId, choice: null }, () => undefined);
+    });
+    rolls = [15, 5, 5];
+    expect((await hit()).dealt).toBe(14);
+    expect(asked[0].options).toEqual(['Uncanny Dodge', 'Deflect Attacks']);
+    const late = await ask(player, 'combat.react', { promptId: asked[0].promptId, choice: null });
+    expect(late.error).toBe('That question is no longer open');
   });
 });

@@ -24,7 +24,7 @@ import { bestEffort, campaignSockets, emitCharacterUpdated, stillInCampaign } fr
 import { getState as getCombatState, setState as setCombatState, someoneActing, turnSerial, type WeaponMark } from '../initiativeState';
 import { resendInitiativeState } from './initiative';
 import { applyHpDelta } from './characters';
-import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema, CombatConcentrateSchema, CombatHealSchema, CombatUndoSchema } from '../../validators/combat';
+import { CombatActionsSchema, CombatAttackSchema, CombatCheckSchema, CombatDeathSaveSchema, CombatFallSchema, CombatFeatureSchema, CombatRestSchema, CombatStandSchema, CombatSaveSchema, CombatHelpSchema, CombatReadySchema, CombatConcentrateSchema, CombatHealSchema, CombatUndoSchema, CombatReactSchema } from '../../validators/combat';
 import { actionsFromSheet, actionsFromStatBlock, defencesFromStatBlock, legendaryUses, type AreaOfEffect, type CombatAction, type DamageComponent, type SheetAttack } from '../../rules/dnd/actions';
 import { castWithSlot, concentrationSpellsOf, findSpell, slotsLeft, spellActionsFromSheet, withSlotSpent, type SheetSpellcasting } from '../../rules/dnd/spells';
 import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
@@ -41,11 +41,12 @@ import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rollDamage,
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, hasFeature, readFeatures } from '../../rules/dnd/featureEffects';
-import { resolveAttack, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
+import { resolveAttack, withReaction, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd/smites';
 import { deflectReduction } from '../../rules/dnd/reactions';
+import { answerPrompt, askReaction } from '../reactionPrompts';
 import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
 import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
@@ -901,10 +902,6 @@ async function spendSheetUse(campaignId: string, token: Token, name: ResourceNam
   }
 }
 
-/** The reactions a creature can hold ready for the next hit on it, by the mark each leaves. */
-const HELD_REACTIONS = { 'Uncanny Dodge': 'uncanny', 'Deflect Attacks': 'deflect' } as const;
-const isHeldReaction = (mark: WeaponMark) => mark.kind === 'uncanny' || mark.kind === 'deflect';
-
 /** A combatant's reaction is spent; what it was offered to spend it on goes with it. */
 async function spendReaction(io: Server, campaignId: string, tokenId: string): Promise<void> {
   const combat = getCombatState(campaignId);
@@ -1462,7 +1459,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `stun: true` a Monk with Stunning Strike, once a turn, spends a Focus Point on a hit with a Monk weapon or an Unarmed Strike: the target's Constitution save (DC 8 + Wisdom modifier + Proficiency Bonus) or Stunned until the start of the Monk's next turn; a success halves its Speed and gives the next attack roll against it Advantage until then. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `stun: true` a Monk with Stunning Strike, once a turn, spends a Focus Point on a hit with a Monk weapon or an Unarmed Strike: the target's Constitution save (DC 8 + Wisdom modifier + Proficiency Bonus) or Stunned until the start of the Monk's next turn; a success halves its Speed and gives the next attack roll against it Advantage until then. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. A hit on a creature with Uncanny Dodge or Deflect Attacks and its reaction unspent waits while its controller is asked (`combat.prompt`, answered with `combat.react`), and the ack comes once that is settled. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1726,33 +1723,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           }
         : undefined;
 
-      // Uncanny Dodge the target holds ready: its reaction halves a hit from an attacker it can see.
-      const targetState = readConditions(targetToken.conditions ?? []);
-      const uncanny =
-        turnNow.marks.some((mark) => mark.kind === 'uncanny' && mark.attackerId === targetId) &&
-        targetSheet !== null &&
-        hasFeature(readFeatures(targetSheet), 'Uncanny Dodge') &&
-        !turnNow.reactionsSpent.includes(targetId) &&
-        canAct(targetState) &&
-        !targetState.has.has('blinded') &&
-        !readConditions(attackerToken.conditions ?? []).has.has('invisible') &&
-        !lit?.attacker;
-      // Deflect Attacks the target holds ready: its reaction takes 1d10 + Dexterity modifier + Monk level off a hit.
-      const deflect =
-        !uncanny &&
-        turnNow.marks.some((mark) => mark.kind === 'deflect' && mark.attackerId === targetId) &&
-        targetSheet !== null &&
-        hasFeature(readFeatures(targetSheet), 'Deflect Attacks') &&
-        !turnNow.reactionsSpent.includes(targetId) &&
-        canAct(targetState)
-          ? deflectReduction(targetSheet)
-          : null;
-
-      const result = resolveAttack({
+      let result = resolveAttack({
         unseen: lit,
         extraReasons,
-        ...(uncanny ? { halveDamage: 'Uncanny Dodge' } : {}),
-        ...(deflect ? { reduceDamage: deflect } : {}),
         ...(brutal ? { forgoAdvantage: 'Brutal Strike' } : {}),
         hitDamage: [
           ...(smite !== undefined
@@ -1784,6 +1757,28 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         mode,
       });
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      // Uncanny Dodge, Deflect Attacks: once the hit and its damage are known, the target's player is asked.
+      if (result.outcome.hit && result.dealt > 0 && targetSheet && !getCombatState(campaignId).reactionsSpent.includes(targetId)) {
+        const targetState = readConditions(targetToken.conditions ?? []);
+        const own = readFeatures(targetSheet);
+        const options: string[] = [];
+        if (canAct(targetState)) {
+          // Uncanny Dodge answers an attacker the target can see.
+          const sees = !targetState.has.has('blinded') && !readConditions(attackerToken.conditions ?? []).has.has('invisible') && !lit?.attacker;
+          if (hasFeature(own, 'Uncanny Dodge') && sees) options.push('Uncanny Dodge');
+          const deflectable = deflectReduction(targetSheet).types;
+          if (hasFeature(own, 'Deflect Attacks') && result.damage.some((line) => line.type !== null && deflectable.includes(line.type))) {
+            options.push('Deflect Attacks');
+          }
+        }
+        const choice = await askReaction(io, campaignId, {
+          token: targetToken,
+          text: `${attackerToken.name} hits ${targetToken.name} with ${action.name} for ${result.dealt} damage.`,
+          options,
+        });
+        if (choice === 'Uncanny Dodge') result = withReaction(result, target, action.name, { kind: 'halve', label: 'Uncanny Dodge' });
+        if (choice === 'Deflect Attacks') result = withReaction(result, target, action.name, { kind: 'reduce', reduction: deflectReduction(targetSheet) });
+      }
       const undo = await prepareUndo(campaignId, map.id, [attackerToken.characterId, targetToken.characterId]);
       // The slot goes before the damage: a cast that finds it gone changes nothing.
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, attackerToken.characterId!, cast.slotLevel))) {
@@ -1803,12 +1798,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const concentrating = action.spell ? findSpell(action.name) : null;
       if (concentrating?.concentration) startConcentration(campaignId, attackerId, concentrating.name);
       if (vexed || sapped || helped) useMarks(campaignId, [vexed, sapped, helped]);
-      if (result.halvedBy || result.reducedBy) {
-        const now = getCombatState(campaignId);
-        now.marks = now.marks.filter((mark) => !(isHeldReaction(mark) && mark.attackerId === targetId));
-        setCombatState(campaignId, now);
-        await spendReaction(io, campaignId, targetId);
-      }
+      if (result.halvedBy || result.reducedBy) await spendReaction(io, campaignId, targetId);
       if (reckless && !alreadyReckless) {
         const now = getCombatState(campaignId);
         now.marks = [...now.marks, { kind: 'reckless', attackerId, targetId: attackerId, turnEndsLeft: 1 }];
@@ -2273,21 +2263,6 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ack?.({ ok: true, summary, left: uses.max - uses.used });
         return;
       }
-      // Uncanny Dodge, Deflect Attacks: the reaction is held for the next hit it answers, or let go.
-      // One reaction: holding one lets the other go.
-      if (feature === 'Uncanny Dodge' || feature === 'Deflect Attacks') {
-        if (!combat.active) return refuseRequest(socket, ack, `${feature} is held ready during combat`);
-        if (!hasFeature(readFeatures(ownSheet), feature)) return refuseRequest(socket, ack, `${token.name} has no ${feature}`);
-        const kind = HELD_REACTIONS[feature];
-        const held = combat.marks.some((mark) => mark.kind === kind && mark.attackerId === tokenId);
-        const others = combat.marks.filter((mark) => !(isHeldReaction(mark) && mark.attackerId === tokenId));
-        combat.marks = held ? others : [...others, { kind, attackerId: tokenId, targetId: tokenId, turnEndsLeft: 1 }];
-        setCombatState(campaignId, combat);
-        await resendInitiativeState(io, campaignId);
-        const summary = held ? `${token.name} no longer holds ${feature} ready` : `${token.name} holds ${feature} ready`;
-        ack?.({ ok: true, summary, left: 0 });
-        return;
-      }
       if (feature === 'End Rage') {
         if (!isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is not raging`);
         const now = getCombatState(campaignId);
@@ -2691,6 +2666,25 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
     } catch (error) {
       logger.error('combat.heal failed', { err: error });
       refuseRequest(socket, ack, 'Failed to cast the healing spell');
+    }
+  });
+
+  /**
+   * COMBAT.REACT — Answer a `combat.prompt` the server sent while it waits on a roll: `choice` is the feature the creature uses (Uncanny Dodge, Deflect Attacks), or null for none. The first answer closes the question, and every member hears `combat.promptClosed`; one that comes after the time ran out is refused. The player who controls the token asked about, or the DM.
+   */
+  socket.on('combat.react', (data: unknown, callback?: unknown) => {
+    const ack = ackFrom(callback);
+    try {
+      if (!socket.campaignId || !socket.userId) return refuseRequest(socket, ack, 'Not authenticated to a campaign');
+      if (!withinCeiling(socket, 'combat.react', ack)) return;
+      const parsed = CombatReactSchema.safeParse(data);
+      if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
+      const answered = answerPrompt(socket, parsed.data.promptId, parsed.data.choice);
+      if (!answered.ok) return refuseRequest(socket, ack, answered.error);
+      ack?.({ ok: true });
+    } catch (error) {
+      logger.error('combat.react failed', { err: error });
+      refuseRequest(socket, ack, 'Failed to answer');
     }
   });
 

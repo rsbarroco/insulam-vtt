@@ -19,6 +19,7 @@ import Button from '@/components/ui/Button';
 import type { CampaignMap, Token } from '@/types';
 import { isHeightGrid, type HeightGrid } from './map/iso/heightGrid';
 import TurnBar from './TurnBar';
+import ReactionPrompt from '@/components/campaign/ReactionPrompt';
 
 const MapCanvas = lazy(() => import('@/components/campaign/MapCanvas'));
 const TacticalMapCanvas = lazy(() => import('@/components/campaign/TacticalMapCanvas'));
@@ -67,6 +68,7 @@ export default function MapView({ onEditToken }: MapViewProps) {
     <div className="relative w-full h-full">
       {tactical ? <TacticalMapCanvas /> : <MapCanvas onEditToken={onEditToken} />}
       {currentMap && <TurnBar />}
+      {currentMap && socket && <ReactionPrompt socket={socket} />}
       {currentMap && allowed && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 glass-panel p-1 bg-parchment/90 backdrop-blur-xs">
           <Button

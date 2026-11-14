@@ -1,7 +1,7 @@
 /**
- * A Monk's Deflect Attacks over the socket: held ready with `combat.feature`,
- * its reaction takes 1d10 + Dexterity modifier + Monk level off the next
- * Bludgeoning, Piercing or Slashing hit.
+ * A Monk's Deflect Attacks over the socket: asked once a Bludgeoning,
+ * Piercing or Slashing hit is known, its reaction takes 1d10 + Dexterity
+ * modifier + Monk level off the damage.
  *
  * The fixtures are those of areaPoint.integration.test.ts.
  *
@@ -271,33 +271,35 @@ const asMonk = (...features: string[]) =>
       }),
     },
   });
-const hold = (feature: string) => ask(player, 'combat.feature', { tokenId: HERO, feature });
 
 describe('Deflect Attacks', () => {
-  it('takes 1d10 + 3 + 3 off the next hit, spending the reaction', async () => {
+  it('takes 1d10 + 3 + 3 off the hit when the player takes it, spending the reaction', async () => {
     fight();
     await asMonk('Deflect Attacks (Monk 3)');
-    expect((await hold('Deflect Attacks')).summary).toBe('Hero holds Deflect Attacks ready');
+    player.once('combat.prompt', (offer: { promptId: string }) => {
+      player.emit('combat.react', { promptId: offer.promptId, choice: 'Deflect Attacks' }, () => undefined);
+    });
     // 15 + 6 hits AC 16; 5 + 5 + 4 = 14 bludgeoning; 2 + 6 = 8 off.
     rolls = [15, 5, 5, 2];
     const hit = await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: await greatclub() });
     expect(hit.dealt).toBe(6);
     expect(hit.summary).toContain('6 bludgeoning damage (8 taken off by Deflect Attacks)');
-    const state = getState(campaignId);
-    expect(state.reactionsSpent).toContain(HERO);
-    expect(state.marks.some((mark) => mark.kind === 'deflect')).toBe(false);
+    expect(getState(campaignId).reactionsSpent).toContain(HERO);
   });
 
-  it('holds one reaction at a time', async () => {
+  it('is refused an answer that is not one of the choices', async () => {
     fight();
-    await asMonk('Deflect Attacks', 'Uncanny Dodge');
-    await hold('Uncanny Dodge');
-    await hold('Deflect Attacks');
-    expect(getState(campaignId).marks.map((mark) => mark.kind)).toEqual(['deflect']);
-  });
-
-  it('is refused to a sheet without it', async () => {
-    fight();
-    expect((await hold('Deflect Attacks')).error).toBe('Hero has no Deflect Attacks');
+    await asMonk('Deflect Attacks');
+    const refused: Array<{ error?: string }> = [];
+    player.once('combat.prompt', (offer: { promptId: string }) => {
+      player.emit('combat.react', { promptId: offer.promptId, choice: 'Uncanny Dodge' }, (answer: { error?: string }) => {
+        refused.push(answer);
+        player.emit('combat.react', { promptId: offer.promptId, choice: null }, () => undefined);
+      });
+    });
+    rolls = [15, 5, 5];
+    const hit = await ask(dm, 'combat.attack', { attackerId: OGRE, targetId: HERO, action: await greatclub() });
+    expect(hit.dealt).toBe(14);
+    expect(refused[0].error).toBe('That is not one of the choices');
   });
 });
