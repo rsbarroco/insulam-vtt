@@ -5,6 +5,7 @@
 
 import { resolveSave, type SaveTarget } from '../resolveSave';
 import { saveModifiers, readConditions } from '../conditions';
+import { savingThrow } from '../d20';
 import { hasFeature } from '../featureEffects';
 import type { CombatAction } from '../actions';
 import type { Combatant } from '../resolveAttack';
@@ -69,18 +70,17 @@ describe('hasFeature', () => {
   });
 });
 
-describe('Indomitable', () => {
-  it('rerolls a failed save with the Fighter level added, and the reroll stands', () => {
-    // 4 + 6 = 10 fire; the fighter rolls 3 (5, fails), then 6 + 2 + 9 = 17 (saves).
-    const result = ok(resolveSave({ source: mage, targets: [target('Fighter', { indomitable: 9 })], action: fireball, board }, dice(4, 6, 3, 6)));
-    expect(result.targets[0]).toMatchObject({ outcome: { success: true }, rerolled: { success: false }, dealt: 5 });
-    expect(result.summary).toBe('Fireball (DC 15 Dexterity, 10 fire): Fighter fails (5), Indomitable: saves (17), 5 damage');
-  });
-
-  it('is not used by a save that succeeds, or one failed without a roll', () => {
-    const saved = ok(resolveSave({ source: mage, targets: [target('Fighter', { indomitable: 9 })], action: fireball, board }, dice(4, 6, 15)));
-    expect(saved.targets[0].rerolled).toBeUndefined();
-    const asleep = ok(resolveSave({ source: mage, targets: [target('Fighter', { indomitable: 9, conditions: ['unconscious'] })], action: fireball, board }, dice(4, 6)));
-    expect(asleep.targets[0].rerolled).toBeUndefined();
+describe('a save worked out again with a reroll (Indomitable)', () => {
+  it('keeps the damage and the other saves, and lets the new roll stand', () => {
+    // 4 + 6 = 10 fire; the fighter rolls 3 (5, fails), the rogue 15 (17, saves).
+    const request = { source: mage, targets: [target('Fighter'), target('Rogue')], action: fireball, board };
+    const first = ok(resolveSave(request, dice(4, 6, 3, 15)));
+    expect(first.targets[0]).toMatchObject({ outcome: { success: false }, dealt: 10, rolledWith: { bonus: 2, dc: 15 } });
+    // The reroll, with the Fighter level (9) added: 6 + 2 + 9 = 17.
+    const again = savingThrow({ ...first.targets[0].rolledWith, bonus: first.targets[0].rolledWith.bonus + 9 }, dice(6));
+    const second = ok(resolveSave({ ...request, fixed: { damage: first.damage, saves: [{ outcome: again, first: first.targets[0].outcome }, { outcome: first.targets[1].outcome }] } }, dice()));
+    expect(second.damage).toEqual(first.damage);
+    expect(second.targets[0]).toMatchObject({ outcome: { success: true }, rerolled: { success: false }, dealt: 5 });
+    expect(second.summary).toBe('Fireball (DC 15 Dexterity, 10 fire): Fighter fails (5), Indomitable: saves (17), 5 damage; Rogue saves (17), 5 damage');
   });
 });

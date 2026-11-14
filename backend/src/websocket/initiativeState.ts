@@ -92,17 +92,14 @@ export interface CombatState {
  * caster (both ids) concentrates on the spell `action`, until it ends it, casts
  * another, fails a save when damaged or drops to 0 Hit Points. Reckless: the
  * Barbarian (both ids) attacks recklessly, until the start of its next turn.
- * Indomitable: the Fighter (both ids) holds a use of Indomitable for its next
- * failed saving throw. Hamstring: the Barbarian's Hamstring Blow takes 15 feet
+ * Hamstring: the Barbarian's Hamstring Blow takes 15 feet
  * off the target's Speed until the start of the Barbarian's next turn.
  * Stunning: a target that saved against the Monk's Stunning Strike has its
  * Speed halved until the start of the Monk's next turn, and the next attack
  * roll against it has Advantage (`action: 'used'` once that roll is made).
- * Tactical: the Fighter (both ids) holds a use of Second Wind for its next
- * failed ability check.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'indomitable' | 'hamstring' | 'stunning' | 'tactical';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -167,8 +164,6 @@ export function advanceTurn(state: CombatState): void {
       (mark.kind === 'condition' && mark.ends === 'save') ||
       mark.kind === 'recharge' ||
       mark.kind === 'concentration' ||
-      mark.kind === 'indomitable' ||
-      mark.kind === 'tactical' ||
       mark.attackerId !== state.currentTokenId
   );
 }

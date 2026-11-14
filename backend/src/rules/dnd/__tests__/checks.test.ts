@@ -1,4 +1,4 @@
-import { checkModifiers, passiveScore, resolveCheck, SKILL_CHECKS } from '../checks';
+import { checkModifiers, passiveScore, resolveCheck, SKILL_CHECKS, withTacticalMind } from '../checks';
 import { readConditions } from '../conditions';
 
 const having = (...names: string[]) => readConditions(names);
@@ -96,16 +96,16 @@ describe('a raging creature', () => {
 });
 
 describe('Tactical Mind', () => {
-  it('adds 1d10 to a failed check, which may turn it into a success', () => {
-    const turned = resolveCheck(check({ dc: 15, tacticalMind: true }), dice(4, 7));
+  it('adds the 1d10 to a failed check, which may turn it into a success', () => {
+    const failed = resolveCheck(check({ dc: 15 }), dice(4));
+    const turned = withTacticalMind(failed, 15, 7);
     expect(turned).toMatchObject({ total: 16, success: true, tacticalMind: { rolled: 7, success: true } });
     expect(turned.summary).toBe('Hero Dexterity (Stealth) check: 9 vs DC 15: failure; Tactical Mind +7: 16, success');
-    const still = resolveCheck(check({ dc: 15, tacticalMind: true }), dice(2, 3));
-    expect(still).toMatchObject({ total: 10, success: false, tacticalMind: { rolled: 3, success: false } });
+    expect(withTacticalMind(resolveCheck(check({ dc: 15 }), dice(2)), 15, 3)).toMatchObject({ total: 10, success: false });
   });
 
-  it('is not used by a check that succeeds, or one with no DC', () => {
-    expect(resolveCheck(check({ dc: 15, tacticalMind: true }), dice(12)).tacticalMind).toBeUndefined();
-    expect(resolveCheck(check({ tacticalMind: true }), dice(2)).tacticalMind).toBeUndefined();
+  it('leaves a check that succeeded as it is', () => {
+    const passed = resolveCheck(check({ dc: 15 }), dice(12));
+    expect(withTacticalMind(passed, 15, 7)).toBe(passed);
   });
 });

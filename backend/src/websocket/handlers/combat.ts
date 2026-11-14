@@ -36,7 +36,7 @@ import { longRest, spendHitDie } from '../../rules/dnd/rests';
 import { bardicDie, classLevel, POINT_RESOURCES, rageDamage, resourcesOf, restoreResources, secondWindBonus, spendResource, type ResourceName } from '../../rules/dnd/resources';
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
-import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, type SkillCheck } from '../../rules/dnd/checks';
+import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, withTacticalMind, type SkillCheck } from '../../rules/dnd/checks';
 import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rollDamage, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
@@ -870,19 +870,11 @@ function useSneakAttack(campaignId: string, tokenId: string): void {
 /** The turn each campaign's last Action Surge was used in: once a turn. */
 const actionSurges = new Map<string, { tokenId: string; round: number }>();
 
-/** A Fighter's Indomitable, held ready with a use left: the bonus its reroll adds (the Fighter level). */
-function indomitableFor(campaignId: string, token: Token, sheet: Record<string, unknown> | null): { indomitable?: number } {
-  if (!sheet || !getCombatState(campaignId).marks.some((mark) => mark.kind === 'indomitable' && mark.attackerId === token.id)) return {};
+/** What a Fighter's Indomitable adds to a save rolled again (its Fighter level), when it has a use left; null otherwise. */
+function indomitableBonus(sheet: Record<string, unknown> | null): number | null {
+  if (!sheet) return null;
   const uses = resourcesOf(sheet).find((entry) => entry.name === 'Indomitable');
-  return uses && uses.used < uses.max ? { indomitable: classLevel(sheet, 'Fighter') } : {};
-}
-
-/** Spend the use of Indomitable a reroll took, and let the held mark go. */
-async function useIndomitable(campaignId: string, token: Token): Promise<void> {
-  const combat = getCombatState(campaignId);
-  combat.marks = combat.marks.filter((mark) => !(mark.kind === 'indomitable' && mark.attackerId === token.id));
-  setCombatState(campaignId, combat);
-  await spendSheetUse(campaignId, token, 'Indomitable');
+  return uses && uses.used < uses.max ? classLevel(sheet, 'Fighter') : null;
 }
 
 /** Spend one use (or point) of a class feature on the token's sheet, and tell the table. */
@@ -1432,8 +1424,6 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           brutalStrike: sheet ? hasFeature(features, 'Brutal Strike') : false,
           // A Rogue's Cunning Strike effects it can use: Poison only with a Poisoner's Kit.
           stunningStrike: sheet ? hasFeature(features, 'Stunning Strike') : false,
-          // A Fighter's Tactical Mind, held for its next failed ability check.
-          tacticalMind: sheet ? hasFeature(features, 'Tactical Mind') : false,
           cunningStrike:
             sheet && hasFeature(features, 'Cunning Strike')
               ? (['poison', 'trip', 'withdraw'] as const).filter((effect) => effect !== 'poison' || hasPoisonersKit(sheet))
@@ -2011,7 +2001,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.CHECK — A token on the current map makes an ability check: a skill, a bare ability, or the Hide action. The server reads the bonus from the character's sheet or the stat block, rolls the d20 with the token's conditions (Disadvantage while Poisoned or Frightened, the Exhaustion penalty), compares the total with the DC when one is given, and records the roll in the dice log. The Hide action is a Dexterity (Stealth) check against DC 15 that gives the token the Invisible condition on a success and is its action on its own turn. The DM, or the player who controls the token.
+   * COMBAT.CHECK — A token on the current map makes an ability check: a skill, a bare ability, or the Hide action. A failed check with a DC by a Fighter with Tactical Mind waits while its controller is asked whether to add 1d10 (`combat.prompt`). The server reads the bonus from the character's sheet or the stat block, rolls the d20 with the token's conditions (Disadvantage while Poisoned or Frightened, the Exhaustion penalty), compares the total with the DC when one is given, and records the roll in the dice log. The Hide action is a Dexterity (Stealth) check against DC 15 that gives the token the Invisible condition on a success and is its action on its own turn. The DM, or the player who controls the token.
    */
   socket.on('combat.check', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2050,21 +2040,20 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ? `${ABILITY_CHECK_NAMES[SKILL_CHECKS[skill].ability]} (${SKILL_CHECKS[skill].name})`
         : ABILITY_CHECK_NAMES[ability!];
       const used = skill ? SKILL_CHECKS[skill].ability : ability!;
-      // Tactical Mind held ready, with a use of Second Wind left.
+      let result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet) });
+      // Tactical Mind: a Fighter that failed the check, with a use of Second Wind left, is asked; it adds 1d10,
+      // and the use is spent only if that turns the check into a success.
       const secondWind = sheet ? resourcesOf(sheet).find((entry) => entry.name === 'Second Wind') : undefined;
-      const tacticalMind =
-        getCombatState(campaignId).marks.some((mark) => mark.kind === 'tactical' && mark.attackerId === tokenId) &&
-        sheet !== null &&
-        hasFeature(readFeatures(sheet), 'Tactical Mind') &&
-        secondWind !== undefined &&
-        secondWind.used < secondWind.max;
-      const result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet), tacticalMind });
-      // It turned the failure into a success: the use of Second Wind is spent and the hold let go.
-      if (result.tacticalMind?.success) {
-        const now = getCombatState(campaignId);
-        now.marks = now.marks.filter((mark) => !(mark.kind === 'tactical' && mark.attackerId === tokenId));
-        setCombatState(campaignId, now);
-        await spendSheetUse(campaignId, token, 'Second Wind');
+      if (result.success === false && dc !== undefined && sheet && hasFeature(readFeatures(sheet), 'Tactical Mind') && secondWind && secondWind.used < secondWind.max) {
+        const choice = await askReaction(io, campaignId, {
+          token,
+          text: `${token.name} fails the ${label} check (${result.total} vs DC ${dc}).`,
+          options: ['Tactical Mind'],
+        });
+        if (choice === 'Tactical Mind') {
+          result = withTacticalMind(result, dc, rollDie(10));
+          if (result.success) await spendSheetUse(campaignId, token, 'Second Wind');
+        }
       }
 
       const hidden = hide === true && result.success === true;
@@ -2201,7 +2190,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Uncanny Dodge` holds the Rogue's reaction ready, or lets it go: the next hit from an attacker it can see deals half damage and spends it. `Tactical Mind` holds a use of a Fighter's Second Wind for its next failed check in `combat.check`: 1d10 is added, and the use is spent only if the check then succeeds. `Indomitable` holds a Fighter's use for its next failed save in `combat.save`, rerolled with its Fighter level added. `Deflect Attacks` does the same for a Monk: the next hit that deals Bludgeoning, Piercing or Slashing damage is reduced by 1d10 + its Dexterity modifier + its Monk level. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Uncanny Dodge` holds the Rogue's reaction ready, or lets it go: the next hit from an attacker it can see deals half damage and spends it. `Deflect Attacks` does the same for a Monk: the next hit that deals Bludgeoning, Piercing or Slashing damage is reduced by 1d10 + its Dexterity modifier + its Monk level. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2231,38 +2220,6 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const combat = getCombatState(campaignId);
       const ownTurn = someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn !== null;
-      // Tactical Mind: a use of Second Wind held for the Fighter's next failed ability check, or let go.
-      if (feature === 'Tactical Mind') {
-        if (!combat.active) return refuseRequest(socket, ack, 'Tactical Mind is held ready during combat');
-        if (!hasFeature(readFeatures(ownSheet), 'Tactical Mind')) return refuseRequest(socket, ack, `${token.name} has no Tactical Mind`);
-        const uses = resourcesOf(ownSheet).find((entry) => entry.name === 'Second Wind');
-        const held = combat.marks.some((mark) => mark.kind === 'tactical' && mark.attackerId === tokenId);
-        if (!held && (!uses || uses.used >= uses.max)) return refuseRequest(socket, ack, 'No uses of Second Wind left until a rest');
-        combat.marks = held
-          ? combat.marks.filter((mark) => !(mark.kind === 'tactical' && mark.attackerId === tokenId))
-          : [...combat.marks, { kind: 'tactical', attackerId: tokenId, targetId: tokenId, turnEndsLeft: 1 }];
-        setCombatState(campaignId, combat);
-        await resendInitiativeState(io, campaignId);
-        const summary = held ? `${token.name} no longer holds Tactical Mind ready` : `${token.name} holds Tactical Mind ready`;
-        ack?.({ ok: true, summary, left: uses ? uses.max - uses.used : 0 });
-        return;
-      }
-      // Indomitable: a use held for the Fighter's next failed save the server rolls, or let go.
-      if (feature === 'Indomitable') {
-        if (!combat.active) return refuseRequest(socket, ack, 'Indomitable is held ready during combat');
-        const uses = resourcesOf(ownSheet).find((entry) => entry.name === 'Indomitable');
-        if (!uses) return refuseRequest(socket, ack, `${token.name} has no Indomitable`);
-        const held = combat.marks.some((mark) => mark.kind === 'indomitable' && mark.attackerId === tokenId);
-        if (!held && uses.used >= uses.max) return refuseRequest(socket, ack, `No uses of Indomitable left until a rest`);
-        combat.marks = held
-          ? combat.marks.filter((mark) => !(mark.kind === 'indomitable' && mark.attackerId === tokenId))
-          : [...combat.marks, { kind: 'indomitable', attackerId: tokenId, targetId: tokenId, turnEndsLeft: 1 }];
-        setCombatState(campaignId, combat);
-        await resendInitiativeState(io, campaignId);
-        const summary = held ? `${token.name} no longer holds Indomitable ready` : `${token.name} holds Indomitable ready`;
-        ack?.({ ok: true, summary, left: uses.max - uses.used });
-        return;
-      }
       if (feature === 'End Rage') {
         if (!isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is not raging`);
         const now = getCombatState(campaignId);
@@ -2723,7 +2680,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions, cover and the best Aura of Protection it stands in, applies full, half or no damage to each one's hit points and records the roll in the dice log. The DM, or the player who controls the acting token; a player may not target a hidden token.
+   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions, cover and the best Aura of Protection it stands in, asks a Fighter that failed whether to roll again with Indomitable, applies full, half or no damage to each one's hit points and records the roll in the dice log. The DM, or the player who controls the acting token; a player may not target a hidden token.
    */
   socket.on('combat.save', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2794,7 +2751,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const involved = new Set([sourceId, ...targetIds]);
       // Aura of Protection: each target adds the best aura it stands in.
       const auras = await Promise.all(targetTokens.map((token) => auraFor(campaignId, map.id, token)));
-      const result = resolveSave({
+      const saveRequest: Parameters<typeof resolveSave>[0] = {
         source: combatant(sourceToken, sourceSheet),
         targets: targetTokens.map((token, index) => ({
           ...combatant(token, targetSheets[index], getCombatState(campaignId).dodging, isRaging(campaignId, token.id)),
@@ -2802,7 +2759,6 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             const own = saveBonusOf(token, targetSheets[index], ability);
             return own === null ? null : own + auras[index].bonus;
           })(),
-          ...indomitableFor(campaignId, token, targetSheets[index]),
         })),
         action,
         board: {
@@ -2813,17 +2769,45 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             .filter((t) => !involved.has(t.id) && t.layer === sourceToken.layer && !(t.hp && t.hp.current <= 0))
             .map(standing),
         },
-      });
+      };
+      let result = resolveSave(saveRequest);
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      // Indomitable: a Fighter that failed a save it rolled is asked, and may roll it again with its Fighter level added.
+      const rerolled = new Set<number>();
+      for (const [index, target] of result.targets.entries()) {
+        const bonus = indomitableBonus(targetSheets[index]);
+        if (target.outcome.success || target.outcome.roll === null || bonus === null) continue;
+        const choice = await askReaction(io, campaignId, {
+          token: targetTokens[index],
+          text: `${targetTokens[index].name} fails the ${ABILITY_FULL[ability]} save against ${action.name} (${target.outcome.roll.total} vs DC ${result.dc}).`,
+          options: ['Indomitable'],
+        });
+        if (choice === 'Indomitable') rerolled.add(index);
+      }
+      if (rerolled.size > 0) {
+        const first = result;
+        result = resolveSave({
+          ...saveRequest,
+          fixed: {
+            damage: first.damage,
+            saves: first.targets.map((target, index) => {
+              if (!rerolled.has(index)) return { outcome: target.outcome };
+              const input = { ...target.rolledWith, bonus: target.rolledWith.bonus + indomitableBonus(targetSheets[index])! };
+              return { outcome: savingThrow(input, hasLuck(targetSheets[index]) ? lucky(rollDie) : rollDie), first: target.outcome };
+            }),
+          },
+        });
+        if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      }
       const undo = await prepareUndo(campaignId, map.id, [sourceToken.characterId, ...targetTokens.map((t) => t.characterId)]);
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, sourceToken.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
 
       spendRecharge(campaignId, sourceId, action);
-      // A target whose Indomitable rerolled its save spends the use.
+      // A target that rolled again with Indomitable spends the use.
       for (const [index, target] of result.targets.entries()) {
-        if (target.rerolled) await useIndomitable(campaignId, targetTokens[index]);
+        if (target.rerolled) await spendSheetUse(campaignId, targetTokens[index], 'Indomitable');
       }
       const concentrating = action.spell ? findSpell(action.name) : null;
       if (concentrating?.concentration) startConcentration(campaignId, sourceId, concentrating.name);
