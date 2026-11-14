@@ -46,6 +46,7 @@ import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd/smites';
 import { deflectReduction } from '../../rules/dnd/reactions';
+import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
 import { onTurnEnd, onTurnStart } from '../turnHooks';
@@ -755,6 +756,23 @@ function featureSummary(name: string, feature: string, sheet: Record<string, unk
 /** The attack each token has readied, by campaign: which of its actions, against whom, and for what trigger. */
 const readiedAttacks = new Map<string, Map<string, { targetId: string; action: number; name: string; trigger: string }>>();
 
+/** Who has used Brutal Strike on the current turn of each campaign's combat. */
+const brutalStrikes = new Map<string, { turn: string; tokens: Set<string> }>();
+
+function brutalUsed(campaignId: string, tokenId: string): boolean {
+  const turn = sneakTurnOf(campaignId);
+  const used = brutalStrikes.get(campaignId);
+  return turn !== null && used?.turn === turn && used.tokens.has(tokenId);
+}
+
+function useBrutal(campaignId: string, tokenId: string): void {
+  const turn = sneakTurnOf(campaignId);
+  if (turn === null) return;
+  const used = brutalStrikes.get(campaignId);
+  if (used?.turn === turn) used.tokens.add(tokenId);
+  else brutalStrikes.set(campaignId, { turn, tokens: new Set([tokenId]) });
+}
+
 /** Who has used Savage Attacker on the current turn of each campaign's combat. */
 const savageAttacks = new Map<string, { turn: string; tokens: Set<string> }>();
 
@@ -1361,6 +1379,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           features: featureOptions(features),
           // A Barbarian's Reckless Attack, offered with the first attack roll of its turn.
           reckless: sheet ? hasFeature(features, 'Reckless Attack') : false,
+          // A Barbarian's Brutal Strike, on a turn it attacks recklessly.
+          brutalStrike: sheet ? hasFeature(features, 'Brutal Strike') : false,
           // Divine Smite: the slot levels it could be cast with, when the sheet has it ready.
           divineSmite: sheet && hasDivineSmite(sheet as SheetSpellcasting) ? Object.keys(slots).map(Number) : [],
           // The class features it spends and gets back on a rest, with what is left.
@@ -1382,7 +1402,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1392,7 +1412,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, smite } = parsed.data;
+      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, smite, brutal } = parsed.data;
       if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
       if (readied && (opportunity || extra)) return refuseRequest(socket, ack, 'A readied attack is made on its own');
       // A readied attack is the one readied: its action, against its target, while the mark lasts.
@@ -1561,6 +1581,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return helperSide !== null && helperSide === ownSide;
       });
       const helperName = helped ? (tokens.find((t) => t.id === helped.attackerId)?.name ?? 'an ally') : null;
+      // Brutal Strike: once on a Reckless Attack turn, one Strength attack that forgoes its Advantage.
+      if (brutal) {
+        if (!attackerSheet || !hasFeature(readFeatures(attackerSheet), 'Brutal Strike')) {
+          return refuseRequest(socket, ack, `${attackerToken.name} has no Brutal Strike`);
+        }
+        if (!acting) return refuseRequest(socket, ack, 'Brutal Strike is used on your own turn in combat');
+        if (!(reckless || alreadyReckless)) return refuseRequest(socket, ack, 'Brutal Strike is used on a turn you attack recklessly');
+        if (!usesStrength(action, attackerToken, attackerSheet)) return refuseRequest(socket, ack, 'Brutal Strike is used with a Strength-based attack');
+        if (brutalUsed(campaignId, attackerId)) return refuseRequest(socket, ack, `${attackerToken.name} has used Brutal Strike this turn`);
+      }
       // Reckless Attack: Advantage on the Barbarian's Strength attacks, and on attacks against it.
       const attackingRecklessly =
         (reckless || alreadyReckless) && attackerSheet !== null && usesStrength(action, attackerToken, attackerSheet);
@@ -1636,16 +1666,20 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         extraReasons,
         ...(uncanny ? { halveDamage: 'Uncanny Dodge' } : {}),
         ...(deflect ? { reduceDamage: deflect } : {}),
-        ...(smite !== undefined
-          ? {
-              hitDamage: [
+        ...(brutal ? { forgoAdvantage: 'Brutal Strike' } : {}),
+        hitDamage: [
+          ...(smite !== undefined
+            ? [
                 {
                   label: `Divine Smite (level ${smite})`,
                   damage: divineSmiteDamage(smite, (targetToken.statBlock as { creatureType?: string } | undefined)?.creatureType),
                 },
-              ],
-            }
-          : {}),
+              ]
+            : []),
+          ...(brutal && attackerSheet
+            ? [{ label: `Brutal Strike (${BRUTAL_LABELS[brutal]})`, damage: brutalStrikeDamage(attackerSheet, action.attack?.damage[0]?.type ?? null) }]
+            : []),
+        ],
         bonusDamage: sneakDice > 0 ? sneakAttack : undefined,
         savage,
         greatWeapon: greatWeaponFighting(attackerFeatures, action),
@@ -1708,6 +1742,26 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         action.source === 'statBlock' && result.outcome.hit && !result.dropped
           ? await applyRiders(io, campaignId, map.id, attackerToken, targetToken, conditionsOnHit(action.text ?? ''))
           : [];
+      // Brutal Strike: used with the roll; on a hit, its effect.
+      const brutalLines: string[] = [];
+      if (brutal) {
+        useBrutal(campaignId, attackerId);
+        if (result.outcome.hit && brutal === 'forceful') {
+          const squares = Math.max(1, Math.round(FORCEFUL_FEET / (map.feetPerSquare || 5)));
+          const moved = await pushToken(io, campaignId, map, attackerToken, targetToken, squares);
+          brutalLines.push(moved ? `Forceful Blow: ${targetToken.name} is pushed ${FORCEFUL_FEET} ft` : `Forceful Blow: ${targetToken.name} has nowhere to be pushed`);
+        }
+        if (result.outcome.hit && brutal === 'hamstring') {
+          // Only the most recent Hamstring Blow counts.
+          const now = getCombatState(campaignId);
+          now.marks = [
+            ...now.marks.filter((mark) => !(mark.kind === 'hamstring' && mark.targetId === targetId)),
+            { kind: 'hamstring', attackerId, targetId, turnEndsLeft: 1 },
+          ];
+          setCombatState(campaignId, now);
+          brutalLines.push(`Hamstring Blow: ${targetToken.name}'s Speed is ${HAMSTRING_FEET} ft lower until ${attackerToken.name}'s next turn`);
+        }
+      }
       // What the turn remembers for the extra attacks that follow.
       if (record && !offer && turnNow.currentTokenId === attackerId) {
         if (extra === 'flurry') record.flurry.set(attackerId, (record.flurry.get(attackerId) ?? 1) - 1);
@@ -1743,7 +1797,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
               ? 'Light extra attack, with Nick'
               : 'Light extra attack, a Bonus Action'
             : null;
-      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...riders, ...endured].join('; ');
+      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...brutalLines, ...riders, ...endured].join('; ');
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
       commitUndo(campaignId, undo, summary);

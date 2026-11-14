@@ -285,3 +285,17 @@ describe('a reaction that takes damage off a hit', () => {
     expect(hit.reducedBy).toBeUndefined();
   });
 });
+
+describe('a roll that forgoes its Advantage', () => {
+  it('rolls one d20 where it had Advantage, and says why', () => {
+    const result = ok(resolveAttack(request({ mode: 'advantage', forgoAdvantage: 'Brutal Strike' }), dice(12, 6)));
+    expect(result.outcome.roll.mode).toBe('normal');
+    expect(result.reasons).toEqual(['Forgoes Advantage: Brutal Strike']);
+  });
+
+  it('is refused on a roll with Disadvantage', () => {
+    expect(refusal(resolveAttack(request({ mode: 'disadvantage', forgoAdvantage: 'Brutal Strike' })))).toBe(
+      'Brutal Strike is not used on a roll with Disadvantage'
+    );
+  });
+});

@@ -200,6 +200,8 @@ export default function AttackMenu({
   const [reckless, setReckless] = useState(false);
   const [smiteSlots, setSmiteSlots] = useState<number[]>([]);
   const [smite, setSmite] = useState(0);
+  const [canBrutal, setCanBrutal] = useState(false);
+  const [brutal, setBrutal] = useState<'' | 'forceful' | 'hamstring'>('');
 
   useEffect(() => {
     let current = true;
@@ -209,6 +211,7 @@ export default function AttackMenu({
         setActions(answer.actions);
         setCanReckless(answer.reckless === true);
         setSmiteSlots(answer.divineSmite ?? []);
+        setCanBrutal(answer.brutalStrike === true);
       } else setProblem(answer.error);
     });
     return () => {
@@ -289,6 +292,7 @@ export default function AttackMenu({
         ...(extra ? { extra } : {}),
         ...(reckless ? { reckless: true as const } : {}),
         ...(smite > 0 && !action.spell ? { smite } : {}),
+        ...(brutal && !action.spell ? { brutal } : {}),
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -468,6 +472,23 @@ export default function AttackMenu({
                 onChange={(event) => setReckless(event.target.checked)}
               />
               Attack recklessly
+            </label>
+          )}
+          {anyAttackRoll && canBrutal && (
+            <label
+              className="flex items-center justify-between gap-2 text-sm text-ink"
+              title="Brutal Strike, once on a turn you attack recklessly: give up Advantage on this Strength attack (it must not have Disadvantage). A hit deals an extra 1d10 and the effect."
+            >
+              Brutal Strike
+              <select
+                value={brutal}
+                onChange={(event) => setBrutal(event.target.value as '' | 'forceful' | 'hamstring')}
+                className="input-cozy text-sm py-1"
+              >
+                <option value="">No Brutal Strike</option>
+                <option value="forceful">Forceful Blow (push 15 ft)</option>
+                <option value="hamstring">Hamstring Blow (−15 ft Speed)</option>
+              </select>
             </label>
           )}
           {anyAttackRoll && smiteSlots.length > 0 && (

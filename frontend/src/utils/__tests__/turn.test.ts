@@ -74,6 +74,10 @@ describe('weapon marks', () => {
     expect(slowedSpeed(40, marks, 'ogre')).toBe(30);
     expect(slowedSpeed(5, marks, 'ogre')).toBe(0);
     expect(slowedSpeed(40, marks, 'wolf')).toBe(40);
+    const hamstrung = [...marks, { kind: 'hamstring' as const, attackerId: 'hero', targetId: 'ogre', turnEndsLeft: 1 }];
+    // Slow's 10 feet and a Hamstring Blow's 15 add up.
+    expect(slowedSpeed(40, hamstrung, 'ogre')).toBe(15);
+    expect(markLabels(hamstrung, 'ogre')).toContain('Hamstrung');
   });
 
   it('names what a creature carries', () => {
