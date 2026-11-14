@@ -201,6 +201,8 @@ export default function AttackMenu({
   const [smiteSlots, setSmiteSlots] = useState<number[]>([]);
   const [smite, setSmite] = useState(0);
   const [canBrutal, setCanBrutal] = useState(false);
+  const [canStun, setCanStun] = useState(false);
+  const [stun, setStun] = useState(false);
   const [cunningEffects, setCunningEffects] = useState<Array<'poison' | 'trip' | 'withdraw'>>([]);
   const [cunning, setCunning] = useState<'' | 'poison' | 'trip' | 'withdraw'>('');
   const [brutal, setBrutal] = useState<'' | 'forceful' | 'hamstring'>('');
@@ -215,6 +217,7 @@ export default function AttackMenu({
         setSmiteSlots(answer.divineSmite ?? []);
         setCanBrutal(answer.brutalStrike === true);
         setCunningEffects(answer.cunningStrike ?? []);
+        setCanStun(answer.stunningStrike === true);
       } else setProblem(answer.error);
     });
     return () => {
@@ -297,6 +300,7 @@ export default function AttackMenu({
         ...(smite > 0 && !action.spell ? { smite } : {}),
         ...(brutal && !action.spell ? { brutal } : {}),
         ...(cunning && !action.spell ? { cunning } : {}),
+        ...(stun && !action.spell ? { stun: true as const } : {}),
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -476,6 +480,15 @@ export default function AttackMenu({
                 onChange={(event) => setReckless(event.target.checked)}
               />
               Attack recklessly
+            </label>
+          )}
+          {anyAttackRoll && canStun && (
+            <label
+              className="flex items-center gap-2 text-sm text-ink"
+              title="Stunning Strike, once a turn: on a hit with a Monk weapon or an Unarmed Strike, 1 Focus Point. The target saves (Constitution) or is Stunned until your next turn."
+            >
+              <input type="checkbox" checked={stun} onChange={(event) => setStun(event.target.checked)} />
+              Stunning Strike on a hit
             </label>
           )}
           {anyAttackRoll && cunningEffects.length > 0 && (

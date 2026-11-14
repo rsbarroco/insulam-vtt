@@ -97,9 +97,12 @@ export interface CombatState {
  * Indomitable: the Fighter (both ids) holds a use of Indomitable for its next
  * failed saving throw. Hamstring: the Barbarian's Hamstring Blow takes 15 feet
  * off the target's Speed until the start of the Barbarian's next turn.
+ * Stunning: a target that saved against the Monk's Stunning Strike has its
+ * Speed halved until the start of the Monk's next turn, and the next attack
+ * roll against it has Advantage (`action: 'used'` once that roll is made).
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring' | 'stunning';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;

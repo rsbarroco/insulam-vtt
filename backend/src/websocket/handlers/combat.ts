@@ -46,6 +46,7 @@ import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd/smites';
 import { deflectReduction } from '../../rules/dnd/reactions';
+import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
@@ -757,6 +758,23 @@ function featureSummary(name: string, feature: string, sheet: Record<string, unk
 /** The attack each token has readied, by campaign: which of its actions, against whom, and for what trigger. */
 const readiedAttacks = new Map<string, Map<string, { targetId: string; action: number; name: string; trigger: string }>>();
 
+/** Who has used Stunning Strike on the current turn of each campaign's combat. */
+const stunningStrikes = new Map<string, { turn: string; tokens: Set<string> }>();
+
+function stunUsed(campaignId: string, tokenId: string): boolean {
+  const turn = sneakTurnOf(campaignId);
+  const used = stunningStrikes.get(campaignId);
+  return turn !== null && used?.turn === turn && used.tokens.has(tokenId);
+}
+
+function useStun(campaignId: string, tokenId: string): void {
+  const turn = sneakTurnOf(campaignId);
+  if (turn === null) return;
+  const used = stunningStrikes.get(campaignId);
+  if (used?.turn === turn) used.tokens.add(tokenId);
+  else stunningStrikes.set(campaignId, { turn, tokens: new Set([tokenId]) });
+}
+
 /** Who has used Brutal Strike on the current turn of each campaign's combat. */
 const brutalStrikes = new Map<string, { turn: string; tokens: Set<string> }>();
 
@@ -862,16 +880,21 @@ async function useIndomitable(campaignId: string, token: Token): Promise<void> {
   const combat = getCombatState(campaignId);
   combat.marks = combat.marks.filter((mark) => !(mark.kind === 'indomitable' && mark.attackerId === token.id));
   setCombatState(campaignId, combat);
+  await spendSheetUse(campaignId, token, 'Indomitable');
+}
+
+/** Spend one use (or point) of a class feature on the token's sheet, and tell the table. */
+async function spendSheetUse(campaignId: string, token: Token, name: ResourceName): Promise<void> {
   const characterId = token.characterId;
   if (!characterId) return;
   const updated = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
     const fresh = await tx.character.findUnique({ where: { id: characterId } });
-    const spent = fresh ? spendResource((fresh.data ?? {}) as Record<string, unknown>, 'Indomitable') : null;
+    const spent = fresh ? spendResource((fresh.data ?? {}) as Record<string, unknown>, name) : null;
     return spent?.ok ? tx.character.update({ where: { id: characterId }, data: { data: toJson(spent.sheet) } }) : null;
   });
   if (updated) {
-    await bestEffort('sheet after Indomitable', () =>
+    await bestEffort(`sheet after ${name}`, () =>
       emitCharacterUpdated(campaignId, updated, { characterId, userId: updated.userId, tokensChanged: false })
     );
   }
@@ -1383,6 +1406,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           // A Barbarian's Brutal Strike, on a turn it attacks recklessly.
           brutalStrike: sheet ? hasFeature(features, 'Brutal Strike') : false,
           // A Rogue's Cunning Strike effects it can use: Poison only with a Poisoner's Kit.
+          stunningStrike: sheet ? hasFeature(features, 'Stunning Strike') : false,
           cunningStrike:
             sheet && hasFeature(features, 'Cunning Strike')
               ? (['poison', 'trip', 'withdraw'] as const).filter((effect) => effect !== 'poison' || hasPoisonersKit(sheet))
@@ -1408,7 +1432,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `stun: true` a Monk with Stunning Strike, once a turn, spends a Focus Point on a hit with a Monk weapon or an Unarmed Strike: the target's Constitution save (DC 8 + Wisdom modifier + Proficiency Bonus) or Stunned until the start of the Monk's next turn; a success halves its Speed and gives the next attack roll against it Advantage until then. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1418,7 +1442,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, smite, brutal, cunning } = parsed.data;
+      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, smite, brutal, cunning, stun } = parsed.data;
       if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
       if (readied && (opportunity || extra)) return refuseRequest(socket, ack, 'A readied attack is made on its own');
       // A readied attack is the one readied: its action, against its target, while the mark lasts.
@@ -1587,6 +1611,17 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return helperSide !== null && helperSide === ownSide;
       });
       const helperName = helped ? (tokens.find((t) => t.id === helped.attackerId)?.name ?? 'an ally') : null;
+      // Stunning Strike: once a turn, with a Monk weapon or an Unarmed Strike, and a Focus Point left.
+      if (stun) {
+        if (!attackerSheet || !hasFeature(readFeatures(attackerSheet), 'Stunning Strike')) {
+          return refuseRequest(socket, ack, `${attackerToken.name} has no Stunning Strike`);
+        }
+        if (!isMonkAttack(action)) return refuseRequest(socket, ack, 'Stunning Strike follows a hit with a Monk weapon or an Unarmed Strike');
+        if (stunUsed(campaignId, attackerId)) return refuseRequest(socket, ack, `${attackerToken.name} has used Stunning Strike this turn`);
+        const focus = resourcesOf(attackerSheet).find((entry) => entry.name === 'Focus Points');
+        if (!focus || focus.used >= focus.max) return refuseRequest(socket, ack, `${attackerToken.name} has no Focus Points left`);
+      }
+
       // Brutal Strike: once on a Reckless Attack turn, one Strength attack that forgoes its Advantage.
       if (brutal) {
         if (!attackerSheet || !hasFeature(readFeatures(attackerSheet), 'Brutal Strike')) {
@@ -1601,7 +1636,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const attackingRecklessly =
         (reckless || alreadyReckless) && attackerSheet !== null && usesStrength(action, attackerToken, attackerSheet);
       const targetReckless = turnNow.marks.some((mark) => mark.kind === 'reckless' && mark.attackerId === targetId);
+      // A target that saved against a Stunning Strike: the next attack roll against it has Advantage.
+      const staggered = turnNow.marks.find((mark) => mark.kind === 'stunning' && mark.targetId === targetId && mark.action !== 'used');
       const extraReasons = [
+        ...(staggered ? ['Advantage: Stunning Strike'] : []),
         ...(attackingRecklessly ? ['Advantage: Reckless Attack'] : []),
         ...(targetReckless ? [`Advantage: Reckless Attack (${targetToken.name})`] : []),
         ...(vexed ? [`Advantage: Vex (${attackerToken.name}'s last hit)`] : []),
@@ -1761,6 +1799,40 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         action.source === 'statBlock' && result.outcome.hit && !result.dropped
           ? await applyRiders(io, campaignId, map.id, attackerToken, targetToken, conditionsOnHit(action.text ?? ''))
           : [];
+      // The Advantage a saved Stunning Strike gave is used by this roll; the halved Speed stays.
+      if (staggered) {
+        const now = getCombatState(campaignId);
+        now.marks = now.marks.map((mark) => (mark === staggered || (mark.kind === 'stunning' && mark.targetId === targetId) ? { ...mark, action: 'used' } : mark));
+        setCombatState(campaignId, now);
+      }
+      // Stunning Strike: on a hit, a Focus Point and the target's Constitution save.
+      const stunLines: string[] = [];
+      if (stun && attackerSheet && result.outcome.hit) {
+        useStun(campaignId, attackerId);
+        await spendSheetUse(campaignId, attackerToken, 'Focus Points');
+        if (!result.dropped) {
+          const dc = monkSaveDC(attackerSheet);
+          const modifiers = saveModifiers(readConditions(targetToken.conditions ?? []), 'con');
+          const save = savingThrow({ bonus: (saveBonusOf(targetToken, targetSheet, 'con') ?? 0) + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail });
+          const rolled = save.roll ? `${save.roll.total}` : 'no roll';
+          if (save.success) {
+            const now = getCombatState(campaignId);
+            now.marks = [
+              ...now.marks.filter((mark) => !(mark.kind === 'stunning' && mark.targetId === targetId)),
+              { kind: 'stunning', attackerId, targetId, turnEndsLeft: 1 },
+            ];
+            setCombatState(campaignId, now);
+            stunLines.push(
+              `Stunning Strike: ${targetToken.name} saves (Constitution ${rolled} vs DC ${dc}); its Speed is halved and the next attack roll against it has Advantage until ${attackerToken.name}'s next turn`
+            );
+          } else {
+            stunLines.push(`Stunning Strike: ${targetToken.name} fails (Constitution ${rolled} vs DC ${dc})`);
+            stunLines.push(
+              ...(await applyRiders(io, campaignId, map.id, attackerToken, targetToken, [{ condition: 'Stunned', until: `start of ${attackerToken.name}'s next turn` }]))
+            );
+          }
+        }
+      }
       // Cunning Strike: when Sneak Attack was dealt, its effect right after the damage.
       const cunningLines: string[] = [];
       if (cunning && attackerSheet && result.outcome.hit && result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) {
@@ -1847,7 +1919,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
               ? 'Light extra attack, with Nick'
               : 'Light extra attack, a Bonus Action'
             : null;
-      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...brutalLines, ...cunningLines, ...riders, ...endured].join('; ');
+      const summary = [result.summary, ...(extraLabel ? [extraLabel] : []), ...result.bonuses, ...(mastered ? [mastered] : []), ...brutalLines, ...cunningLines, ...stunLines, ...riders, ...endured].join('; ');
       await logRoll(io, socket, campaignId, breakdownOf(result), attackerToken.name, summary, secret);
 
       commitUndo(campaignId, undo, summary);
