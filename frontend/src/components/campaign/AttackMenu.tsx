@@ -198,11 +198,7 @@ export default function AttackMenu({
   const [trigger, setTrigger] = useState('');
   const [canReckless, setCanReckless] = useState(false);
   const [reckless, setReckless] = useState(false);
-  const [smiteSlots, setSmiteSlots] = useState<number[]>([]);
-  const [smite, setSmite] = useState(0);
   const [canBrutal, setCanBrutal] = useState(false);
-  const [canStun, setCanStun] = useState(false);
-  const [stun, setStun] = useState(false);
   const [cunningEffects, setCunningEffects] = useState<Array<'poison' | 'trip' | 'withdraw'>>([]);
   const [cunning, setCunning] = useState<'' | 'poison' | 'trip' | 'withdraw'>('');
   const [brutal, setBrutal] = useState<'' | 'forceful' | 'hamstring'>('');
@@ -214,10 +210,8 @@ export default function AttackMenu({
       if (answer.ok) {
         setActions(answer.actions);
         setCanReckless(answer.reckless === true);
-        setSmiteSlots(answer.divineSmite ?? []);
         setCanBrutal(answer.brutalStrike === true);
         setCunningEffects(answer.cunningStrike ?? []);
-        setCanStun(answer.stunningStrike === true);
       } else setProblem(answer.error);
     });
     return () => {
@@ -297,10 +291,8 @@ export default function AttackMenu({
         ...slot,
         ...(extra ? { extra } : {}),
         ...(reckless ? { reckless: true as const } : {}),
-        ...(smite > 0 && !action.spell ? { smite } : {}),
         ...(brutal && !action.spell ? { brutal } : {}),
         ...(cunning && !action.spell ? { cunning } : {}),
-        ...(stun && !action.spell ? { stun: true as const } : {}),
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -482,15 +474,6 @@ export default function AttackMenu({
               Attack recklessly
             </label>
           )}
-          {anyAttackRoll && canStun && (
-            <label
-              className="flex items-center gap-2 text-sm text-ink"
-              title="Stunning Strike, once a turn: on a hit with a Monk weapon or an Unarmed Strike, 1 Focus Point. The target saves (Constitution) or is Stunned until your next turn."
-            >
-              <input type="checkbox" checked={stun} onChange={(event) => setStun(event.target.checked)} />
-              Stunning Strike on a hit
-            </label>
-          )}
           {anyAttackRoll && cunningEffects.length > 0 && (
             <label
               className="flex items-center justify-between gap-2 text-sm text-ink"
@@ -527,26 +510,6 @@ export default function AttackMenu({
                 <option value="">No Brutal Strike</option>
                 <option value="forceful">Forceful Blow (push 15 ft)</option>
                 <option value="hamstring">Hamstring Blow (−15 ft Speed)</option>
-              </select>
-            </label>
-          )}
-          {anyAttackRoll && smiteSlots.length > 0 && (
-            <label
-              className="flex items-center justify-between gap-2 text-sm text-ink"
-              title="Divine Smite with a melee weapon or Unarmed Strike: a Bonus Action and a spell slot, spent only if the attack hits. 2d8 Radiant, 1d8 more for each slot level above 1 and against a Fiend or Undead."
-            >
-              Divine Smite on a hit
-              <select
-                value={smite}
-                onChange={(event) => setSmite(Number(event.target.value))}
-                className="input-cozy text-sm py-1"
-              >
-                <option value={0}>No smite</option>
-                {smiteSlots.map((level) => (
-                  <option key={level} value={level}>
-                    Level {level} slot
-                  </option>
-                ))}
               </select>
             </label>
           )}

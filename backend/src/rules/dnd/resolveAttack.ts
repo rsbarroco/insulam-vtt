@@ -238,6 +238,46 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   };
 }
 
+/**
+ * A hit with damage a feature adds once the attacker knows it hit: Divine
+ * Smite. Its dice are the attack's, so a Critical Hit doubles them; the
+ * target's defences meet it as they meet the rest, and its hit points are
+ * worked out again from what they were before the hit. A miss is left as it is.
+ */
+export function withExtraDamage(
+  result: AttackResult,
+  target: Pick<Combatant, 'name' | 'hp' | 'defences'>,
+  actionName: string,
+  extra: { label: string; damage: DamageComponent },
+  roll: RollDie = rollDie
+): AttackResult {
+  if (!result.outcome.hit) return result;
+  const rolled = rollDamage(extra.damage.roll, result.outcome.critical, roll);
+  const line = { type: extra.damage.type, rolled };
+  const added = line.type === null ? rolled.total : adjustedDamage({ amount: rolled.total, type: line.type }, target.defences ?? {});
+  const dealt = result.dealt + added;
+  let hp = target.hp;
+  let dropped = false;
+  let instantDeath = false;
+  if (target.hp && dealt > 0) {
+    const applied = applyDamage(target.hp, [{ amount: dealt, type: 'force' }]);
+    hp = applied.hp;
+    dropped = applied.dropped;
+    instantDeath = applied.instantDeath;
+  }
+  const damage = [...result.damage, line];
+  return {
+    ...result,
+    damage,
+    bonuses: [...result.bonuses, extra.label],
+    dealt,
+    hp,
+    dropped,
+    instantDeath,
+    summary: summarize(target.name, actionName, result.outcome, damage, dealt, dropped, instantDeath),
+  };
+}
+
 /** A reaction the target takes once a hit is known: halving its damage, or taking a roll off it. */
 export type HitReaction = { kind: 'halve'; label: string } | { kind: 'reduce'; reduction: DamageReduction };
 

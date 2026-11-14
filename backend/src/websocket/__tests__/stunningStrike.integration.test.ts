@@ -1,6 +1,7 @@
 /**
- * A Monk's Stunning Strike over the socket: once a turn, a Focus Point on a
- * hit with a Monk weapon or an Unarmed Strike; the target's Constitution save
+ * A Monk's Stunning Strike over the socket: once a turn, after a hit with a
+ * Monk weapon or an Unarmed Strike, the Monk's player is asked; a Focus Point
+ * is spent and the target makes a Constitution save
  * against 8 + Wisdom modifier + Proficiency Bonus, or Stunned until the start
  * of the Monk's next turn, and on a success its Speed halved and the next
  * attack roll against it with Advantage.
@@ -255,12 +256,18 @@ const fight = (turn: Record<string, unknown> = {}) =>
     ],
     turn: { movementSpent: 0, dashes: 0, action: null, bonusAction: false, attacks: 0, ...turn },
   });
+/** Answer the next question the player is asked with `choice`; what was asked comes back. */
+const answerWith = (choice: string | null) => {
+  const asked: Array<{ promptId: string; text: string; options: string[] }> = [];
+  player.once('combat.prompt', (offer: { promptId: string; text: string; options: string[] }) => {
+    asked.push(offer);
+    player.emit('combat.react', { promptId: offer.promptId, choice }, () => undefined);
+  });
+  return asked;
+};
 const indexOf = async (name: string) => {
-  const listed = (await ask(player, 'combat.actions', { tokenId: HERO })) as unknown as {
-    actions: Array<{ index: number; name: string }>;
-    stunningStrike: boolean;
-  };
-  return { index: listed.actions.find((action) => action.name === name)!.index, offered: listed.stunningStrike };
+  const listed = (await ask(player, 'combat.actions', { tokenId: HERO })) as unknown as { actions: Array<{ index: number; name: string }> };
+  return listed.actions.find((action) => action.name === name)!.index;
 };
 const asMonk = () =>
   prisma.character.update({
@@ -283,45 +290,53 @@ const focusUsed = async () =>
     .featureUses?.['Focus Points'] ?? 0;
 const ogre = async () =>
   ((await prisma.map.findUnique({ where: { id: mapId } }))!.tokens as Array<{ id: string; conditions?: string[] }>).find((t) => t.id === OGRE)!;
+const attackWith = async (name: string) => ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: await indexOf(name) });
 
 describe('Stunning Strike', () => {
-  it('stuns the target on a failed save, for a Focus Point, once a turn', async () => {
+  it('is asked after the hit, and stuns the target on a failed save, for a Focus Point, once a turn', async () => {
     fight();
     await asMonk();
-    const staff = await indexOf('Quarterstaff');
-    expect(staff.offered).toBe(true);
+    const asked = answerWith('Stunning Strike');
     // 15 hits; 4 + 3; the ogre's Constitution save: 5 + 3 = 8 against DC 13.
     rolls = [15, 4, 5];
-    const hit = await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: staff.index, stun: true });
-    expect(hit.ok).toBe(true);
+    const hit = await attackWith('Quarterstaff');
+    expect(asked).toEqual([expect.objectContaining({ options: ['Stunning Strike'], text: 'Hero hits Ogre with Quarterstaff.' })]);
     expect(hit.summary).toContain('Stunning Strike: Ogre fails (Constitution 8 vs DC 13)');
     expect((await ogre()).conditions).toContain('Stunned');
     expect(await focusUsed()).toBe(1);
 
-    const again = await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: staff.index, stun: true });
-    expect(again.error).toBe('Hero has used Stunning Strike this turn');
+    const again = answerWith('Stunning Strike');
+    rolls = [15, 4];
+    await attackWith('Quarterstaff');
+    expect(again).toEqual([]);
+    player.removeAllListeners('combat.prompt');
   });
 
   it('halves the Speed and gives the next attack Advantage on a success', async () => {
     fight();
     await asMonk();
-    const staff = await indexOf('Quarterstaff');
+    answerWith('Stunning Strike');
     rolls = [15, 4, 15];
-    const hit = await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: staff.index, stun: true });
+    const hit = await attackWith('Quarterstaff');
     expect(hit.summary).toContain('Stunning Strike: Ogre saves (Constitution 18 vs DC 13)');
     expect(getState(campaignId).marks).toContainEqual(expect.objectContaining({ kind: 'stunning', targetId: OGRE }));
 
     rolls = [3, 12, 4];
-    const next = await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: staff.index });
+    const next = await attackWith('Quarterstaff');
     expect(next.reasons).toContain('Advantage: Stunning Strike');
-    expect(getState(campaignId).marks).toContainEqual(expect.objectContaining({ kind: 'stunning', action: 'used' }));
   });
 
-  it('is refused with a weapon that is not a Monk weapon', async () => {
+  it('is not asked after a hit with a weapon that is not a Monk weapon, and spends nothing when declined', async () => {
     fight();
     await asMonk();
-    const sword = await indexOf('Longsword');
-    const answer = await ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action: sword.index, stun: true });
-    expect(answer.error).toBe('Stunning Strike follows a hit with a Monk weapon or an Unarmed Strike');
+    const asked = answerWith('Stunning Strike');
+    rolls = [15, 4];
+    await attackWith('Longsword');
+    expect(asked).toEqual([]);
+    player.removeAllListeners('combat.prompt');
+    answerWith(null);
+    rolls = [15, 4];
+    await attackWith('Quarterstaff');
+    expect(await focusUsed()).toBe(0);
   });
 });

@@ -41,7 +41,7 @@ import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rollDamage,
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, hasFeature, readFeatures } from '../../rules/dnd/featureEffects';
-import { resolveAttack, withReaction, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
+import { resolveAttack, withExtraDamage, withReaction, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd/smites';
@@ -1423,13 +1423,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           // A Barbarian's Brutal Strike, on a turn it attacks recklessly.
           brutalStrike: sheet ? hasFeature(features, 'Brutal Strike') : false,
           // A Rogue's Cunning Strike effects it can use: Poison only with a Poisoner's Kit.
-          stunningStrike: sheet ? hasFeature(features, 'Stunning Strike') : false,
           cunningStrike:
             sheet && hasFeature(features, 'Cunning Strike')
               ? (['poison', 'trip', 'withdraw'] as const).filter((effect) => effect !== 'poison' || hasPoisonersKit(sheet))
               : [],
-          // Divine Smite: the slot levels it could be cast with, when the sheet has it ready.
-          divineSmite: sheet && hasDivineSmite(sheet as SheetSpellcasting) ? Object.keys(slots).map(Number) : [],
           // The class features it spends and gets back on a rest, with what is left.
           resources: sheet ? resourcesOf(sheet).map(({ name, max, used }) => ({ name, max, used })) : [],
           // The spell it concentrates on, and those it could.
@@ -1449,7 +1446,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. With `smite: <slot level>` a Paladin with Divine Smite prepared adds it to a Melee weapon or Unarmed Strike hit on its own turn: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit; the slot and the Bonus Action are spent only on a hit. With `stun: true` a Monk with Stunning Strike, once a turn, spends a Focus Point on a hit with a Monk weapon or an Unarmed Strike: the target's Constitution save (DC 8 + Wisdom modifier + Proficiency Bonus) or Stunned until the start of the Monk's next turn; a success halves its Speed and gives the next attack roll against it Advantage until then. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. A hit on a creature with Uncanny Dodge or Deflect Attacks and its reaction unspent waits while its controller is asked (`combat.prompt`, answered with `combat.react`), and the ack comes once that is settled. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. After a Melee weapon or Unarmed Strike hit, a Paladin with Divine Smite prepared and its Bonus Action left is asked (`combat.prompt`) which slot to smite with: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit, spending the slot and the Bonus Action. After a hit with a Monk weapon or an Unarmed Strike, a Monk with Stunning Strike and a Focus Point left is asked, once a turn: the point is spent and the target makes a Constitution save (DC 8 + Wisdom modifier + Proficiency Bonus), Stunned until the start of the Monk's next turn on a failure, its Speed halved and the next attack roll against it with Advantage on a success. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. A hit on a creature with Uncanny Dodge or Deflect Attacks and its reaction unspent waits while its controller is asked (`combat.prompt`, answered with `combat.react`), and the ack comes once that is settled. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1459,7 +1456,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, smite, brutal, cunning, stun } = parsed.data;
+      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, brutal, cunning } = parsed.data;
       if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
       if (readied && (opportunity || extra)) return refuseRequest(socket, ack, 'A readied attack is made on its own');
       // A readied attack is the one readied: its action, against its target, while the mark lasts.
@@ -1515,19 +1512,6 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           ack,
           `${attackerToken.name} has made its ${allowed === 1 ? 'attack' : `${allowed} attacks`} with the Attack action this turn`
         );
-      }
-
-      // Divine Smite, asked with the attack: a Bonus Action on the Paladin's own turn, with a slot it has left.
-      if (smite !== undefined) {
-        if (!attackerSheet || !hasDivineSmite(attackerSheet as SheetSpellcasting)) {
-          return refuseRequest(socket, ack, `${attackerToken.name} has no Divine Smite prepared`);
-        }
-        if (!canSmiteWith(action)) return refuseRequest(socket, ack, 'Divine Smite follows a hit with a Melee weapon or an Unarmed Strike');
-        if (turnNow.active && !acting) return refuseRequest(socket, ack, 'Divine Smite is a Bonus Action, taken on your own turn');
-        if (acting?.bonusAction) return refuseRequest(socket, ack, `${attackerToken.name} has used its Bonus Action this turn`);
-        const left = slotsLeft(attackerSheet as SheetSpellcasting)[smite] ?? 0;
-        const castSlot = cast.slotLevel === smite ? 1 : 0;
-        if (left - castSlot <= 0) return refuseRequest(socket, ack, `No level ${smite} spell slot left for Divine Smite`);
       }
 
       // Reckless Attack is decided with the first attack roll of the Barbarian's own turn.
@@ -1628,17 +1612,6 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         return helperSide !== null && helperSide === ownSide;
       });
       const helperName = helped ? (tokens.find((t) => t.id === helped.attackerId)?.name ?? 'an ally') : null;
-      // Stunning Strike: once a turn, with a Monk weapon or an Unarmed Strike, and a Focus Point left.
-      if (stun) {
-        if (!attackerSheet || !hasFeature(readFeatures(attackerSheet), 'Stunning Strike')) {
-          return refuseRequest(socket, ack, `${attackerToken.name} has no Stunning Strike`);
-        }
-        if (!isMonkAttack(action)) return refuseRequest(socket, ack, 'Stunning Strike follows a hit with a Monk weapon or an Unarmed Strike');
-        if (stunUsed(campaignId, attackerId)) return refuseRequest(socket, ack, `${attackerToken.name} has used Stunning Strike this turn`);
-        const focus = resourcesOf(attackerSheet).find((entry) => entry.name === 'Focus Points');
-        if (!focus || focus.used >= focus.max) return refuseRequest(socket, ack, `${attackerToken.name} has no Focus Points left`);
-      }
-
       // Brutal Strike: once on a Reckless Attack turn, one Strength attack that forgoes its Advantage.
       if (brutal) {
         if (!attackerSheet || !hasFeature(readFeatures(attackerSheet), 'Brutal Strike')) {
@@ -1718,14 +1691,6 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         extraReasons,
         ...(brutal ? { forgoAdvantage: 'Brutal Strike' } : {}),
         hitDamage: [
-          ...(smite !== undefined
-            ? [
-                {
-                  label: `Divine Smite (level ${smite})`,
-                  damage: divineSmiteDamage(smite, (targetToken.statBlock as { creatureType?: string } | undefined)?.creatureType),
-                },
-              ]
-            : []),
           ...(brutal && attackerSheet
             ? [{ label: `Brutal Strike (${BRUTAL_LABELS[brutal]})`, damage: brutalStrikeDamage(attackerSheet, action.attack?.damage[0]?.type ?? null) }]
             : []),
@@ -1747,6 +1712,31 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         mode,
       });
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      // Divine Smite, as the rules have it: once a Melee weapon or Unarmed Strike hits (knowing whether it is a
+      // Critical Hit), the Paladin's player is asked which slot to cast it with, a Bonus Action on its own turn.
+      let smiteSlot: number | null = null;
+      const smiteSlots =
+        result.outcome.hit && attackerSheet && hasDivineSmite(attackerSheet as SheetSpellcasting) && canSmiteWith(action) && !(turnNow.active && !acting) && !acting?.bonusAction
+          ? Object.entries(slotsLeft(attackerSheet as SheetSpellcasting))
+              .map(([level, left]) => ({ level: Number(level), left: left - (cast.slotLevel === Number(level) ? 1 : 0) }))
+              .filter((slot) => slot.left > 0)
+              .map((slot) => slot.level)
+          : [];
+      if (smiteSlots.length > 0) {
+        const choice = await askReaction(io, campaignId, {
+          token: attackerToken,
+          text: `${attackerToken.name} ${result.outcome.critical ? 'lands a Critical Hit on' : 'hits'} ${targetToken.name} with ${action.name} for ${result.dealt} damage.`,
+          options: smiteSlots.map((level) => `Divine Smite (level ${level})`),
+        });
+        const picked = choice ? Number(/\(level (\d)\)/.exec(choice)?.[1]) : NaN;
+        if (Number.isInteger(picked)) {
+          smiteSlot = picked;
+          result = withExtraDamage(result, target, action.name, {
+            label: `Divine Smite (level ${picked})`,
+            damage: divineSmiteDamage(picked, (targetToken.statBlock as { creatureType?: string } | undefined)?.creatureType),
+          });
+        }
+      }
       // Uncanny Dodge, Deflect Attacks: once the hit and its damage are known, the target's player is asked.
       if (result.outcome.hit && result.dealt > 0 && targetSheet && !getCombatState(campaignId).reactionsSpent.includes(targetId)) {
         const targetState = readConditions(targetToken.conditions ?? []);
@@ -1774,10 +1764,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, attackerToken.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
-      // Divine Smite takes its slot and the Bonus Action only when the attack hits.
-      if (smite !== undefined && result.outcome.hit) {
-        if (!(await spendSlot(campaignId, socket.userId, attackerToken.characterId!, smite))) {
-          return refuseRequest(socket, ack, `No level ${smite} spell slot left for Divine Smite`);
+      // Divine Smite cast: its slot and the Bonus Action.
+      if (smiteSlot !== null) {
+        if (!(await spendSlot(campaignId, socket.userId, attackerToken.characterId!, smiteSlot))) {
+          return refuseRequest(socket, ack, `No level ${smiteSlot} spell slot left for Divine Smite`);
         }
         spendBonusAction(campaignId, attackerId);
       }
@@ -1815,9 +1805,26 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         now.marks = now.marks.map((mark) => (mark === staggered || (mark.kind === 'stunning' && mark.targetId === targetId) ? { ...mark, action: 'used' } : mark));
         setCombatState(campaignId, now);
       }
-      // Stunning Strike: on a hit, a Focus Point and the target's Constitution save.
+      // Stunning Strike: once a turn, when a Monk weapon or an Unarmed Strike hits, the Monk's player is asked;
+      // it spends a Focus Point, and the target makes a Constitution save.
       const stunLines: string[] = [];
-      if (stun && attackerSheet && result.outcome.hit) {
+      const focus = attackerSheet ? resourcesOf(attackerSheet).find((entry) => entry.name === 'Focus Points') : undefined;
+      const mayStun =
+        result.outcome.hit &&
+        attackerSheet !== null &&
+        hasFeature(readFeatures(attackerSheet), 'Stunning Strike') &&
+        isMonkAttack(action) &&
+        !stunUsed(campaignId, attackerId) &&
+        focus !== undefined &&
+        focus.used < focus.max;
+      const stun =
+        mayStun &&
+        (await askReaction(io, campaignId, {
+          token: attackerToken,
+          text: `${attackerToken.name} hits ${targetToken.name} with ${action.name}.`,
+          options: ['Stunning Strike'],
+        })) === 'Stunning Strike';
+      if (stun && attackerSheet) {
         useStun(campaignId, attackerId);
         await spendSheetUse(campaignId, attackerToken, 'Focus Points');
         if (!result.dropped) {
