@@ -78,6 +78,10 @@ describe('weapon marks', () => {
     // Slow's 10 feet and a Hamstring Blow's 15 add up.
     expect(slowedSpeed(40, hamstrung, 'ogre')).toBe(15);
     expect(markLabels(hamstrung, 'ogre')).toContain('Hamstrung');
+    // A saved Stunning Strike halves what is left.
+    const staggered = [...hamstrung, { kind: 'stunning' as const, attackerId: 'monk', targetId: 'ogre', turnEndsLeft: 1 }];
+    expect(slowedSpeed(40, staggered, 'ogre')).toBe(7);
+    expect(markLabels(staggered, 'ogre')).toContain('Staggered (Stunning Strike)');
   });
 
   it('names what a creature carries', () => {

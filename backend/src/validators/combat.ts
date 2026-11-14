@@ -36,6 +36,8 @@ export const CombatAttackSchema = z
     brutal: z.enum(['forceful', 'hamstring']).optional(),
     /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
     cunning: z.enum(['poison', 'trip', 'withdraw']).optional(),
+    /** Stunning Strike on a hit with a Monk weapon or an Unarmed Strike: 1 Focus Point, spent only on a hit. */
+    stun: z.literal(true).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });

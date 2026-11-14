@@ -1644,7 +1644,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'uncanny' | 'deflect' | 'indomitable' | 'hamstring' | 'stunning';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1732,6 +1732,8 @@ export type CombatActionsAck =
       brutalStrike?: boolean;
       /** A Rogue's Cunning Strike effects it can use with a Sneak Attack. */
       cunningStrike?: Array<'poison' | 'trip' | 'withdraw'>;
+      /** A Monk's Stunning Strike, for a Focus Point on a hit. */
+      stunningStrike?: boolean;
     }
   | { ok: false; error: string };
 
@@ -1759,6 +1761,8 @@ export interface CombatAttackEvent {
   brutal?: 'forceful' | 'hamstring';
   /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
   cunning?: 'poison' | 'trip' | 'withdraw';
+  /** Stunning Strike on a hit with a Monk weapon or an Unarmed Strike: 1 Focus Point, spent only on a hit. */
+  stun?: true;
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
