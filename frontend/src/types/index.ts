@@ -1728,6 +1728,9 @@ export type CombatActionsAck =
       reckless?: boolean;
       /** A Barbarian's Brutal Strike, on a turn it attacks recklessly. */
       brutalStrike?: boolean;
+      /** A Druid's Wild Shape: the Beasts it can take the form of, and the form it is in. */
+      wildShapeForms?: string[];
+      wildShape?: string | null;
       /** A Rogue's Cunning Strike effects it can use with a Sneak Attack. */
       cunningStrike?: Array<'poison' | 'trip' | 'withdraw'>;
     }
@@ -1814,7 +1817,8 @@ export type CombatFeatureName =
   | 'Cunning Action'
   | 'Flurry of Blows'
   | 'Patient Defense'
-  | 'Step of the Wind';
+  | 'Step of the Wind'
+  | 'End Wild Shape';
 /** `combat.prompt`: the server asks whether a creature takes a reaction, once a roll is known. */
 export interface CombatPrompt {
   promptId: string;

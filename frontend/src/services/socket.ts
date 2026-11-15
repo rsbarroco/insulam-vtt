@@ -788,7 +788,7 @@ class SocketClient {
     feature: CombatFeatureName,
     amount?: number,
     touch?: { targetId: string; cure?: 'Poisoned' },
-    turn?: { as?: 'Dash' | 'Disengage'; focus?: true }
+    turn?: { as?: 'Dash' | 'Disengage'; focus?: true; form?: string }
   ): Promise<CombatFeatureAck> {
     const payload = {
       tokenId,
