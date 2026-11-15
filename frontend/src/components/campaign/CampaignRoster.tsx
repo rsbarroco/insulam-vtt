@@ -22,6 +22,7 @@ import CharacterSheetViewerModal from '../character/CharacterSheetViewerModal';
 import CharacterSheetEditorModal from '../character/CharacterSheetEditorModal';
 import CharacterContextMenu from './CharacterContextMenu';
 import CharacterRollPicker from './CharacterRollPicker';
+import ArcaneRecoveryPicker from './ArcaneRecoveryPicker';
 import Toast, { useToast } from '@/components/Toast';
 import ConfirmDialog from '@/components/common/ConfirmDialog';
 import type { CampaignRole, GameSystem, Character, RosterMember } from '@/types';
@@ -45,6 +46,7 @@ export default function CampaignRoster() {
   const [_viewerLoading, setViewerLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; characterId: string; characterUserId: string } | null>(null);
   const [rollPicker, setRollPicker] = useState<{ x: number; y: number; characterId: string } | null>(null);
+  const [recoveryPicker, setRecoveryPicker] = useState<{ x: number; y: number; characterId: string } | null>(null);
   // The character Remove from Campaign asks about. Kept apart from the menu,
   // which closes as soon as the item is chosen.
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -449,6 +451,16 @@ export default function CampaignRoster() {
                 menuCharacterIsDnd && canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
             },
             {
+              icon: Coffee,
+              label: 'Finish short rest, with Arcane Recovery…',
+              onClick: () => {
+                setRecoveryPicker({ x: contextMenu.x, y: contextMenu.y, characterId: contextMenu.characterId });
+                handleCloseContextMenu();
+              },
+              visible:
+                menuCharacterIsDnd && canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
+            },
+            {
               icon: BedDouble,
               label: 'Long rest',
               onClick: () => void handleRest('long'),
@@ -484,6 +496,21 @@ export default function CampaignRoster() {
       )}
 
       {/* Roll Picker */}
+      {recoveryPicker && (
+        <ArcaneRecoveryPicker
+          anchorX={recoveryPicker.x}
+          anchorY={recoveryPicker.y}
+          onRecover={(levels) => {
+            const { characterId } = recoveryPicker;
+            setRecoveryPicker(null);
+            void socket?.rest(characterId, 'shortFinish', levels).then((answer) => {
+              showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
+            });
+          }}
+          onClose={() => setRecoveryPicker(null)}
+        />
+      )}
+
       {rollPicker && (
         <CharacterRollPicker
           characterId={rollPicker.characterId}
