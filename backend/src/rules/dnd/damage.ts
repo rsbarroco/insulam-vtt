@@ -126,6 +126,24 @@ export function rollDamage(damage: DamageRoll, critical = false, roll: RollDie =
   return { dice, bonus, total: Math.max(0, dice.reduce((sum, die) => sum + die, 0) + bonus) };
 }
 
+/**
+ * Damage with its lowest dice rolled again, `count` of them at most across the
+ * lines, each line keeping its flat number: Empowered Spell. `sides` gives each
+ * line's die; a line without one is left alone. The new rolls stand.
+ */
+export function rerollLowest(
+  lines: ReadonlyArray<RolledDamage>,
+  sides: ReadonlyArray<number | undefined>,
+  count: number,
+  roll: RollDie = rollDie
+): RolledDamage[] {
+  const dice = lines.flatMap((line, index) => (sides[index] ? line.dice.map((value, at) => ({ value, index, at })) : []));
+  const lowest = [...dice].sort((a, b) => a.value - b.value).slice(0, Math.max(0, count));
+  const next = lines.map((line) => ({ ...line, dice: [...line.dice] }));
+  for (const die of lowest) next[die.index].dice[die.at] = roll(sides[die.index]!);
+  return next.map((line) => ({ ...line, total: Math.max(0, line.dice.reduce((sum, die) => sum + die, 0) + line.bonus) }));
+}
+
 /** A save for half: the damage a creature takes when it succeeds, rounded down. */
 export function halfDamage(amount: number): number {
   return Math.floor(Math.max(0, amount) / 2);

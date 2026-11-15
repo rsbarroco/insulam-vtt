@@ -18,7 +18,7 @@ import { attackRoll, rollDie, rollMode, type AttackOutcome, type RollDie, type R
 import { lucky } from './species';
 import type { DamageReduction } from './reactions';
 import { atLeastThree } from './feats';
-import { adjustedDamage, applyDamage, rollDamage, type DamageType, type Defences, type HitPoints, type RolledDamage } from './damage';
+import { adjustedDamage, applyDamage, rerollLowest, rollDamage, type DamageType, type Defences, type HitPoints, type RolledDamage } from './damage';
 
 export interface Combatant {
   name: string;
@@ -275,6 +275,52 @@ export function withExtraDamage(
     dropped,
     instantDeath,
     summary: summarize(target.name, actionName, result.outcome, damage, dealt, dropped, instantDeath),
+  };
+}
+
+/**
+ * A hit with the spell's own damage dice partly rolled again once its damage
+ * is known: Empowered Spell rerolls the lowest `count` of them, and the new
+ * rolls stand. The target's defences and hit points are worked out again.
+ */
+export function withRerolledDamage(
+  result: AttackResult,
+  target: Pick<Combatant, 'name' | 'hp' | 'defences'>,
+  action: Pick<CombatAction, 'name' | 'attack'>,
+  count: number,
+  roll: RollDie = rollDie
+): AttackResult {
+  if (!result.outcome.hit || !action.attack) return result;
+  const sides = result.damage.map((_, index) => action.attack!.damage[index]?.roll.sides);
+  const rerolled = rerollLowest(
+    result.damage.map((line) => line.rolled),
+    sides,
+    count,
+    roll
+  );
+  const damage = result.damage.map((line, index) => ({ ...line, rolled: rerolled[index] }));
+  const dealt = damage.reduce(
+    (sum, entry) => sum + (entry.type === null ? entry.rolled.total : adjustedDamage({ amount: entry.rolled.total, type: entry.type }, target.defences ?? {})),
+    0
+  );
+  let hp = target.hp;
+  let dropped = false;
+  let instantDeath = false;
+  if (target.hp && dealt > 0) {
+    const applied = applyDamage(target.hp, [{ amount: dealt, type: 'force' }]);
+    hp = applied.hp;
+    dropped = applied.dropped;
+    instantDeath = applied.instantDeath;
+  }
+  return {
+    ...result,
+    damage,
+    dealt,
+    hp,
+    dropped,
+    instantDeath,
+    bonuses: [...result.bonuses, 'Empowered Spell'],
+    summary: summarize(target.name, action.name, result.outcome, damage, dealt, dropped, instantDeath),
   };
 }
 
