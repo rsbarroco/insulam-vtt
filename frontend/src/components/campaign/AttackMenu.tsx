@@ -199,6 +199,7 @@ export default function AttackMenu({
   const [canReckless, setCanReckless] = useState(false);
   const [reckless, setReckless] = useState(false);
   const [canBrutal, setCanBrutal] = useState(false);
+  const [huntersMark, setHuntersMark] = useState<string | null>(null);
   const [cunningEffects, setCunningEffects] = useState<Array<'poison' | 'trip' | 'withdraw'>>([]);
   const [cunning, setCunning] = useState<'' | 'poison' | 'trip' | 'withdraw'>('');
   const [brutal, setBrutal] = useState<'' | 'forceful' | 'hamstring'>('');
@@ -211,6 +212,7 @@ export default function AttackMenu({
         setActions(answer.actions);
         setCanReckless(answer.reckless === true);
         setCanBrutal(answer.brutalStrike === true);
+        setHuntersMark((answer.concentrationSpells ?? []).find((spell) => /^hunter[’']?s mark$/i.test(spell)) ?? null);
         setCunningEffects(answer.cunningStrike ?? []);
       } else setProblem(answer.error);
     });
@@ -323,6 +325,14 @@ export default function AttackMenu({
   const readyAttack = async (action: CombatActionSummary) => {
     setBusy(true);
     const answer = await socket.ready(attacker.id, target.id, action.index, trigger.trim() || 'when the trigger comes');
+    setBusy(false);
+    onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: true } : answer);
+  };
+
+  /** Hunter's Mark on the target: the attacker's hits on it add 1d6 Force while it concentrates. */
+  const mark = async (spell: string) => {
+    setBusy(true);
+    const answer = await socket.concentrate(attacker.id, { spell, targetId: target.id });
     setBusy(false);
     onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: true } : answer);
   };
@@ -541,6 +551,18 @@ export default function AttackMenu({
             onClick={() => void help()}
           >
             Help against it
+          </Button>
+        )}
+        {!point && huntersMark && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            title={`${huntersMark} (a Bonus Action, with Concentration): your attack hits on ${target.name} deal an extra 1d6 Force damage. Cast it with a slot, or a use of Favored Enemy.`}
+            onClick={() => void mark(huntersMark)}
+          >
+            {huntersMark}
           </Button>
         )}
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>

@@ -139,7 +139,13 @@ export const CombatReadySchema = z
 
 /** `combat.concentrate`: a token's caster starts concentrating on a spell it has, or ends its concentration. */
 export const CombatConcentrateSchema = z
-  .object({ tokenId, spell: z.string().trim().min(1).max(100).optional(), end: z.literal(true).optional() })
+  .object({
+    tokenId,
+    spell: z.string().trim().min(1).max(100).optional(),
+    end: z.literal(true).optional(),
+    /** Hunter's Mark: the creature it marks. */
+    targetId: tokenId.optional(),
+  })
   .strict()
   .refine((value) => (value.spell === undefined) !== (value.end === undefined), { message: 'Give a spell to concentrate on, or end' });
 
