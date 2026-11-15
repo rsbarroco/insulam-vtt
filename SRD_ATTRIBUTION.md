@@ -86,6 +86,7 @@ no field there and are kept in its notes.
 `backend/src/rules/dnd/wildShape.ts` applies the document's Wild Shape (Druid 2): the Beast forms each level allows, from the document's Animals.
 `backend/src/rules/dnd/invocations.ts` applies the document's Eldritch Blast beams and the Agonizing Blast and Repelling Blast invocations.
 `backend/src/rules/dnd/arcaneRecovery.ts` applies the document's Arcane Recovery (Wizard 1).
+`backend/src/rules/dnd/metamagic.ts` applies the document's Careful, Distant, Heightened and Quickened Spell (Sorcerer 2).
 
 `backend/src/rules/dnd/data/srd-5.2.1-rules.json` is the text of the
 document's "Playing the Game" chapter and of its "Rules Glossary", built by

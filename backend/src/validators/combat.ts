@@ -34,6 +34,8 @@ export const CombatAttackSchema = z
     brutal: z.enum(['forceful', 'hamstring']).optional(),
     /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
     cunning: z.enum(['poison', 'trip', 'withdraw']).optional(),
+    /** A Sorcerer's Metamagic for a spell attack, chosen as it is cast. */
+    metamagic: z.object({ option: z.enum(['distant', 'quickened']) }).strict().optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
@@ -49,6 +51,11 @@ export const CombatSaveSchema = z
     slotLevel: z.number().int().min(1).max(9).optional(),
     /** The empty square an area is aimed at: it must be within the action's range. */
     point: z.object({ x: z.number().int().min(0).max(1000), y: z.number().int().min(0).max(1000) }).strict().optional(),
+    /** A Sorcerer's Metamagic, chosen as the spell is cast; `targetIds` are the creatures Careful or Heightened Spell picks. */
+    metamagic: z
+      .object({ option: z.enum(['careful', 'distant', 'heightened', 'quickened']), targetIds: z.array(tokenId).min(1).max(30).optional() })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((save) => new Set(save.targetIds).size === save.targetIds.length, { message: 'A target is named twice' });
