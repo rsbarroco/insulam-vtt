@@ -1169,12 +1169,24 @@ function concentrationOf(campaignId: string, tokenId: string): string | null {
 }
 
 /** A creature concentrates on a spell, ending its concentration on any other. */
-function startConcentration(campaignId: string, tokenId: string, spell: string): void {
+/** Hunter's Mark, as a sheet names it. */
+const HUNTERS_MARK = /^hunter[’']?s mark$/i;
+
+/** The creature a Ranger's Hunter's Mark marks, while it concentrates on it; null otherwise. */
+function huntersMarkOf(campaignId: string, tokenId: string): string | null {
+  const mark = getCombatState(campaignId).marks.find(
+    (entry) => entry.kind === 'concentration' && entry.attackerId === tokenId && HUNTERS_MARK.test(entry.action ?? '')
+  );
+  return mark && mark.targetId !== tokenId ? mark.targetId : null;
+}
+
+/** `marked` is the creature a spell such as Hunter's Mark marks; the caster itself otherwise. */
+function startConcentration(campaignId: string, tokenId: string, spell: string, marked: string = tokenId): void {
   const combat = getCombatState(campaignId);
   if (!combat.active) return;
   combat.marks = [
     ...combat.marks.filter((mark) => !(mark.kind === 'concentration' && mark.attackerId === tokenId)),
-    { kind: 'concentration', attackerId: tokenId, targetId: tokenId, action: spell, turnEndsLeft: 1 },
+    { kind: 'concentration', attackerId: tokenId, targetId: marked, action: spell, turnEndsLeft: 1 },
   ];
   setCombatState(campaignId, combat);
 }
@@ -1691,6 +1703,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         extraReasons,
         ...(brutal ? { forgoAdvantage: 'Brutal Strike' } : {}),
         hitDamage: [
+          // Hunter's Mark: a hit on the creature the attacker marks adds 1d6 Force.
+          ...(huntersMarkOf(campaignId, attackerId) === targetId
+            ? [{ label: "Hunter's Mark", damage: { roll: { count: 1, sides: 6 }, type: 'force' as const } }]
+            : []),
           ...(brutal && attackerSheet
             ? [{ label: `Brutal Strike (${BRUTAL_LABELS[brutal]})`, damage: brutalStrikeDamage(attackerSheet, action.attack?.damage[0]?.type ?? null) }]
             : []),
@@ -2197,7 +2213,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Uncanny Dodge` holds the Rogue's reaction ready, or lets it go: the next hit from an attacker it can see deals half damage and spends it. `Deflect Attacks` does the same for a Monk: the next hit that deals Bludgeoning, Piercing or Slashing damage is reduced by 1d10 + its Dexterity modifier + its Monk level. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2501,7 +2517,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.CONCENTRATE — A token's caster starts concentrating on a spell its sheet has ready that needs Concentration (one it cast by hand, a buff the VTT does not roll), ending its concentration on any other; or, with `end: true`, ends its concentration. During combat. A concentration spell cast through `combat.attack` or `combat.save` starts concentration by itself, and damage makes the caster save to keep it. The DM, or the player who controls the token.
+   * COMBAT.CONCENTRATE — A token's caster starts concentrating on a spell its sheet has ready that needs Concentration (one it cast by hand, a buff the VTT does not roll), ending its concentration on any other; or, with `end: true`, ends its concentration. During combat. A concentration spell cast through `combat.attack` or `combat.save` starts concentration by itself, and damage makes the caster save to keep it. Hunter's Mark takes a `targetId`, the creature it marks (a Bonus Action on the Ranger's own turn): the caster's attack hits on it add 1d6 Force while the concentration lasts. The DM, or the player who controls the token.
    */
   socket.on('combat.concentrate', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2511,11 +2527,12 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.concentrate', ack)) return;
       const parsed = CombatConcentrateSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { tokenId, spell, end } = parsed.data;
+      const { tokenId, spell, end, targetId } = parsed.data;
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
-      const token = readTokens(map.tokens).find((t) => t.id === tokenId);
+      const tokens = readTokens(map.tokens);
+      const token = tokens.find((t) => t.id === tokenId);
       if (!token || !canControlToken(socket.role, token.controlledBy, socket.userId)) {
         return refuseRequest(socket, ack, 'You can only act for your own token');
       }
@@ -2529,11 +2546,27 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       } else {
         const sheet = await sheetOf(token, campaignId);
         const known = sheet ? concentrationSpellsOf(sheet as SheetSpellcasting) : [];
-        const chosen = known.find((name) => name.toLowerCase() === spell!.toLowerCase());
+        // A sheet writes an apostrophe straight or curly ("Hunter's Mark", "Hunter’s Mark").
+        const plain = (name: string) => name.toLowerCase().replace(/[’']/g, "'");
+        const chosen = known.find((name) => plain(name) === plain(spell!));
         if (!chosen) return refuseRequest(socket, ack, `${token.name} has no concentration spell called ${spell}`);
         const was = concentrationOf(campaignId, tokenId);
-        startConcentration(campaignId, tokenId, chosen);
-        summary = `${token.name} concentrates on ${chosen}${was && was !== chosen ? `, ending ${was}` : ''}`;
+        // Hunter's Mark marks a creature the Ranger can see within 90 feet: its hits on it add 1d6 Force.
+        const marking = HUNTERS_MARK.test(chosen);
+        if (marking !== (targetId !== undefined)) {
+          return refuseRequest(socket, ack, marking ? `${chosen} marks a creature: name the target` : `${chosen} marks no creature`);
+        }
+        const marked = targetId ? tokens.find((t) => t.id === targetId) : undefined;
+        if (targetId && (!marked || marked.layer !== token.layer || (socket.role !== 'DM' && hiddenFromPlayers(marked)))) {
+          return refuseRequest(socket, ack, 'That target is not on the map');
+        }
+        // Casting it is a Bonus Action on the Ranger's own turn.
+        const now = getCombatState(campaignId);
+        const ownTurn = someoneActing(now) && now.currentTokenId === tokenId && now.turn !== null;
+        if (marking && ownTurn && now.turn!.bonusAction) return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
+        startConcentration(campaignId, tokenId, chosen, marked?.id);
+        if (marking && ownTurn) spendBonusAction(campaignId, tokenId);
+        summary = `${token.name} concentrates on ${chosen}${marked ? `, marking ${marked.name}` : ''}${was && was !== chosen ? `, ending ${was}` : ''}`;
       }
       await resendInitiativeState(io, campaignId);
       ack?.({ ok: true, summary });

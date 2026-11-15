@@ -821,7 +821,7 @@ class SocketClient {
   }
 
   /** A token's caster concentrates on one of its spells, or ends its concentration. */
-  concentrate(tokenId: string, change: { spell: string } | { end: true }): Promise<CombatConcentrateAck> {
+  concentrate(tokenId: string, change: { spell: string; targetId?: string } | { end: true }): Promise<CombatConcentrateAck> {
     return this.askFor<CombatConcentrateAck>('combat.concentrate', { tokenId, ...change }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
