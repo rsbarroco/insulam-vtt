@@ -51,6 +51,7 @@ import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
 import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
 import { channelDivinityActions, TURN_UNDEAD_TURNS } from '../../rules/dnd/channelDivinity';
 import { wildShapeForms, wildShapeOf, wildShapeTemporaryHitPoints } from '../../rules/dnd/wildShape';
+import { arcaneRecovery } from '../../rules/dnd/arcaneRecovery';
 import { repels, withInvocations } from '../../rules/dnd/invocations';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
@@ -2228,7 +2229,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.rest', ack)) return;
       const parsed = CombatRestSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { characterId, kind } = parsed.data;
+      const { characterId, kind, recover } = parsed.data;
       const isDM = socket.role === 'DM';
       if (kind === 'long' && !isDM) return refuseRequest(socket, ack, 'A Long Rest is the DM’s to give');
 
@@ -2242,9 +2243,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         const sheet = (fresh.data ?? {}) as Record<string, unknown>;
         if (kind === 'shortFinish') {
           const back = restoreResources(sheet, 'short');
-          const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(back.sheet) } });
-          const gains = back.regained.length > 0 ? back.regained.join(', ') : 'no feature to regain';
-          return { updated, hp: null, die: null, summary: `${fresh.name} finishes a Short Rest: ${gains}` };
+          // Arcane Recovery, chosen as the rest ends.
+          const recovered = recover ? arcaneRecovery(back.sheet, recover) : null;
+          if (recovered && !recovered.ok) return { refusal: `${fresh.name}: ${recovered.reason}` };
+          const after = recovered?.ok ? recovered.sheet : back.sheet;
+          const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(after) } });
+          const gains = [...back.regained, ...(recovered?.ok ? [recovered.summary] : [])];
+          return { updated, hp: null, die: null, summary: `${fresh.name} finishes a Short Rest: ${gains.length > 0 ? gains.join(', ') : 'no feature to regain'}` };
         }
         if (kind === 'long') {
           const long = longRest(sheet);

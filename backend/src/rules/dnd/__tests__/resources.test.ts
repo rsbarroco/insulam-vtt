@@ -53,8 +53,8 @@ describe('resourcesOf', () => {
     ]);
   });
 
-  it('gives a Wizard none, and reads what is spent', () => {
-    expect(resourcesOf({ class: 'Wizard', level: 5 })).toEqual([]);
+  it('gives a Wizard Arcane Recovery, once until a Long Rest, and reads what is spent', () => {
+    expect(resourcesOf({ class: 'Wizard', level: 5 })).toEqual([{ name: 'Arcane Recovery', max: 1, used: 0, shortRest: 'none' }]);
     expect(resourcesOf(fighter(1, { 'Second Wind': 1 }))[0].used).toBe(1);
   });
 });

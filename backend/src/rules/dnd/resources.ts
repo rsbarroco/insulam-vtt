@@ -30,6 +30,8 @@
 //     Hit Points, spent a point at a time; all back on a Long Rest.
 //   • Favored Enemy (Ranger 1): Hunter's Mark cast without a spell slot, as
 //     many times as the column says; all back on a Long Rest.
+//   • Arcane Recovery (Wizard 1): once, slots recovered as a Short Rest ends;
+//     back on a Long Rest.
 //
 // A sheet keeps what it has spent in `featureUses`: { "Second Wind": 1 }.
 // A gestalt character is both of its classes at its full level.
@@ -52,7 +54,8 @@ export type ResourceName =
   | 'Favored Enemy'
   | 'Lay on Hands'
   | 'Relentless Endurance'
-  | 'Indomitable';
+  | 'Indomitable'
+  | 'Arcane Recovery';
 
 /** The features spent a point at a time, several at once: the rest are spent one use at a time. */
 export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points', 'Lay on Hands'];
@@ -138,6 +141,8 @@ export function resourcesOf(sheet: Sheet): Resource[] {
   // A species trait used once until a Long Rest.
   if (hasRelentlessEndurance(sheet)) add('Relentless Endurance', 1, 'none');
   if (has(classes, 'Ranger')) add('Favored Enemy', count('Ranger', 'Favored Enemy', level), 'none');
+  // Once, until a Long Rest: slots recovered as a Short Rest ends.
+  if (has(classes, 'Wizard')) add('Arcane Recovery', 1, 'none');
   return out;
 }
 

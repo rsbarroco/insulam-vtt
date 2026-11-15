@@ -87,8 +87,14 @@ export const CombatCheckSchema = z
 
 /** `combat.rest`: a character rests. `short` spends one Hit Point Die, `shortFinish` ends a Short Rest; `long` is the DM's to give. */
 export const CombatRestSchema = z
-  .object({ characterId: z.string().uuid('A character is named by its id'), kind: z.enum(['short', 'shortFinish', 'long']) })
-  .strict();
+  .object({
+    characterId: z.string().uuid('A character is named by its id'),
+    kind: z.enum(['short', 'shortFinish', 'long']),
+    /** With `shortFinish`: a Wizard's Arcane Recovery, the levels of the slots it recovers (one entry per slot). */
+    recover: z.array(z.number().int().min(1).max(9)).min(1).max(20).optional(),
+  })
+  .strict()
+  .refine((rest) => rest.recover === undefined || rest.kind === 'shortFinish', { message: 'Arcane Recovery is used as a Short Rest ends' });
 
 /** `combat.feature`: a token's character uses a class feature with a number of uses. */
 export const CombatFeatureSchema = z
