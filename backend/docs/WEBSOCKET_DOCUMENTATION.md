@@ -892,6 +892,8 @@ An `initiative.request_state` while nothing is in the order is answered from mem
 - Distant (1): the range doubles, and Touch becomes 30 ft. It is refused for a spell of Self range.
 - Quickened (2): an action spell is cast as a Bonus Action instead of the Magic action. It is refused once the Bonus Action is spent.
 
+Two options are asked after the roll through `combat.prompt`, never passed in the request, and each costs 1 Sorcery Point on top of the casting option: **Seeking Spell** when a spell attack misses (option `Seeking Spell`; the attack is rolled again and the new roll is used, `bonuses` gains `Seeking Spell`), and **Empowered Spell** when a spell attack hits or a save spell rolls its damage (option `Empowered Spell`; the lowest damage dice, up to the Charisma modifier and at least one, are rolled again before the damage is dealt, and the summary says `Empowered Spell`). A declined or unanswered prompt spends nothing.
+
 The points are spent once the spell is resolved.
 - spends the use and the Bonus Action;
 - sets the token's `metadata.wildShape` (the map is broadcast);

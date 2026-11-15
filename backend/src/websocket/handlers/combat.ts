@@ -37,11 +37,11 @@ import { bardicDie, classLevel, POINT_RESOURCES, rageDamage, resourcesOf, restor
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, withTacticalMind, type SkillCheck } from '../../rules/dnd/checks';
-import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rollDamage, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
+import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rerollLowest, rollDamage, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, hasFeature, readFeatures } from '../../rules/dnd/featureEffects';
-import { resolveAttack, withExtraDamage, withReaction, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
+import { resolveAttack, withExtraDamage, withReaction, withRerolledDamage, type AttackRequest, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
 import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd/smites';
@@ -52,7 +52,7 @@ import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
 import { channelDivinityActions, TURN_UNDEAD_TURNS } from '../../rules/dnd/channelDivinity';
 import { wildShapeForms, wildShapeOf, wildShapeTemporaryHitPoints } from '../../rules/dnd/wildShape';
 import { arcaneRecovery } from '../../rules/dnd/arcaneRecovery';
-import { carefulCount, distantAction, knowsMetamagic, METAMAGIC, type CastingMetamagic } from '../../rules/dnd/metamagic';
+import { carefulCount, distantAction, empoweredCount, knowsMetamagic, METAMAGIC, type CastingMetamagic } from '../../rules/dnd/metamagic';
 import { repels, withInvocations } from '../../rules/dnd/invocations';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
@@ -1829,7 +1829,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           }
         : undefined;
 
-      let result = resolveAttack({
+      const attackRequest: AttackRequest = {
         unseen: lit,
         extraReasons,
         ...(brutal ? { forgoAdvantage: 'Brutal Strike' } : {}),
@@ -1857,8 +1857,39 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             .map(standing),
         },
         mode,
-      });
+      };
+      let result = resolveAttack(attackRequest);
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      // Seeking and Empowered Spell, as the rules have them: asked of the Sorcerer's player once the roll is known.
+      let afterRollPoints = 0;
+      const pointsLeft = () => {
+        const points = attackerSheet ? resourcesOf(attackerSheet).find((entry) => entry.name === 'Sorcery Points') : undefined;
+        return points ? points.max - points.used - (meta && !('error' in meta) ? meta.cost : 0) - afterRollPoints : 0;
+      };
+      if (attackerSheet && action.source === 'spell' && !result.outcome.hit && knowsMetamagic(attackerSheet, 'seeking') && pointsLeft() >= 1) {
+        const choice = await askReaction(io, campaignId, {
+          token: attackerToken,
+          text: `${attackerToken.name}'s ${action.name} misses ${targetToken.name} (${result.outcome.roll.total} against AC ${result.outcome.armorClass}).`,
+          options: ['Seeking Spell'],
+        });
+        if (choice === 'Seeking Spell') {
+          afterRollPoints += 1;
+          const again = resolveAttack(attackRequest);
+          if (again.ok) result = { ...again, bonuses: [...again.bonuses, 'Seeking Spell'] };
+        }
+      }
+      if (attackerSheet && action.source === 'spell' && result.outcome.hit && result.damage.length > 0 && knowsMetamagic(attackerSheet, 'empowered') && pointsLeft() >= 1) {
+        const dice = result.damage.flatMap((line) => line.rolled.dice).join(', ');
+        const choice = await askReaction(io, campaignId, {
+          token: attackerToken,
+          text: `${attackerToken.name}'s ${action.name} hits ${targetToken.name} for ${result.dealt} damage (dice ${dice}).`,
+          options: ['Empowered Spell'],
+        });
+        if (choice === 'Empowered Spell') {
+          afterRollPoints += 1;
+          result = withRerolledDamage(result, target, action, empoweredCount(attackerSheet));
+        }
+      }
       // Divine Smite, as the rules have it: once a Melee weapon or Unarmed Strike hits (knowing whether it is a
       // Critical Hit), the Paladin's player is asked which slot to cast it with, a Bonus Action on its own turn.
       let smiteSlot: number | null = null;
@@ -1921,7 +1952,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const endured = await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
       spendRecharge(campaignId, attackerId, action);
-      if (meta) await spendSheetUse(campaignId, attackerToken, 'Sorcery Points', meta.cost);
+      if (meta || afterRollPoints > 0) {
+        await spendSheetUse(campaignId, attackerToken, 'Sorcery Points', (meta && !('error' in meta) ? meta.cost : 0) + afterRollPoints);
+      }
       // A concentration spell cast starts its concentration, ending any other.
       const concentrating = action.spell ? findSpell(action.name) : null;
       if (concentrating?.concentration) startConcentration(campaignId, attackerId, concentrating.name);
@@ -3015,6 +3048,35 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       };
       let result = resolveSave(saveRequest);
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      // Empowered Spell: once the damage is rolled, the Sorcerer's player is asked; its lowest dice are rolled again.
+      let empowered = false;
+      const sorcery = sourceSheet ? resourcesOf(sourceSheet).find((entry) => entry.name === 'Sorcery Points') : undefined;
+      if (
+        sourceSheet &&
+        action.source === 'spell' &&
+        result.damage.length > 0 &&
+        knowsMetamagic(sourceSheet, 'empowered') &&
+        sorcery &&
+        sorcery.max - sorcery.used - (meta ? meta.cost : 0) >= 1
+      ) {
+        const choice = await askReaction(io, campaignId, {
+          token: sourceToken,
+          text: `${action.name} rolls ${result.damage.map((line) => line.rolled.total).reduce((a, b) => a + b, 0)} damage (dice ${result.damage.flatMap((line) => line.rolled.dice).join(', ')}).`,
+          options: ['Empowered Spell'],
+        });
+        if (choice === 'Empowered Spell') {
+          empowered = true;
+          const sides = result.damage.map((_, index) => action.save!.damage[index]?.roll.sides);
+          const rerolled = rerollLowest(result.damage.map((line) => line.rolled), sides, empoweredCount(sourceSheet));
+          const first = result;
+          const again = resolveSave({
+            ...saveRequest,
+            fixed: { damage: first.damage.map((line, index) => ({ ...line, rolled: rerolled[index] })), saves: first.targets.map((target) => ({ outcome: target.outcome })) },
+          });
+          if (!again.ok) return refuseRequest(socket, ack, again.reason);
+          result = { ...again, summary: `${again.summary}; Empowered Spell` };
+        }
+      }
       // Indomitable: a Fighter that failed a save it rolled is asked, and may roll it again with its Fighter level added.
       const rerolled = new Set<number>();
       for (const [index, target] of result.targets.entries()) {
@@ -3049,7 +3111,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       spendRecharge(campaignId, sourceId, action);
       if (action.channel) await spendSheetUse(campaignId, sourceToken, action.channel);
-      if (meta) await spendSheetUse(campaignId, sourceToken, 'Sorcery Points', meta.cost);
+      if (meta || empowered) await spendSheetUse(campaignId, sourceToken, 'Sorcery Points', (meta?.cost ?? 0) + (empowered ? 1 : 0));
       // A target that rolled again with Indomitable spends the use.
       for (const [index, target] of result.targets.entries()) {
         if (target.rerolled) await spendSheetUse(campaignId, targetTokens[index], 'Indomitable');

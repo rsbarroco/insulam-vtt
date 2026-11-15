@@ -3,7 +3,8 @@
  * Spell's count and Distant Spell's range.
  */
 
-import { carefulCount, distantAction, knowsMetamagic } from '../metamagic';
+import { carefulCount, distantAction, empoweredCount, knowsMetamagic } from '../metamagic';
+import { rerollLowest } from '../damage';
 import type { CombatAction } from '../actions';
 
 describe('Metamagic', () => {
@@ -29,5 +30,30 @@ describe('Metamagic', () => {
       attack: { kind: 'ranged', bonus: 5, rangeFeet: { normal: 120, long: null }, damage: [] },
     } as unknown as CombatAction;
     expect(distantAction(bolt)?.attack?.rangeFeet).toEqual({ normal: 240, long: null });
+  });
+
+  it('knows the options asked after the roll, and rerolls as many dice as the Charisma modifier', () => {
+    const sheet = { featuresAndTraits: [{ name: 'Empowered Spell' }, { name: 'Seeking Spell' }] };
+    expect(knowsMetamagic(sheet, 'empowered')).toBe(true);
+    expect(knowsMetamagic(sheet, 'seeking')).toBe(true);
+    expect(empoweredCount({ stats: { charisma: { score: 18, modifier: 4 } } })).toBe(4);
+    expect(empoweredCount({})).toBe(1);
+  });
+
+  it('rerolls the lowest dice across the damage lines', () => {
+    const next = [9, 8];
+    const rerolled = rerollLowest(
+      [
+        { dice: [1, 6], bonus: 2, total: 9 },
+        { dice: [2], bonus: 0, total: 2 },
+      ],
+      [6, 4],
+      2,
+      () => next.shift()!
+    );
+    expect(rerolled).toEqual([
+      { dice: [9, 6], bonus: 2, total: 17 },
+      { dice: [8], bonus: 0, total: 8 },
+    ]);
   });
 });

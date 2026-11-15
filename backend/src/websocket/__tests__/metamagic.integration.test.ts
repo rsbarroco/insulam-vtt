@@ -260,7 +260,10 @@ const fireballIndex = async () => {
   return listed.actions.find((action) => action.name === 'Fireball')!.index;
 };
 
-const asSorcerer = (featureUses: Record<string, number> = {}) =>
+const asSorcerer = (
+  featureUses: Record<string, number> = {},
+  features = ['Careful Spell', 'Heightened Spell', 'Quickened Spell']
+) =>
   prisma.character.update({
     where: { id: heroCharacterId },
     data: {
@@ -269,7 +272,7 @@ const asSorcerer = (featureUses: Record<string, number> = {}) =>
         class: 'Sorcerer',
         level: 5,
         stats: { strength: { score: 10, modifier: 0 }, charisma: { score: 16, modifier: 3 } },
-        featuresAndTraits: [{ name: 'Careful Spell' }, { name: 'Heightened Spell' }, { name: 'Quickened Spell' }],
+        featuresAndTraits: features.map((name) => ({ name })),
         featureUses,
       }),
     },
@@ -320,5 +323,72 @@ describe('Metamagic', () => {
     expect((await cast([OGRE], { option: 'distant' })).error).toBe('Hero does not know Distant Spell');
     await asSorcerer({ 'Sorcery Points': 5 });
     expect((await cast([OGRE], { option: 'careful', targetIds: [OGRE] })).error).toBe('Careful Spell costs 1 Sorcery Point');
+  });
+});
+
+const answerPrompt = (choice: string | null, seen: string[] = []) =>
+  player.once('combat.prompt', (offer: { promptId: string; text: string; options: string[] }) => {
+    seen.push(...offer.options);
+    player.emit('combat.react', { promptId: offer.promptId, choice }, () => undefined);
+  });
+const fireBolt = async () => {
+  const listed = (await ask(player, 'combat.actions', { tokenId: HERO })) as unknown as {
+    actions: Array<{ index: number; name: string }>;
+  };
+  const action = listed.actions.find((entry) => entry.name === 'Fire Bolt')!.index;
+  return ask(player, 'combat.attack', { attackerId: HERO, targetId: OGRE, action });
+};
+
+describe('Metamagic asked after the roll', () => {
+  it('rerolls a missed spell attack with Seeking Spell, for 1 Sorcery Point', async () => {
+    fight();
+    await asSorcerer({}, ['Seeking Spell']);
+    const seen: string[] = [];
+    answerPrompt('Seeking Spell', seen);
+    // 2 + 6 misses AC 11; the reroll's 15 + 6 hits; 2d10 of 4s.
+    rolls = [2, 15, 4, 4];
+    const answer = await fireBolt();
+    expect(seen).toEqual(['Seeking Spell']);
+    expect(answer).toMatchObject({ ok: true, hit: true, dealt: 8 });
+    expect(await pointsSpent()).toBe(1);
+  });
+
+  it('rerolls the lowest damage dice of a hit with Empowered Spell', async () => {
+    fight();
+    await asSorcerer({}, ['Empowered Spell']);
+    answerPrompt('Empowered Spell');
+    // 15 + 6 hits; 2d10 rolls 1 and 3; Charisma +3 rerolls both, to 10 and 9.
+    rolls = [15, 1, 3, 10, 9];
+    const answer = await fireBolt();
+    expect(answer).toMatchObject({ ok: true, hit: true, dealt: 19 });
+    expect(answer.summary).toContain('Empowered Spell');
+    expect(await pointsSpent()).toBe(1);
+  });
+
+  it('rerolls the lowest damage dice of a save spell with Empowered Spell', async () => {
+    fight();
+    await asSorcerer({}, ['Empowered Spell']);
+    answerPrompt('Empowered Spell');
+    // 8d6 of 1s, the ogre fails with 2; three dice come up 6 again: 5 + 18 = 23.
+    rolls = [...eightOnes, 2, 6, 6, 6];
+    const answer = await ask(player, 'combat.save', {
+      sourceId: HERO,
+      targetIds: [OGRE],
+      action: await fireballIndex(),
+      slotLevel: 3,
+    });
+    expect(answer.targets?.[0]).toMatchObject({ saved: false, dealt: 23 });
+    expect(answer.summary).toContain('Empowered Spell');
+    expect(await pointsSpent()).toBe(1);
+  });
+
+  it('spends nothing when the player declines', async () => {
+    fight();
+    await asSorcerer({}, ['Empowered Spell']);
+    answerPrompt(null);
+    rolls = [15, 1, 3];
+    const answer = await fireBolt();
+    expect(answer).toMatchObject({ ok: true, hit: true, dealt: 4 });
+    expect(await pointsSpent()).toBe(0);
   });
 });
