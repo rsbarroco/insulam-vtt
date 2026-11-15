@@ -1,8 +1,9 @@
 /**
- * A Cleric's Divine Spark over the socket: offered among the sheet's actions
- * while Channel Divinity has a use left, it heals another creature within 30
+ * A Cleric's Channel Divinity over the socket: offered among the sheet's
+ * actions while a use is left. Divine Spark heals another creature within 30
  * feet (combat.heal) or calls for its Constitution save against Radiant or
- * Necrotic damage (combat.save), and spends the use.
+ * Necrotic damage (combat.save); Turn Undead calls for an Undead's Wisdom save
+ * or turns it. Each spends the use.
  *
  * The fixtures are those of areaPoint.integration.test.ts.
  *
@@ -14,7 +15,7 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { prisma } from '../../config/database';
 import { toJson } from '../../utils/prisma-json';
 import { createWsTestServer, WsTestServer } from '../../__tests__/helpers/websocket-test-server';
-import { clearState, setState, type CombatantEntry } from '../initiativeState';
+import { clearState, getState, setState, type CombatantEntry } from '../initiativeState';
 import * as d20 from '../../rules/dnd/d20';
 
 jest.setTimeout(20000);
@@ -308,3 +309,47 @@ describe('Divine Spark', () => {
     expect((await actionsNamed())('Divine Spark (Radiant)')).toBeUndefined();
   });
 });
+
+describe('Turn Undead', () => {
+  const undeadOgre = () =>
+    prisma.map.update({
+      where: { id: mapId },
+      data: { tokens: toJson(freshTokens().map((t) => (t.id === OGRE ? { ...t, statBlock: { ...ogreBlock, creatureType: 'Large Undead' } } : t))) },
+    });
+  const ogre = async () =>
+    ((await prisma.map.findUnique({ where: { id: mapId } }))!.tokens as Array<{ id: string; conditions?: string[] }>).find((t) => t.id === OGRE)!;
+
+  it('turns an Undead that fails its Wisdom save, until it takes damage', async () => {
+    fight();
+    await asCleric();
+    await undeadOgre();
+    const index = (await actionsNamed())('Turn Undead');
+    // The ogre's save: 5 - 2 = 3 against DC 14.
+    rolls = [5];
+    const turned = await ask(player, 'combat.save', { sourceId: HERO, targetIds: [OGRE], action: index });
+    expect(turned.summary).toContain('Ogre is turned: Frightened and Incapacitated for 1 minute, or until it takes damage');
+    expect((await ogre()).conditions).toEqual(expect.arrayContaining(['Frightened', 'Incapacitated']));
+    expect(getState(campaignId).marks).toContainEqual(expect.objectContaining({ kind: 'condition', targetId: OGRE, action: 'Turn Undead', turnEndsLeft: 10 }));
+    expect(await usesSpent()).toBe(1);
+
+    // The ally's greatclub hits it: it is no longer turned.
+    const greatclub = ((await ask(dm, 'combat.actions', { tokenId: ALLY })) as unknown as { actions: Array<{ index: number; name: string }> }).actions.find(
+      (action) => action.name === 'Greatclub'
+    )!.index;
+    rolls = [15, 5, 5];
+    const hit = await ask(dm, 'combat.attack', { attackerId: ALLY, targetId: OGRE, action: greatclub });
+    expect(hit.summary).toContain('Ogre is no longer turned');
+    expect((await ogre()).conditions ?? []).not.toContain('Frightened');
+    expect((await ogre()).conditions ?? []).not.toContain('Incapacitated');
+  });
+
+  it('chooses Undead only', async () => {
+    fight();
+    await asCleric();
+    const index = (await actionsNamed())('Turn Undead');
+    expect((await ask(player, 'combat.save', { sourceId: HERO, targetIds: [OGRE], action: index })).error).toBe(
+      'Ogre is not an Undead, which Turn Undead turns'
+    );
+  });
+});
+

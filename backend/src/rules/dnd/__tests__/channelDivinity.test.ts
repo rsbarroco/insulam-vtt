@@ -1,8 +1,8 @@
 /**
- * Divine Spark: its dice by Cleric level, and the ways a sheet offers it.
+ * Channel Divinity: Divine Spark's dice by Cleric level, and the ways a sheet offers it and Turn Undead.
  */
 
-import { divineSparkActions, divineSparkDice } from '../channelDivinity';
+import { channelDivinityActions, divineSparkDice } from '../channelDivinity';
 
 const cleric = (level: number, featureUses: Record<string, number> = {}) => ({
   class: 'Cleric',
@@ -18,16 +18,21 @@ describe('Divine Spark', () => {
   });
 
   it('is offered as healing, Radiant and Necrotic while Channel Divinity has a use left', () => {
-    const actions = divineSparkActions(cleric(7));
-    expect(actions.map((action) => action.name)).toEqual(['Divine Spark (healing)', 'Divine Spark (Radiant)', 'Divine Spark (Necrotic)']);
+    const actions = channelDivinityActions(cleric(7));
+    expect(actions.map((action) => action.name)).toEqual(['Divine Spark (healing)', 'Divine Spark (Radiant)', 'Divine Spark (Necrotic)', 'Turn Undead']);
     expect(actions[0].heal).toEqual({ roll: { count: 2, sides: 8 }, bonus: 3 });
     expect(actions[1].save).toEqual({ ability: 'con', dc: 13, halfOnSuccess: true, damage: [{ roll: { count: 2, sides: 8, bonus: 3 }, type: 'radiant' }] });
     expect(actions.every((action) => action.rangeFeet === 30 && action.channel === 'Channel Divinity')).toBe(true);
   });
 
+  it('offers Turn Undead, a Wisdom save for Undead only', () => {
+    const turn = channelDivinityActions(cleric(2)).find((action) => action.name === 'Turn Undead')!;
+    expect(turn).toMatchObject({ onlyCreatureType: 'undead', rangeFeet: 30, save: { ability: 'wis', dc: 13, halfOnSuccess: false, damage: [] } });
+  });
+
   it('is not offered to a Cleric below level 2, another class, or with no use left', () => {
-    expect(divineSparkActions(cleric(1))).toEqual([]);
-    expect(divineSparkActions({ ...cleric(5), class: 'Wizard' })).toEqual([]);
-    expect(divineSparkActions(cleric(2, { 'Channel Divinity': 2 }))).toEqual([]);
+    expect(channelDivinityActions(cleric(1))).toEqual([]);
+    expect(channelDivinityActions({ ...cleric(5), class: 'Wizard' })).toEqual([]);
+    expect(channelDivinityActions(cleric(2, { 'Channel Divinity': 2 }))).toEqual([]);
   });
 });
