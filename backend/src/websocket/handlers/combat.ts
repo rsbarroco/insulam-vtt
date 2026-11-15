@@ -49,7 +49,7 @@ import { deflectReduction } from '../../rules/dnd/reactions';
 import { answerPrompt, askReaction } from '../reactionPrompts';
 import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
 import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
-import { divineSparkActions } from '../../rules/dnd/channelDivinity';
+import { channelDivinityActions, TURN_UNDEAD_TURNS } from '../../rules/dnd/channelDivinity';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
@@ -154,7 +154,7 @@ async function sheetOf(token: Token, campaignId: string): Promise<Record<string,
 /** A token's actions: its character's attacks and spells, or its stat block's. */
 function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatAction[] {
   const own = sheet
-    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...spellActionsFromSheet(sheet as SheetSpellcasting), ...divineSparkActions(sheet)]
+    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...spellActionsFromSheet(sheet as SheetSpellcasting), ...channelDivinityActions(sheet)]
     : token.statBlock
       ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0])
       : [];
@@ -303,6 +303,10 @@ async function applyDealt(
     }
   }
   notes.push(...keepConcentration(campaignId, after));
+  // Turn Undead ends for a creature that takes damage.
+  for (const { token, dealt } of after) {
+    if (dealt > 0) notes.push(...(await endTurned(io, campaignId, mapId, token)));
+  }
   if (onTokens.size === 0) return notes;
   const updated = await withMapsLocked([mapId], async (tx) => {
     const fresh = await tx.map.findUnique({ where: { id: mapId } });
@@ -1170,6 +1174,17 @@ function concentrationOf(campaignId: string, tokenId: string): string | null {
 }
 
 /** A creature concentrates on a spell, ending its concentration on any other. */
+/** A creature that takes damage stops being turned: the conditions Turn Undead gave it come off. */
+async function endTurned(io: Server, campaignId: string, mapId: string, token: Token): Promise<string[]> {
+  const combat = getCombatState(campaignId);
+  const turned = combat.marks.filter((mark) => mark.kind === 'condition' && mark.targetId === token.id && mark.action === 'Turn Undead');
+  if (turned.length === 0) return [];
+  combat.marks = combat.marks.filter((mark) => !turned.includes(mark));
+  setCombatState(campaignId, combat);
+  for (const mark of turned) await takeCondition(io, campaignId, mapId, token.id, mark.condition!);
+  return [`${token.name} is no longer turned`];
+}
+
 /** Hunter's Mark, as a sheet names it. */
 const HUNTERS_MARK = /^hunter[’']?s mark$/i;
 
@@ -2769,6 +2784,12 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       let action = cast.action;
       if (!action.save) return refuseRequest(socket, ack, `${action.name} calls for no saving throw the VTT can make`);
       if (action.channel && targetIds.includes(sourceId)) return refuseRequest(socket, ack, `${action.name} is aimed at another creature`);
+      // Turn Undead chooses Undead only.
+      if (action.onlyCreatureType) {
+        const wanted = new RegExp(`\\b${action.onlyCreatureType}\\b`, 'i');
+        const other = targetTokens.find((token) => !wanted.test(((token.statBlock ?? {}) as { creatureType?: string }).creatureType ?? ''));
+        if (other) return refuseRequest(socket, ack, `${other.name} is not an Undead, which ${action.name} turns`);
+      }
       // An area aimed at an empty square: the square must be within the action's range.
       if (point) {
         if (!action.area) return refuseRequest(socket, ack, `${action.name} has no area to aim at a square`);
@@ -2873,6 +2894,25 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           if (!target.outcome.success && !target.dropped) riders.push(
             ...(await applyRiders(io, campaignId, map.id, sourceToken, targetTokens[index], written, action.save ? { ability: action.save.ability, dc: action.save.dc } : undefined))
           );
+        }
+      }
+      // Turn Undead: an Undead that fails is Frightened and Incapacitated for 1 minute, or until it takes damage.
+      if (action.onlyCreatureType && action.channel) {
+        for (const [index, target] of result.targets.entries()) {
+          if (target.outcome.success || target.dropped) continue;
+          const turned = targetTokens[index];
+          for (const condition of ['Frightened', 'Incapacitated']) {
+            await giveCondition(io, campaignId, map.id, turned.id, condition);
+            const now = getCombatState(campaignId);
+            if (now.active) {
+              now.marks = [
+                ...now.marks.filter((mark) => !(mark.kind === 'condition' && mark.targetId === turned.id && mark.condition === condition)),
+                { kind: 'condition', attackerId: sourceId, targetId: turned.id, condition, ends: 'end', turnEndsLeft: TURN_UNDEAD_TURNS, action: action.name },
+              ];
+              setCombatState(campaignId, now);
+            }
+          }
+          riders.push(`${turned.name} is turned: Frightened and Incapacitated for 1 minute, or until it takes damage`);
         }
       }
       // What a failed save against an Unarmed Strike leaves the target with.
