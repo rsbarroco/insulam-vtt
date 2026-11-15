@@ -78,6 +78,8 @@ export interface CombatAction {
   recharge?: number;
   /** A healing spell: the dice it restores and the bonus added (the caster's spellcasting modifier). */
   heal?: { roll: { count: number; sides: number }; bonus: number };
+  /** A class feature with uses it spends, when one is resolved: Divine Spark spends Channel Divinity. */
+  channel?: 'Channel Divinity';
 }
 
 /**

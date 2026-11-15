@@ -49,6 +49,7 @@ import { deflectReduction } from '../../rules/dnd/reactions';
 import { answerPrompt, askReaction } from '../reactionPrompts';
 import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
 import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
+import { divineSparkActions } from '../../rules/dnd/channelDivinity';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
@@ -153,7 +154,7 @@ async function sheetOf(token: Token, campaignId: string): Promise<Record<string,
 /** A token's actions: its character's attacks and spells, or its stat block's. */
 function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatAction[] {
   const own = sheet
-    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...spellActionsFromSheet(sheet as SheetSpellcasting)]
+    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...spellActionsFromSheet(sheet as SheetSpellcasting), ...divineSparkActions(sheet)]
     : token.statBlock
       ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0])
       : [];
@@ -2614,6 +2615,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
       };
       const reach = action.rangeFeet ?? 5;
+      // Divine Spark is aimed at another creature.
+      if (action.channel && target.id === caster.id) return refuseRequest(socket, ack, `${action.name} is aimed at another creature`);
       if (target.id !== caster.id && distanceFeet(standing(caster), standing(target), board) > reach) {
         return refuseRequest(socket, ack, `${target.name} is beyond the ${reach} ft range of ${action.name}`);
       }
@@ -2629,13 +2632,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
       const rolled = rollDamage({ count: heal.roll.count, sides: heal.roll.sides, bonus: heal.bonus });
       await healToken(io, campaignId, map.id, target, rolled.total);
+      if (action.channel) await spendSheetUse(campaignId, caster, action.channel);
       if (action.cost === 'bonusAction') {
         if (ownTurn) spendBonusAction(campaignId, casterId);
         await resendInitiativeState(io, campaignId);
       } else await spendAction(io, campaignId, casterId, 'Magic');
 
       const expression = `${heal.roll.count}d${heal.roll.sides}${heal.bonus < 0 ? '-' : '+'}${Math.abs(heal.bonus)}`;
-      const summary = `${action.name} (level ${cast.slotLevel ?? action.spell?.level ?? 0}): ${target.name} regains ${rolled.total} Hit Points`;
+      const summary = action.channel
+        ? `${action.name}, a use of ${action.channel}: ${target.name} regains ${rolled.total} Hit Points`
+        : `${action.name} (level ${cast.slotLevel ?? action.spell?.level ?? 0}): ${target.name} regains ${rolled.total} Hit Points`;
       await logRoll(
         io,
         socket,
@@ -2762,6 +2768,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
       let action = cast.action;
       if (!action.save) return refuseRequest(socket, ack, `${action.name} calls for no saving throw the VTT can make`);
+      if (action.channel && targetIds.includes(sourceId)) return refuseRequest(socket, ack, `${action.name} is aimed at another creature`);
       // An area aimed at an empty square: the square must be within the action's range.
       if (point) {
         if (!action.area) return refuseRequest(socket, ack, `${action.name} has no area to aim at a square`);
@@ -2845,6 +2852,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       spendRecharge(campaignId, sourceId, action);
+      if (action.channel) await spendSheetUse(campaignId, sourceToken, action.channel);
       // A target that rolled again with Indomitable spends the use.
       for (const [index, target] of result.targets.entries()) {
         if (target.rerolled) await spendSheetUse(campaignId, targetTokens[index], 'Indomitable');
@@ -2890,7 +2898,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         spendLegendary(campaignId, sourceId);
         await resendInitiativeState(io, campaignId);
       } else if (action.unarmed) await spendAction(io, campaignId, sourceId, 'Attack', true);
-      else await spendAction(io, campaignId, sourceId, action.source === 'spell' ? 'Magic' : action.name);
+      else await spendAction(io, campaignId, sourceId, action.source === 'spell' || action.channel ? 'Magic' : action.name);
       const secret = hiddenFromPlayers(sourceToken) || targetTokens.some(hiddenFromPlayers);
       await logRoll(io, socket, campaignId, saveBreakdown(result, action), sourceToken.name, summary, secret);
       commitUndo(campaignId, undo, summary);
