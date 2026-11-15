@@ -1693,6 +1693,8 @@ export interface CombatActionSummary {
   } | null;
   /** The extra attacks the weapon can be made as: Cleave after a hit, or the Light weapon's extra attack. */
   extras?: CombatExtraAttack[];
+  /** How many attack rolls one casting makes (Eldritch Blast's beams), when more than one. */
+  beams?: number;
   /** A "(Recharge 5–6)" action: the lowest d6 roll that gives it back, and whether it is ready now. */
   recharge?: { min: number; ready: boolean };
   /** A stat block's Multiattack: how many attacks, and which actions (by index) each may be. */

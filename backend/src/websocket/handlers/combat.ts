@@ -51,6 +51,7 @@ import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
 import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
 import { channelDivinityActions, TURN_UNDEAD_TURNS } from '../../rules/dnd/channelDivinity';
 import { wildShapeForms, wildShapeOf, wildShapeTemporaryHitPoints } from '../../rules/dnd/wildShape';
+import { repels, withInvocations } from '../../rules/dnd/invocations';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
@@ -138,6 +139,7 @@ function summarizeAction(action: CombatAction, index: number, slots: Record<numb
         }
       : null,
     ...(extrasOf(action).length > 0 ? { extras: extrasOf(action) } : {}),
+    ...(action.beams && action.beams > 1 ? { beams: action.beams } : {}),
   };
 }
 
@@ -159,7 +161,7 @@ function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatA
   const own = form
     ? actionsFromStatBlock(form.statBlock as unknown as Parameters<typeof actionsFromStatBlock>[0])
     : sheet
-    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...spellActionsFromSheet(sheet as SheetSpellcasting), ...channelDivinityActions(sheet)]
+    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...withInvocations(sheet, spellActionsFromSheet(sheet as SheetSpellcasting)), ...channelDivinityActions(sheet)]
     : token.statBlock
       ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0])
       : [];
@@ -1974,6 +1976,23 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         } else if (cunning === 'withdraw') {
           cunningLines.push(`Cunning Strike (Withdraw): ${attackerToken.name} may move up to half its Speed without provoking Opportunity Attacks`);
         }
+      }
+      // Repelling Blast: a hit with the cantrip may push a Large or smaller creature 10 feet; the Warlock's player is asked.
+      if (
+        attackerSheet &&
+        result.outcome.hit &&
+        !result.dropped &&
+        repels(attackerSheet, action) &&
+        Math.max(targetToken.size?.width ?? 1, targetToken.size?.height ?? 1) <= 2 &&
+        (await askReaction(io, campaignId, {
+          token: attackerToken,
+          text: `${attackerToken.name}'s ${action.name} hits ${targetToken.name}.`,
+          options: ['Repelling Blast'],
+        })) === 'Repelling Blast'
+      ) {
+        const squares = Math.max(1, Math.round(10 / (map.feetPerSquare || 5)));
+        const moved = await pushToken(io, campaignId, map, attackerToken, targetToken, squares);
+        cunningLines.push(moved ? `Repelling Blast: ${targetToken.name} is pushed 10 ft` : `Repelling Blast: ${targetToken.name} has nowhere to be pushed`);
       }
       // Brutal Strike: used with the roll; on a hit, its effect.
       const brutalLines: string[] = [];

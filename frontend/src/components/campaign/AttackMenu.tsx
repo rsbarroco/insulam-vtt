@@ -263,6 +263,30 @@ export default function AttackMenu({
     onResolved({ ok: true, summary: lines.join(' · '), landed });
   };
 
+  /** Every beam of a cantrip such as Eldritch Blast at the target, one attack roll after another. */
+  const makeBeams = async (action: CombatActionSummary) => {
+    setBusy(true);
+    const lines: string[] = [];
+    let landed = false;
+    for (let beam = 0; beam < (action.beams ?? 1); beam += 1) {
+      const answer = await socket.resolveAttack({
+        attackerId: attacker.id,
+        targetId: target.id,
+        action: action.index,
+        ...(mode !== 'normal' ? { mode } : {}),
+      });
+      if (!answer.ok) {
+        setBusy(false);
+        onResolved(lines.length > 0 ? { ok: true, summary: [...lines, answer.error].join(' · '), landed } : answer);
+        return;
+      }
+      lines.push(answer.summary);
+      landed = landed || answer.hit;
+    }
+    setBusy(false);
+    onResolved({ ok: true, summary: lines.join(' · '), landed });
+  };
+
   /** Who a save effect is rolled for: everyone its area catches, or the creature aimed at. */
   const targetsOf = (action: CombatActionSummary): string[] => {
     const area = action.save?.area;
@@ -439,6 +463,20 @@ export default function AttackMenu({
                     busy={busy}
                     onMake={(extra) => void make(action, undefined, extra)}
                   />
+                  {action.beams && action.beams > 1 && (
+                    <span className="flex px-2 pb-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        title={`${action.name} makes ${action.beams} beams: a separate attack roll each. Fire them all at ${target.name}, or one at a time with the row above.`}
+                        onClick={() => void makeBeams(action)}
+                      >
+                        All {action.beams} beams
+                      </Button>
+                    </span>
+                  )}
                   {action.attack && action.spell === null && (
                     <span className="flex px-2 pb-1">
                       <Button
