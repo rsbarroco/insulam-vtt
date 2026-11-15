@@ -110,6 +110,7 @@ export const CombatFeatureSchema = z
       'Flurry of Blows',
       'Patient Defense',
       'Step of the Wind',
+      'End Wild Shape',
     ]),
     /** Cunning Action: the action it takes as a Bonus Action (Hide is `combat.check` with `bonusAction`). */
     as: z.enum(['Dash', 'Disengage']).optional(),
@@ -119,6 +120,8 @@ export const CombatFeatureSchema = z
     amount: z.number().int().min(1).max(100).optional(),
     /** Lay on Hands: the creature touched, the user itself when left out. */
     targetId: tokenId.optional(),
+    /** Wild Shape: the Beast whose form the Druid takes, by name. */
+    form: z.string().trim().min(1).max(60).optional(),
     /** Lay on Hands: spend 5 points to end the Poisoned condition instead of healing. */
     cure: z.literal('Poisoned').optional(),
   })

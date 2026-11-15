@@ -50,6 +50,7 @@ import { answerPrompt, askReaction } from '../reactionPrompts';
 import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
 import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
 import { channelDivinityActions, TURN_UNDEAD_TURNS } from '../../rules/dnd/channelDivinity';
+import { wildShapeForms, wildShapeOf, wildShapeTemporaryHitPoints } from '../../rules/dnd/wildShape';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
@@ -153,7 +154,11 @@ async function sheetOf(token: Token, campaignId: string): Promise<Record<string,
 
 /** A token's actions: its character's attacks and spells, or its stat block's. */
 function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatAction[] {
-  const own = sheet
+  // In a Wild Shape form the Beast's actions are the creature's, and it casts no spells.
+  const form = wildShapeOf(token);
+  const own = form
+    ? actionsFromStatBlock(form.statBlock as unknown as Parameters<typeof actionsFromStatBlock>[0])
+    : sheet
     ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...spellActionsFromSheet(sheet as SheetSpellcasting), ...channelDivinityActions(sheet)]
     : token.statBlock
       ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0])
@@ -208,11 +213,15 @@ function combatant(token: Token, sheet: Record<string, unknown> | null, dodging:
   return {
     name: token.name,
     standing: standing(token),
-    armorClass: sheet ? sheetAc : blockAc,
+    armorClass: wildShapeOf(token)?.statBlock.ac ?? (sheet ? sheetAc : blockAc),
     hp: sheet ? extractCharacterHp(DND, sheet) : (token.hp ?? null),
     conditions: [...(token.conditions ?? []), ...(dodging.includes(token.id) ? [DODGING] : []), ...(raging ? [RAGING] : [])],
     exhaustion,
-    scores: sheet ? { str: scoreOf(sheet, 'strength'), dex: scoreOf(sheet, 'dexterity') } : undefined,
+    scores: (() => {
+      const form = wildShapeOf(token);
+      if (form) return { str: form.statBlock.abilities.str, dex: form.statBlock.abilities.dex };
+      return sheet ? { str: scoreOf(sheet, 'strength'), dex: scoreOf(sheet, 'dexterity') } : undefined;
+    })(),
     defences: raging ? withRageResistance(own) : own,
     ...(sheet && hasLuck(sheet) ? { lucky: true } : {}),
     ...(features.length > 0 && hasFeature(features, 'Danger Sense') ? { dangerSense: true } : {}),
@@ -1084,7 +1093,12 @@ function saveBonusOf(token: Token, sheet: Record<string, unknown> | null, abilit
   if (sheet) {
     const saves = sheet.savingThrows as Record<string, { bonus?: unknown } | undefined> | undefined;
     const bonus = saves?.[full]?.bonus;
-    return typeof bonus === 'number' ? bonus : null;
+    const own = typeof bonus === 'number' ? bonus : null;
+    // In a Wild Shape form, a physical save uses the better of the Druid's and the Beast's.
+    const form = PHYSICAL.includes(ability) ? wildShapeOf(token) : null;
+    if (!form) return own;
+    const beast = saveBonusOf({ ...token, metadata: {}, statBlock: form.statBlock as unknown as Record<string, unknown> }, null, ability);
+    return own === null ? beast : beast === null ? own : Math.max(own, beast);
   }
   const block = token.statBlock as
     | { savingThrows?: Record<string, number>; attributeModifiers?: Record<string, number>; abilities?: Record<string, number> }
@@ -1101,8 +1115,14 @@ function saveBonusOf(token: Token, sheet: Record<string, unknown> | null, abilit
   return typeof score === 'number' ? Math.floor((score - 10) / 2) : null;
 }
 
+/** The scores a Wild Shape form replaces. */
+const PHYSICAL: readonly Ability[] = ['str', 'dex', 'con'];
+
 /** A creature's ability modifier, from its sheet's stats or its stat block's scores. Null when neither gives one. */
 function abilityModifierOf(token: Token, sheet: Record<string, unknown> | null, ability: Ability): number | null {
+  // In a Wild Shape form, the physical scores are the Beast's.
+  const form = PHYSICAL.includes(ability) ? wildShapeOf(token) : null;
+  if (form) return Math.floor((form.statBlock.abilities[ability as 'str' | 'dex' | 'con'] - 10) / 2);
   if (sheet) {
     const stat = (sheet.stats as Record<string, { score?: unknown; modifier?: unknown } | undefined> | undefined)?.[ABILITY_FULL[ability]];
     if (typeof stat?.modifier === 'number') return stat.modifier;
@@ -1174,6 +1194,43 @@ function concentrationOf(campaignId: string, tokenId: string): string | null {
 }
 
 /** A creature concentrates on a spell, ending its concentration on any other. */
+/** Keep the Beast a token has taken the form of in its metadata (null to leave it), and tell the table. */
+async function setWildShape(io: Server, campaignId: string, map: { id: string }, tokenId: string, form: string | null): Promise<void> {
+  const updated = await withMapsLocked([map.id], async (tx) => {
+    const fresh = await tx.map.findUnique({ where: { id: map.id } });
+    if (!fresh) return null;
+    const list = readTokens(fresh.tokens);
+    const token = list.find((t) => t.id === tokenId);
+    if (!token) return null;
+    const metadata = { ...(token.metadata ?? {}) };
+    if (form) metadata.wildShape = form;
+    else delete metadata.wildShape;
+    token.metadata = metadata;
+    return tx.map.update({ where: { id: map.id }, data: { tokens: toJson(list) } });
+  });
+  if (updated) await bestEffort('map after Wild Shape', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
+}
+
+/** A character gains Temporary Hit Points: they do not add up, so it keeps the larger. What it has after comes back. */
+async function giveTemporaryHitPoints(io: Server, campaignId: string, characterId: string, amount: number): Promise<number> {
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+    const fresh = await tx.character.findUnique({ where: { id: characterId } });
+    if (!fresh) return null;
+    const sheet = (fresh.data ?? {}) as Record<string, unknown>;
+    const hp = (sheet.hp ?? {}) as { current?: number; maximum?: number; temporary?: number };
+    const temporary = Math.max(typeof hp.temporary === 'number' ? hp.temporary : 0, amount);
+    return tx.character.update({ where: { id: characterId }, data: { data: toJson({ ...sheet, hp: { ...hp, temporary } }) } });
+  });
+  if (!updated) return 0;
+  const hp = extractCharacterHp(DND, (updated.data ?? {}) as Record<string, unknown>);
+  if (hp) io.to(campaignId).emit('character.hp.updated', { characterId, hp });
+  await bestEffort('sheet after Temporary Hit Points', () =>
+    emitCharacterUpdated(campaignId, updated, { characterId, userId: updated.userId, tokensChanged: false })
+  );
+  return hp?.temp ?? amount;
+}
+
 /** A creature that takes damage stops being turned: the conditions Turn Undead gave it come off. */
 async function endTurned(io: Server, campaignId: string, mapId: string, token: Token): Promise<string[]> {
   const combat = getCombatState(campaignId);
@@ -1450,6 +1507,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           reckless: sheet ? hasFeature(features, 'Reckless Attack') : false,
           // A Barbarian's Brutal Strike, on a turn it attacks recklessly.
           brutalStrike: sheet ? hasFeature(features, 'Brutal Strike') : false,
+          // A Druid's Wild Shape: the Beasts it can take the form of, and the form it is in.
+          wildShapeForms: sheet ? wildShapeForms(sheet) : [],
+          wildShape: wildShapeOf(token)?.name ?? null,
           // A Rogue's Cunning Strike effects it can use: Poison only with a Poisoner's Kit.
           cunningStrike:
             sheet && hasFeature(features, 'Cunning Strike')
@@ -2229,7 +2289,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` and `Wild Shape` (Bonus Actions), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` (a Bonus Action), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Wild Shape` (a Bonus Action) takes the `form` of a Beast the Druid's level allows: the form is kept on the token, the character gains Temporary Hit Points equal to its Druid level, and the Beast's actions, Armor Class and physical scores become its own until `End Wild Shape`. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2239,7 +2299,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.feature', ack)) return;
       const parsed = CombatFeatureSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { tokenId, feature, amount, targetId, cure, as, focus } = parsed.data;
+      const { tokenId, feature, amount, targetId, cure, as, focus, form } = parsed.data;
       if ((targetId !== undefined || cure !== undefined) && feature !== 'Lay on Hands') {
         return refuseRequest(socket, ack, 'Only Lay on Hands takes a target');
       }
@@ -2259,6 +2319,35 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const combat = getCombatState(campaignId);
       const ownTurn = someoneActing(combat) && combat.currentTokenId === tokenId && combat.turn !== null;
+      // Wild Shape: a Bonus Action that takes a Beast's form, with Temporary Hit Points; or leaves it.
+      if (feature === 'Wild Shape' || feature === 'End Wild Shape') {
+        if (ownTurn && combat.turn!.bonusAction) return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
+        const shaped = wildShapeOf(token);
+        if (feature === 'End Wild Shape') {
+          if (!shaped) return refuseRequest(socket, ack, `${token.name} is in no Wild Shape form`);
+          await setWildShape(io, campaignId, map, tokenId, null);
+          if (ownTurn) spendBonusAction(campaignId, tokenId);
+          await resendInitiativeState(io, campaignId);
+          const summary = `${token.name} leaves the form of the ${shaped.name}`;
+          ack?.({ ok: true, summary, left: 0 });
+          return;
+        }
+        const uses = resourcesOf(ownSheet).find((entry) => entry.name === 'Wild Shape');
+        if (!uses) return refuseRequest(socket, ack, `${token.name}: The sheet has no Wild Shape`);
+        if (!form) return refuseRequest(socket, ack, 'Name the Beast whose form to take');
+        const chosen = wildShapeForms(ownSheet).find((name) => name.toLowerCase() === form.toLowerCase());
+        if (!chosen) return refuseRequest(socket, ack, `${token.name} cannot take the form of ${form}`);
+        if (uses.used >= uses.max) return refuseRequest(socket, ack, 'No uses of Wild Shape left until a rest');
+        await spendSheetUse(campaignId, token, 'Wild Shape');
+        await setWildShape(io, campaignId, map, tokenId, chosen);
+        const temporary = await giveTemporaryHitPoints(io, campaignId, characterId, wildShapeTemporaryHitPoints(ownSheet));
+        if (ownTurn) spendBonusAction(campaignId, tokenId);
+        await resendInitiativeState(io, campaignId);
+        const left = uses.max - uses.used - 1;
+        const summary = `${token.name} takes the form of the ${chosen}${temporary > 0 ? ` (${temporary} Temporary Hit Points)` : ''}, ${left} ${left === 1 ? 'use' : 'uses'} of Wild Shape left`;
+        ack?.({ ok: true, summary, left });
+        return;
+      }
       if (feature === 'End Rage') {
         if (!isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is not raging`);
         const now = getCombatState(campaignId);
@@ -2274,7 +2363,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is already raging`);
       }
       const bonusAction =
-        feature === 'Second Wind' || feature === 'Rage' || feature === 'Bardic Inspiration' || feature === 'Wild Shape' || feature === 'Lay on Hands' ||
+        feature === 'Second Wind' || feature === 'Rage' || feature === 'Bardic Inspiration' || feature === 'Lay on Hands' ||
         feature === 'Cunning Action' || feature === 'Flurry of Blows' || feature === 'Patient Defense' || feature === 'Step of the Wind';
       if (bonusAction && ownTurn && combat.turn!.bonusAction) {
         return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);

@@ -33,6 +33,7 @@ import Button from '@/components/ui/Button';
 import CheckRoller from './CheckRoller';
 import LayOnHands from './LayOnHands';
 import ConcentrationControl from './ConcentrationControl';
+import WildShapeControl from './WildShapeControl';
 import TurnFeatures from './TurnFeatures';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
@@ -40,17 +41,15 @@ import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 const COUNTED_FEATURES = [
   'Bardic Inspiration',
   'Channel Divinity',
-  'Wild Shape',
   'Focus Points',
   'Sorcery Points',
   'Favored Enemy',
 ] as const satisfies readonly CombatFeatureName[];
 type CountedFeature = (typeof COUNTED_FEATURES)[number];
-const BONUS_ACTION_FEATURES: readonly string[] = ['Bardic Inspiration', 'Wild Shape'];
+const BONUS_ACTION_FEATURES: readonly string[] = ['Bardic Inspiration'];
 const COUNTED_TITLES: Record<CountedFeature, string> = {
   'Bardic Inspiration': 'A Bonus Action: a creature within 60 feet gains your Bardic Inspiration die.',
   'Channel Divinity': 'One use of Channel Divinity. One back on a Short Rest, all on a Long Rest.',
-  'Wild Shape': 'A Bonus Action: take a beast form. One back on a Short Rest, all on a Long Rest.',
   'Focus Points': 'Spend one Focus Point. All back on a Short or Long Rest.',
   'Sorcery Points': 'Spend one Sorcery Point. All back on a Long Rest.',
   'Favored Enemy': "Cast Hunter's Mark without a spell slot. All back on a Long Rest.",
@@ -76,6 +75,8 @@ export default function TurnBar() {
     passivePerception: number | null;
     resources: CombatResource[];
     concentrationSpells: string[];
+    wildShapeForms: string[];
+    wildShape: string | null;
   } | null>(null);
   // Asked again after a feature is used, so its uses left are the sheet's.
   const [listed, setListed] = useState(0);
@@ -105,6 +106,8 @@ export default function TurnBar() {
               passivePerception: answer.passivePerception ?? null,
               resources: answer.resources ?? [],
               concentrationSpells: answer.concentrationSpells ?? [],
+              wildShapeForms: answer.wildShapeForms ?? [],
+              wildShape: answer.wildShape ?? null,
             }
           : null
       );
@@ -395,6 +398,24 @@ export default function TurnBar() {
         />
       )}
 
+
+      {canAct && known && (known.wildShapeForms.length > 0 || known.wildShape) && (
+        <WildShapeControl
+          key={`${actingId}:${known.wildShape ?? ''}`}
+          forms={known.wildShapeForms}
+          current={known.wildShape}
+          uses={resource('Wild Shape')}
+          bonusActionSpent={turn.bonusAction}
+          change={async (form) => {
+            const answer = form
+              ? await socket.useFeature(actingId, 'Wild Shape', undefined, undefined, { form })
+              : await socket.useFeature(actingId, 'End Wild Shape');
+            if (answer.ok) setListed((count) => count + 1);
+            return answer;
+          }}
+          onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
+        />
+      )}
 
       {canAct && (
         <ConcentrationControl
