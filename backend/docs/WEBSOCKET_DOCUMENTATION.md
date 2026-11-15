@@ -885,6 +885,14 @@ An `initiative.request_state` while nothing is in the order is answered from mem
 **Eldritch Blast and invocations.** A sheet's Eldritch Blast is listed in `combat.actions` with `beams` set by the character's level: 2 from level 5, 3 from 11, 4 from 17. Each beam is its own `combat.attack`. A feature named Agonizing Blast adds the Charisma modifier to the damage of the cantrip it names in brackets, Eldritch Blast by default (a bracketed class and level names none). With Repelling Blast for that cantrip, a hit on a Large or smaller creature asks the attacker (`combat.prompt`, option `Repelling Blast`). Taking it pushes the target 10 ft straight away and adds `Repelling Blast: <name> is pushed 10 ft` to the summary.
 
 **Arcane Recovery.** `combat.rest` with `kind: 'shortFinish'` takes `recover`: the levels of the expended slots a Wizard recovers, one entry per slot, and only with that kind. They must add up to no more than half the Wizard level (rounded up), none of level 6 or higher, each one expended. The feature works once until a Long Rest; the sheet lists it as the resource `Arcane Recovery`. The summary adds `Arcane Recovery: N spell slots recovered (level …)`. A refusal changes nothing, not even the rest's other gains.
+
+**Metamagic.** `combat.actions` gives `metamagic`: the options a sheet knows by its features, among `careful`, `distant`, `heightened` and `quickened`. `combat.save` takes `metamagic: { option, targetIds? }` and `combat.attack` takes `metamagic: { option: 'distant' | 'quickened' }`. Either is refused for a non-spell, an option the sheet does not know, or too few Sorcery Points. The options:
+- Careful (1 point): `targetIds` names creatures among the targets, up to the Charisma modifier and at least one. They succeed on the save without a roll and take no damage where they would take half. The summary says `(Careful Spell)`.
+- Heightened (2): exactly one target in `targetIds`, which saves with Disadvantage.
+- Distant (1): the range doubles, and Touch becomes 30 ft. It is refused for a spell of Self range.
+- Quickened (2): an action spell is cast as a Bonus Action instead of the Magic action. It is refused once the Bonus Action is spent.
+
+The points are spent once the spell is resolved.
 - spends the use and the Bonus Action;
 - sets the token's `metadata.wildShape` (the map is broadcast);
 - gives the character Temporary Hit Points equal to its Druid level, keeping the larger of those and any it has (`character.hp.updated`);

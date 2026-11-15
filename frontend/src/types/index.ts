@@ -1730,6 +1730,8 @@ export type CombatActionsAck =
       reckless?: boolean;
       /** A Barbarian's Brutal Strike, on a turn it attacks recklessly. */
       brutalStrike?: boolean;
+      /** A Sorcerer's Metamagic options chosen as a spell is cast. */
+      metamagic?: CastingMetamagic[];
       /** A Druid's Wild Shape: the Beasts it can take the form of, and the form it is in. */
       wildShapeForms?: string[];
       wildShape?: string | null;
@@ -1739,6 +1741,8 @@ export type CombatActionsAck =
   | { ok: false; error: string };
 
 export type AttackMode = 'normal' | 'advantage' | 'disadvantage';
+/** A Sorcerer's Metamagic chosen as a spell is cast. */
+export type CastingMetamagic = 'careful' | 'distant' | 'heightened' | 'quickened';
 /** `combat.attack`: one attack from one token against another. */
 export interface CombatAttackEvent {
   attackerId: string;
@@ -1760,6 +1764,8 @@ export interface CombatAttackEvent {
   brutal?: 'forceful' | 'hamstring';
   /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
   cunning?: 'poison' | 'trip' | 'withdraw';
+  /** A Sorcerer's Metamagic for a spell attack. */
+  metamagic?: { option: 'distant' | 'quickened' };
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
@@ -1772,7 +1778,9 @@ export interface CombatSaveEvent {
   action: number;
   slotLevel?: number;
   /** The empty square an area is aimed at, which must be within the action's range. */
-  point?: { x: number; y: number };
+  point?: { x: number; y: number   /** A Sorcerer's Metamagic, with the creatures Careful or Heightened Spell picks. */
+  metamagic?: { option: CastingMetamagic; targetIds?: string[] };
+};
 }
 export type CombatSaveAck =
   | { ok: true; summary: string; dc: number; ability: string; targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }> }

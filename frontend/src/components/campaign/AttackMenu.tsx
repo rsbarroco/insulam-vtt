@@ -7,7 +7,7 @@
 // ============================================
 
 import { useEffect, useState } from 'react';
-import type { AttackMode, CombatActionSummary, CombatExtraAttack } from '@/types';
+import type { AttackMode, CastingMetamagic, CombatActionSummary, CombatExtraAttack } from '@/types';
 import type socketService from '@/services/socket';
 import Button from '@/components/ui/Button';
 
@@ -199,6 +199,8 @@ export default function AttackMenu({
   const [canReckless, setCanReckless] = useState(false);
   const [reckless, setReckless] = useState(false);
   const [canBrutal, setCanBrutal] = useState(false);
+  const [metaOptions, setMetaOptions] = useState<CastingMetamagic[]>([]);
+  const [meta, setMeta] = useState<'' | CastingMetamagic>('');
   const [huntersMark, setHuntersMark] = useState<string | null>(null);
   const [cunningEffects, setCunningEffects] = useState<Array<'poison' | 'trip' | 'withdraw'>>([]);
   const [cunning, setCunning] = useState<'' | 'poison' | 'trip' | 'withdraw'>('');
@@ -212,6 +214,7 @@ export default function AttackMenu({
         setActions(answer.actions);
         setCanReckless(answer.reckless === true);
         setCanBrutal(answer.brutalStrike === true);
+        setMetaOptions(answer.metamagic ?? []);
         setHuntersMark((answer.concentrationSpells ?? []).find((spell) => /^hunter[’']?s mark$/i.test(spell)) ?? null);
         setCunningEffects(answer.cunningStrike ?? []);
       } else setProblem(answer.error);
@@ -319,6 +322,7 @@ export default function AttackMenu({
         ...(reckless ? { reckless: true as const } : {}),
         ...(brutal && !action.spell ? { brutal } : {}),
         ...(cunning && !action.spell ? { cunning } : {}),
+        ...(action.spell && (meta === 'distant' || meta === 'quickened') ? { metamagic: { option: meta } } : {}),
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -330,12 +334,20 @@ export default function AttackMenu({
       onResolved({ ok: false, error: `Nobody stands in the ${action.name}` });
       return;
     }
+    // Heightened Spell picks the creature the menu is on; Careful Spell protects the others the area catches.
+    const metaPicks =
+      meta === 'heightened'
+        ? targetIds.filter((id) => id === target.id)
+        : meta === 'careful'
+          ? targetIds.filter((id) => id !== target.id)
+          : undefined;
     const answer = await socket.resolveSave({
       sourceId: attacker.id,
       targetIds,
       action: action.index,
       ...slot,
       ...(point ? { point } : {}),
+      ...(action.spell && meta ? { metamagic: { option: meta, ...(metaPicks ? { targetIds: metaPicks } : {}) } } : {}),
     });
     setBusy(false);
     onResolved(
@@ -541,6 +553,25 @@ export default function AttackMenu({
                 {cunningEffects.includes('withdraw') && (
                   <option value="withdraw">Withdraw (−1d6)</option>
                 )}
+              </select>
+            </label>
+          )}
+          {metaOptions.length > 0 && (
+            <label
+              className="flex items-center justify-between gap-2 text-sm text-ink"
+              title="Metamagic, with Sorcery Points, for the spell you cast: Careful protects the other creatures the area catches, Heightened gives this creature Disadvantage on its save, Distant doubles the range, Quickened casts it as a Bonus Action."
+            >
+              Metamagic
+              <select
+                value={meta}
+                onChange={(event) => setMeta(event.target.value as '' | CastingMetamagic)}
+                className="input-cozy text-sm py-1"
+              >
+                <option value="">None</option>
+                {metaOptions.includes('careful') && <option value="careful">Careful Spell (1)</option>}
+                {metaOptions.includes('distant') && <option value="distant">Distant Spell (1)</option>}
+                {metaOptions.includes('heightened') && <option value="heightened">Heightened Spell (2)</option>}
+                {metaOptions.includes('quickened') && <option value="quickened">Quickened Spell (2)</option>}
               </select>
             </label>
           )}

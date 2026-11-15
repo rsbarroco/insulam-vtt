@@ -21,6 +21,10 @@ import type { AttackRefusal, AttackRequest, Combatant } from './resolveAttack';
 export interface SaveTarget extends Combatant {
   /** What the creature adds to a save with the action's ability. Null when nothing gives one. */
   saveBonus: number | null;
+  /** Heightened Spell: Disadvantage on this save. */
+  disadvantage?: boolean;
+  /** Careful Spell: the save succeeds, and half damage becomes none. */
+  protected?: boolean;
 }
 
 export interface SaveRequest {
@@ -50,6 +54,8 @@ export interface TargetSaveResult {
   instantDeath: boolean;
   /** Evasion changed the damage it took. */
   evaded?: boolean;
+  /** Careful Spell protected it from the damage. */
+  protected?: boolean;
   /** Indomitable rerolled a failed save: the first roll; `outcome` is the reroll, which stands. */
   rerolled?: SaveOutcome;
   /** What the save was rolled with, for a feature that rolls it again. */
@@ -114,13 +120,16 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
     const state = readConditions(target.conditions, target.exhaustion);
     const modifiers = saveModifiers(state, profile.ability, { dangerSense: target.dangerSense });
     const cover = profile.ability === 'dex' && covers[index] !== 'total' ? coverBonus(covers[index]) : 0;
-    const input: SaveInput = { bonus: target.saveBonus! + modifiers.penalty + cover, dc: profile.dc, mode: modifiers.mode, autoFail: modifiers.autoFail };
+    // Heightened Spell's Disadvantage meets whatever Advantage the creature has, as any other.
+    const mode = target.disadvantage ? (modifiers.mode === 'advantage' ? 'normal' : 'disadvantage') : modifiers.mode;
+    const input: SaveInput = { bonus: target.saveBonus! + modifiers.penalty + cover, dc: profile.dc, mode, autoFail: modifiers.autoFail };
     // A save rolled again (Indomitable) stands as rolled; on a second pass the others are not rolled anew.
     const fixed = request.fixed?.saves[index];
     const rerolled = fixed?.first;
-    const outcome = fixed?.outcome ?? savingThrow(input, target.lucky ? lucky(roll) : roll);
+    // Careful Spell: the save succeeds without a roll.
+    const outcome = target.protected ? { roll: null, dc: profile.dc, success: true } : (fixed?.outcome ?? savingThrow(input, target.lucky ? lucky(roll) : roll));
     // Evasion: a Dexterity save for half damage gives none on a success and half on a failure.
-    const evades = target.evasion === true && profile.ability === 'dex' && profile.halfOnSuccess === true && canAct(state);
+    const evades = (target.protected === true || (target.evasion === true && profile.ability === 'dex' && canAct(state))) && profile.halfOnSuccess === true;
     const dealt = damage.reduce((sum, entry) => {
       const amount = outcome.success
         ? profile.halfOnSuccess && !evades
@@ -148,7 +157,7 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
       hp,
       dropped,
       instantDeath,
-      ...(evades && damage.length > 0 ? { evaded: true } : {}),
+      ...(evades && damage.length > 0 ? (target.protected ? { protected: true } : { evaded: true }) : {}),
       ...(rerolled ? { rerolled } : {}),
       rolledWith: input,
     };
@@ -158,7 +167,7 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
   const each = results.map((result) => {
     const rolledSave = result.outcome.roll ? ` (${result.outcome.roll.total})` : ' (no roll)';
     const verdict = `${result.rerolled ? `fails (${result.rerolled.roll?.total}), Indomitable: ` : ''}${result.outcome.success ? 'saves' : 'fails'}`;
-    const harm = damage.length > 0 ? `, ${result.dealt} damage${result.evaded ? ' (Evasion)' : ''}` : '';
+    const harm = damage.length > 0 ? `, ${result.dealt} damage${result.evaded ? ' (Evasion)' : result.protected ? ' (Careful Spell)' : ''}` : '';
     const fate = result.instantDeath ? ', killed outright' : result.dropped ? ', drops to 0' : '';
     return `${result.name} ${verdict}${rolledSave}${harm}${fate}`;
   });

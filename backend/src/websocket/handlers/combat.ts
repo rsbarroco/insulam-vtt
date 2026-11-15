@@ -52,6 +52,7 @@ import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
 import { channelDivinityActions, TURN_UNDEAD_TURNS } from '../../rules/dnd/channelDivinity';
 import { wildShapeForms, wildShapeOf, wildShapeTemporaryHitPoints } from '../../rules/dnd/wildShape';
 import { arcaneRecovery } from '../../rules/dnd/arcaneRecovery';
+import { carefulCount, distantAction, knowsMetamagic, METAMAGIC, type CastingMetamagic } from '../../rules/dnd/metamagic';
 import { repels, withInvocations } from '../../rules/dnd/invocations';
 import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
@@ -895,13 +896,13 @@ function indomitableBonus(sheet: Record<string, unknown> | null): number | null 
 }
 
 /** Spend one use (or point) of a class feature on the token's sheet, and tell the table. */
-async function spendSheetUse(campaignId: string, token: Token, name: ResourceName): Promise<void> {
+async function spendSheetUse(campaignId: string, token: Token, name: ResourceName, amount = 1): Promise<void> {
   const characterId = token.characterId;
   if (!characterId) return;
   const updated = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
     const fresh = await tx.character.findUnique({ where: { id: characterId } });
-    const spent = fresh ? spendResource((fresh.data ?? {}) as Record<string, unknown>, name) : null;
+    const spent = fresh ? spendResource((fresh.data ?? {}) as Record<string, unknown>, name, amount) : null;
     return spent?.ok ? tx.character.update({ where: { id: characterId }, data: { data: toJson(spent.sheet) } }) : null;
   });
   if (updated) {
@@ -1197,6 +1198,51 @@ function concentrationOf(campaignId: string, tokenId: string): string | null {
 }
 
 /** A creature concentrates on a spell, ending its concentration on any other. */
+/**
+ * A Sorcerer's Metamagic chosen as a spell is cast, checked against the rules:
+ * the option known, the Sorcery Points left, a spell it can change and, for
+ * Careful and Heightened Spell, the creatures it picks among the targets.
+ */
+function castingMetamagic(
+  campaignId: string,
+  token: Token,
+  sheet: Record<string, unknown> | null,
+  action: CombatAction,
+  chosen: { option: CastingMetamagic; targetIds?: string[] },
+  targetIds: readonly string[]
+): { error: string } | { action: CombatAction; cost: number; quickened: boolean; protectedIds: ReadonlySet<string>; heightenedId: string | null } {
+  const { name, cost } = METAMAGIC[chosen.option];
+  if (!sheet || !knowsMetamagic(sheet, chosen.option)) return { error: `${token.name} does not know ${name}` };
+  if (action.source !== 'spell') return { error: `${name} changes a spell` };
+  const points = resourcesOf(sheet).find((entry) => entry.name === 'Sorcery Points');
+  if (!points || points.max - points.used < cost) return { error: `${name} costs ${cost} Sorcery ${cost === 1 ? 'Point' : 'Points'}` };
+  const picked = chosen.targetIds ?? [];
+  if (chosen.option === 'careful' || chosen.option === 'heightened') {
+    if (!action.save) return { error: `${name} changes a spell that calls for a saving throw` };
+    if (picked.length === 0 || picked.some((id) => !targetIds.includes(id))) return { error: `${name} picks creatures among the spell's targets` };
+    if (chosen.option === 'heightened' && picked.length !== 1) return { error: 'Heightened Spell picks one target' };
+    if (chosen.option === 'careful' && picked.length > carefulCount(sheet)) {
+      return { error: `Careful Spell protects ${carefulCount(sheet)} ${carefulCount(sheet) === 1 ? 'creature' : 'creatures'} at most` };
+    }
+  }
+  if (chosen.option === 'quickened') {
+    if (action.cost !== 'action') return { error: 'Quickened Spell changes a spell cast as an action' };
+    const combat = getCombatState(campaignId);
+    if (someoneActing(combat) && combat.currentTokenId === token.id && combat.turn?.bonusAction) {
+      return { error: `${token.name} has used its Bonus Action this turn` };
+    }
+  }
+  const changed = chosen.option === 'distant' ? distantAction(action) : action;
+  if (!changed) return { error: 'Distant Spell changes a spell with a range of Touch or more' };
+  return {
+    action: changed,
+    cost,
+    quickened: chosen.option === 'quickened',
+    protectedIds: new Set(chosen.option === 'careful' ? picked : []),
+    heightenedId: chosen.option === 'heightened' ? picked[0] : null,
+  };
+}
+
 /** Keep the Beast a token has taken the form of in its metadata (null to leave it), and tell the table. */
 async function setWildShape(io: Server, campaignId: string, map: { id: string }, tokenId: string, form: string | null): Promise<void> {
   const updated = await withMapsLocked([map.id], async (tx) => {
@@ -1510,6 +1556,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           reckless: sheet ? hasFeature(features, 'Reckless Attack') : false,
           // A Barbarian's Brutal Strike, on a turn it attacks recklessly.
           brutalStrike: sheet ? hasFeature(features, 'Brutal Strike') : false,
+          // A Sorcerer's Metamagic options chosen as a spell is cast.
+          metamagic: sheet ? (Object.keys(METAMAGIC) as CastingMetamagic[]).filter((option) => knowsMetamagic(sheet, option)) : [],
           // A Druid's Wild Shape: the Beasts it can take the form of, and the form it is in.
           wildShapeForms: sheet ? wildShapeForms(sheet) : [],
           wildShape: wildShapeOf(token)?.name ?? null,
@@ -1588,6 +1636,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const cast = castWithSlot(attackerSheet as SheetSpellcasting | null, listed, slotLevel);
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
       let action = cast.action;
+      // Metamagic for a spell attack, chosen as it is cast: Distant or Quickened Spell.
+      const meta = parsed.data.metamagic ? castingMetamagic(campaignId, attackerToken, attackerSheet, action, parsed.data.metamagic, [targetId]) : null;
+      if (meta && 'error' in meta) return refuseRequest(socket, ack, meta.error);
+      if (meta) action = meta.action;
 
       // On its own turn a character makes as many attacks with the Attack
       // action as its features give it. A spell is the Magic action, and a
@@ -1869,6 +1921,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const endured = await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
       spendRecharge(campaignId, attackerId, action);
+      if (meta) await spendSheetUse(campaignId, attackerToken, 'Sorcery Points', meta.cost);
       // A concentration spell cast starts its concentration, ending any other.
       const concentrating = action.spell ? findSpell(action.name) : null;
       if (concentrating?.concentration) startConcentration(campaignId, attackerId, concentrating.name);
@@ -2032,6 +2085,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         await resendInitiativeState(io, campaignId);
       } else if (offer || ready) await spendReaction(io, campaignId, attackerId);
       else if (extra === 'light' && !nicked) {
+        spendBonusAction(campaignId, attackerId);
+        await resendInitiativeState(io, campaignId);
+      } else if (meta?.quickened) {
         spendBonusAction(campaignId, attackerId);
         await resendInitiativeState(io, campaignId);
       } else if (!extra) await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
@@ -2864,7 +2920,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.save', ack)) return;
       const parsed = CombatSaveSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { sourceId, targetIds, action: actionIndex, slotLevel, point } = parsed.data;
+      const { sourceId, targetIds, action: actionIndex, slotLevel, point, metamagic } = parsed.data;
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -2896,6 +2952,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
       let action = cast.action;
       if (!action.save) return refuseRequest(socket, ack, `${action.name} calls for no saving throw the VTT can make`);
+      // Metamagic, chosen as the spell is cast.
+      const meta = metamagic ? castingMetamagic(campaignId, sourceToken, sourceSheet, action, metamagic, targetIds) : null;
+      if (meta && 'error' in meta) return refuseRequest(socket, ack, meta.error);
+      if (meta) action = meta.action;
       if (action.channel && targetIds.includes(sourceId)) return refuseRequest(socket, ack, `${action.name} is aimed at another creature`);
       // Turn Undead chooses Undead only.
       if (action.onlyCreatureType) {
@@ -2926,7 +2986,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         }
         const strength = saveBonusOf(only, targetSheets[0], 'str');
         const dexterity = saveBonusOf(only, targetSheets[0], 'dex');
-        action = { ...action, save: { ...action.save, ability: (dexterity ?? -99) > (strength ?? -99) ? 'dex' : 'str' } };
+        action = { ...action, save: { ...action.save!, ability: (dexterity ?? -99) > (strength ?? -99) ? 'dex' : 'str' } };
       }
       const ability = action.save!.ability;
       const involved = new Set([sourceId, ...targetIds]);
@@ -2940,6 +3000,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             const own = saveBonusOf(token, targetSheets[index], ability);
             return own === null ? null : own + auras[index].bonus;
           })(),
+          ...(meta?.protectedIds.has(token.id) ? { protected: true } : {}),
+          ...(meta?.heightenedId === token.id ? { disadvantage: true } : {}),
         })),
         action,
         board: {
@@ -2987,6 +3049,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       spendRecharge(campaignId, sourceId, action);
       if (action.channel) await spendSheetUse(campaignId, sourceToken, action.channel);
+      if (meta) await spendSheetUse(campaignId, sourceToken, 'Sorcery Points', meta.cost);
       // A target that rolled again with Indomitable spends the use.
       for (const [index, target] of result.targets.entries()) {
         if (target.rerolled) await spendSheetUse(campaignId, targetTokens[index], 'Indomitable');
@@ -3051,7 +3114,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         spendLegendary(campaignId, sourceId);
         await resendInitiativeState(io, campaignId);
       } else if (action.unarmed) await spendAction(io, campaignId, sourceId, 'Attack', true);
-      else await spendAction(io, campaignId, sourceId, action.source === 'spell' || action.channel ? 'Magic' : action.name);
+      else if (meta?.quickened) {
+        spendBonusAction(campaignId, sourceId);
+        await resendInitiativeState(io, campaignId);
+      } else await spendAction(io, campaignId, sourceId, action.source === 'spell' || action.channel ? 'Magic' : action.name);
       const secret = hiddenFromPlayers(sourceToken) || targetTokens.some(hiddenFromPlayers);
       await logRoll(io, socket, campaignId, saveBreakdown(result, action), sourceToken.name, summary, secret);
       commitUndo(campaignId, undo, summary);

@@ -92,3 +92,20 @@ describe('resolveSave', () => {
     expect(result.summary).toContain('drops to 0');
   });
 });
+
+describe('Metamagic on the targets', () => {
+  it('gives a Heightened target Disadvantage, and a Careful one a success with no damage where half', () => {
+    // 4 + 6 = 10 fire; the ogre rolls 15 and 3 with Disadvantage: 3 + 2 = 5, fails; the ally is not rolled for.
+    const result = ok(
+      resolveSave(
+        { source: mage, targets: [target('Ogre', 4, { disadvantage: true }), target('Ally', 5, { protected: true })], action: fireball, board },
+        dice(4, 6, 15, 3)
+      )
+    );
+    expect(result.targets.map((t) => [t.outcome.success, t.dealt])).toEqual([
+      [false, 10],
+      [true, 0],
+    ]);
+    expect(result.summary).toBe('Fireball (DC 15 Dexterity, 10 fire): Ogre fails (5), 10 damage; Ally saves (no roll), 0 damage (Careful Spell)');
+  });
+});
