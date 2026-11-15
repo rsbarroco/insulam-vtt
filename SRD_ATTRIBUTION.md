@@ -84,6 +84,7 @@ no field there and are kept in its notes.
 `backend/src/rules/dnd/auras.ts` applies the document's Aura of Protection (Paladin 6).
 `backend/src/rules/dnd/channelDivinity.ts` applies the document's Divine Spark and Turn Undead (Cleric 2, Channel Divinity).
 `backend/src/rules/dnd/wildShape.ts` applies the document's Wild Shape (Druid 2): the Beast forms each level allows, from the document's Animals.
+`backend/src/rules/dnd/invocations.ts` applies the document's Eldritch Blast beams and the Agonizing Blast and Repelling Blast invocations.
 
 `backend/src/rules/dnd/data/srd-5.2.1-rules.json` is the text of the
 document's "Playing the Game" chapter and of its "Rules Glossary", built by

@@ -80,6 +80,8 @@ export interface CombatAction {
   heal?: { roll: { count: number; sides: number }; bonus: number };
   /** A class feature with uses it spends, when one is resolved: Divine Spark spends Channel Divinity. */
   channel?: 'Channel Divinity';
+  /** How many attack rolls one casting makes (Eldritch Blast's beams), when more than one. */
+  beams?: number;
   /** The only creature type it can target, as stat blocks write it: Turn Undead affects Undead. */
   onlyCreatureType?: 'undead';
 }
