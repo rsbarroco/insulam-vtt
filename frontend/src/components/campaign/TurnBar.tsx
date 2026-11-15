@@ -34,21 +34,19 @@ import CheckRoller from './CheckRoller';
 import LayOnHands from './LayOnHands';
 import ConcentrationControl from './ConcentrationControl';
 import WildShapeControl from './WildShapeControl';
+import BardicInspiration from './BardicInspiration';
 import TurnFeatures from './TurnFeatures';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
 /** The class features the server counts and the table applies: a button each, while uses are left. */
 const COUNTED_FEATURES = [
-  'Bardic Inspiration',
   'Channel Divinity',
   'Focus Points',
   'Sorcery Points',
   'Favored Enemy',
 ] as const satisfies readonly CombatFeatureName[];
 type CountedFeature = (typeof COUNTED_FEATURES)[number];
-const BONUS_ACTION_FEATURES: readonly string[] = ['Bardic Inspiration'];
 const COUNTED_TITLES: Record<CountedFeature, string> = {
-  'Bardic Inspiration': 'A Bonus Action: a creature within 60 feet gains your Bardic Inspiration die.',
   'Channel Divinity': 'One use of Channel Divinity. One back on a Short Rest, all on a Long Rest.',
   'Focus Points': 'Spend one Focus Point. All back on a Short or Long Rest.',
   'Sorcery Points': 'Spend one Sorcery Point. All back on a Long Rest.',
@@ -159,6 +157,9 @@ export default function TurnBar() {
     if (feature.name === 'Lay on Hands' && resource('Lay on Hands')) {
       return showToast('Choose the creature and the Hit Points with the Lay on Hands button', 'info');
     }
+    if (feature.name === 'Bardic Inspiration' && resource('Bardic Inspiration')) {
+      return showToast('Choose the creature with the Bardic Inspiration button', 'info');
+    }
     const counted = COUNTED_FEATURES.find((name) => name === feature.name);
     if ((feature.name === 'Second Wind' || counted) && resource(feature.name)) return void applyOnServer(feature.name as CombatFeatureName);
     if (feature.cost === 'bonusAction') socket.emitTurnUpdate({ bonusAction: true });
@@ -177,6 +178,7 @@ export default function TurnBar() {
   });
   const rage = resource('Rage');
   const layOnHands = resource('Lay on Hands');
+  const inspiration = resource('Bardic Inspiration');
   const touchTargets = [
     ...(acting ? [{ id: acting.id, name: actingName }] : []),
     ...combat.combatants
@@ -468,12 +470,26 @@ export default function TurnBar() {
         />
       )}
 
+      {inspiration && (
+        <BardicInspiration
+          uses={inspiration}
+          targets={touchTargets.filter((target) => target.id !== actingId)}
+          bonusActionSpent={turn.bonusAction}
+          inspire={async (targetId) => {
+            const answer = await socket.useFeature(actingId, 'Bardic Inspiration', undefined, { targetId });
+            if (answer.ok) setListed((count) => count + 1);
+            return answer;
+          }}
+          onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
+        />
+      )}
+
       {counted.map((entry) => (
         <Button
           key={entry.name}
           variant="secondary"
           size="sm"
-          disabled={entry.used >= entry.max || (BONUS_ACTION_FEATURES.includes(entry.name) && turn.bonusAction)}
+          disabled={entry.used >= entry.max}
           title={COUNTED_TITLES[entry.name]}
           onClick={() => void applyOnServer(entry.name)}
         >

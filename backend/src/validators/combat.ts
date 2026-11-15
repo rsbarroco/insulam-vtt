@@ -131,7 +131,7 @@ export const CombatFeatureSchema = z
     focus: z.literal(true).optional(),
     /** How many points of Focus Points, Sorcery Points or Lay on Hands; other features spend one use. */
     amount: z.number().int().min(1).max(100).optional(),
-    /** Lay on Hands: the creature touched, the user itself when left out. */
+    /** Lay on Hands: the creature touched, the user itself when left out. Bardic Inspiration: the creature inspired. */
     targetId: tokenId.optional(),
     /** Wild Shape: the Beast whose form the Druid takes, by name. */
     form: z.string().trim().min(1).max(60).optional(),

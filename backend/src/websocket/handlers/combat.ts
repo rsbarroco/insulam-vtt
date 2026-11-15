@@ -36,7 +36,7 @@ import { longRest, spendHitDie } from '../../rules/dnd/rests';
 import { bardicDie, classLevel, POINT_RESOURCES, rageDamage, resourcesOf, restoreResources, secondWindBonus, spendResource, type ResourceName } from '../../rules/dnd/resources';
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
-import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, withTacticalMind, type SkillCheck } from '../../rules/dnd/checks';
+import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, withInspiration, withTacticalMind, type SkillCheck } from '../../rules/dnd/checks';
 import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rerollLowest, rollDamage, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
@@ -759,11 +759,9 @@ async function applyRiders(
 }
 
 /** The log line for a class feature the server counts and the table applies. */
-function featureSummary(name: string, feature: string, sheet: Record<string, unknown>, amount: number, left: number): string {
+function featureSummary(name: string, feature: string, amount: number, left: number): string {
   const uses = `${left} ${left === 1 ? 'use' : 'uses'} left`;
   switch (feature) {
-    case 'Bardic Inspiration':
-      return `${name} uses Bardic Inspiration: a creature within 60 feet gains a ${bardicDie(sheet) ?? 'd6'} Bardic Inspiration die (${uses})`;
     case 'Channel Divinity':
       return `${name} uses Channel Divinity (${uses})`;
     case 'Wild Shape':
@@ -1245,6 +1243,46 @@ function castingMetamagic(
 
 /** Keep the Beast a token has taken the form of in its metadata (null to leave it), and tell the table. */
 async function setWildShape(io: Server, campaignId: string, map: { id: string }, tokenId: string, form: string | null): Promise<void> {
+  await setTokenMetadata(io, campaignId, map.id, tokenId, 'wildShape', form);
+}
+
+/** How long a Bardic Inspiration die is kept: an hour. */
+const INSPIRATION_MS = 60 * 60 * 1000;
+
+interface HeldInspiration {
+  sides: number;
+  from: string;
+  until: number;
+}
+
+/** The Bardic Inspiration die a token holds, while the hour lasts; null otherwise. */
+function inspirationOf(token: Token): HeldInspiration | null {
+  const held = (token.metadata as Record<string, unknown> | undefined)?.bardicInspiration as Partial<HeldInspiration> | undefined;
+  if (!held || typeof held.sides !== 'number' || typeof held.until !== 'number' || held.until < Date.now()) return null;
+  return { sides: held.sides, from: typeof held.from === 'string' ? held.from : 'a Bard', until: held.until };
+}
+
+/**
+ * Bardic Inspiration, as the rules have it: a creature that fails a D20
+ * Test while it holds the die is asked whether to roll it and add the number.
+ * The die is spent if it is rolled; what it rolled comes back, null if not.
+ */
+async function offerInspiration(io: Server, campaignId: string, mapId: string, token: Token, failed: string): Promise<number | null> {
+  const held = inspirationOf(token);
+  if (!held) return null;
+  const choice = await askReaction(io, campaignId, {
+    token,
+    text: `${failed} ${token.name} holds a d${held.sides} Bardic Inspiration die from ${held.from}.`,
+    options: ['Bardic Inspiration'],
+  });
+  if (choice !== 'Bardic Inspiration') return null;
+  await setTokenMetadata(io, campaignId, mapId, token.id, 'bardicInspiration', null);
+  return rollDie(held.sides);
+}
+
+/** Set one key of a token's metadata (null to remove it), and tell the table. */
+async function setTokenMetadata(io: Server, campaignId: string, mapId: string, tokenId: string, key: string, value: unknown): Promise<void> {
+  const map = { id: mapId };
   const updated = await withMapsLocked([map.id], async (tx) => {
     const fresh = await tx.map.findUnique({ where: { id: map.id } });
     if (!fresh) return null;
@@ -1252,12 +1290,12 @@ async function setWildShape(io: Server, campaignId: string, map: { id: string },
     const token = list.find((t) => t.id === tokenId);
     if (!token) return null;
     const metadata = { ...(token.metadata ?? {}) };
-    if (form) metadata.wildShape = form;
-    else delete metadata.wildShape;
+    if (value !== null && value !== undefined) metadata[key] = value;
+    else delete metadata[key];
     token.metadata = metadata;
     return tx.map.update({ where: { id: map.id }, data: { tokens: toJson(list) } });
   });
-  if (updated) await bestEffort('map after Wild Shape', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
+  if (updated) await bestEffort(`map after ${key}`, () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
 }
 
 /** A character gains Temporary Hit Points: they do not add up, so it keeps the larger. What it has after comes back. */
@@ -1878,6 +1916,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           if (again.ok) result = { ...again, bonuses: [...again.bonuses, 'Seeking Spell'] };
         }
       }
+      // Bardic Inspiration: an attacker that missed while it holds the die is asked; the die is added to the same roll.
+      if (!result.outcome.hit && result.outcome.roll.natural !== 1) {
+        const added = await offerInspiration(io, campaignId, map.id, attackerToken, `${attackerToken.name}'s ${action.name} misses ${targetToken.name} (${result.outcome.roll.total} against AC ${result.outcome.armorClass}).`);
+        if (added !== null) {
+          const again = resolveAttack({ ...attackRequest, inspired: { roll: result.outcome.roll, added, label: 'Bardic Inspiration' } });
+          if (again.ok) result = { ...again, bonuses: [...result.bonuses.filter((bonus) => !again.bonuses.includes(bonus)), ...again.bonuses] };
+        }
+      }
       if (attackerSheet && action.source === 'spell' && result.outcome.hit && result.damage.length > 0 && knowsMetamagic(attackerSheet, 'empowered') && pointsLeft() >= 1) {
         const dice = result.damage.flatMap((line) => line.rolled.dice).join(', ');
         const choice = await askReaction(io, campaignId, {
@@ -2263,6 +2309,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           if (result.success) await spendSheetUse(campaignId, token, 'Second Wind');
         }
       }
+      // Bardic Inspiration: a creature that failed the check while it holds the die is asked; the die is added.
+      if (result.success === false && dc !== undefined) {
+        const added = await offerInspiration(io, campaignId, map.id, token, `${token.name} fails the ${label} check (${result.total} vs DC ${dc}).`);
+        if (added !== null) result = withInspiration(result, dc, added);
+      }
 
       const hidden = hide === true && result.success === true;
       if (hidden) await giveCondition(io, campaignId, map.id, tokenId, 'Invisible');
@@ -2402,7 +2453,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). Also `Bardic Inspiration` (a Bonus Action), `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Wild Shape` (a Bonus Action) takes the `form` of a Beast the Druid's level allows: the form is kept on the token, the character gains Temporary Hit Points equal to its Druid level, and the Beast's actions, Armor Class and physical scores become its own until `End Wild Shape`. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). `Bardic Inspiration` (a Bonus Action) takes the `targetId` of another creature within 60 feet: the die is kept on its token for an hour, and its controller is asked after a failed attack roll, save or check whether to add it. Also `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Wild Shape` (a Bonus Action) takes the `form` of a Beast the Druid's level allows: the form is kept on the token, the character gains Temporary Hit Points equal to its Druid level, and the Beast's actions, Armor Class and physical scores become its own until `End Wild Shape`. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2413,8 +2464,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const parsed = CombatFeatureSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
       const { tokenId, feature, amount, targetId, cure, as, focus, form } = parsed.data;
-      if ((targetId !== undefined || cure !== undefined) && feature !== 'Lay on Hands') {
-        return refuseRequest(socket, ack, 'Only Lay on Hands takes a target');
+      if ((targetId !== undefined && feature !== 'Lay on Hands' && feature !== 'Bardic Inspiration') || (cure !== undefined && feature !== 'Lay on Hands')) {
+        return refuseRequest(socket, ack, 'Only Lay on Hands and Bardic Inspiration take a target');
       }
       if (amount !== undefined && amount > 1 && !POINT_RESOURCES.includes(feature as ResourceName)) {
         return refuseRequest(socket, ack, `${feature} is spent one use at a time`);
@@ -2503,6 +2554,25 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         }
       }
 
+      // Bardic Inspiration: another creature within 60 feet, which holds one die at a time.
+      let inspired: Token | null = null;
+      if (feature === 'Bardic Inspiration') {
+        const picked = readTokens(map.tokens).find((t) => t.id === targetId);
+        if (!targetId) return refuseRequest(socket, ack, 'Bardic Inspiration needs a creature to inspire');
+        if (!picked || picked.layer !== token.layer || (socket.role !== 'DM' && hiddenFromPlayers(picked))) {
+          return refuseRequest(socket, ack, 'That creature is not on the map');
+        }
+        if (picked.id === tokenId) return refuseRequest(socket, ack, 'Bardic Inspiration goes to another creature');
+        const board = {
+          heights: readTileHeights(map.tileHeights),
+          feetPerSquare: map.feetPerSquare,
+          diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+        };
+        if (distanceFeet(standing(token), standing(picked), board) > 60) return refuseRequest(socket, ack, `${picked.name} is more than 60 feet away`);
+        if (inspirationOf(picked)) return refuseRequest(socket, ack, `${picked.name} already holds a Bardic Inspiration die`);
+        inspired = picked;
+      }
+
       const undo = await prepareUndo(campaignId, map.id, [characterId]);
       const used = await prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
@@ -2562,10 +2632,19 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         addMark(campaignId, { kind: 'rage', attackerId: tokenId, targetId: tokenId });
         if (ownTurn) spendBonusAction(campaignId, tokenId);
         summary = `${token.name} enters a Rage: Resistance to Bludgeoning, Piercing and Slashing damage, +${rageDamage(updated.data as Record<string, unknown>)} damage on Strength attacks, Advantage on Strength checks and saves (${usesLeft})`;
+      } else if (inspired) {
+        if (ownTurn) spendBonusAction(campaignId, tokenId);
+        const die = bardicDie(updated.data as Record<string, unknown>) ?? 'd6';
+        await setTokenMetadata(io, campaignId, map.id, inspired.id, 'bardicInspiration', {
+          sides: Number(die.slice(1)),
+          from: token.name,
+          until: Date.now() + INSPIRATION_MS,
+        });
+        summary = `${token.name} gives ${inspired.name} a ${die} Bardic Inspiration die, to add to a D20 Test it fails within the hour (${usesLeft})`;
       } else if (feature !== 'Action Surge') {
         // A use the table applies: the server counts it, and a Bonus Action feature spends the Bonus Action.
         if (bonusAction && ownTurn) spendBonusAction(campaignId, tokenId);
-        summary = featureSummary(token.name, feature, updated.data as Record<string, unknown>, amount ?? 1, left);
+        summary = featureSummary(token.name, feature, amount ?? 1, left);
       } else {
         // One more action: the one taken is given back, and the turn remembers the surge.
         const now = getCombatState(campaignId);
@@ -3099,6 +3178,36 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
               if (!rerolled.has(index)) return { outcome: target.outcome };
               const input = { ...target.rolledWith, bonus: target.rolledWith.bonus + indomitableBonus(targetSheets[index])! };
               return { outcome: savingThrow(input, hasLuck(targetSheets[index]) ? lucky(rollDie) : rollDie), first: target.outcome };
+            }),
+          },
+        });
+        if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      }
+      // Bardic Inspiration: a target that failed a save it rolled, holding the die, is asked; the die is added to its total.
+      const inspiredSaves = new Map<number, number>();
+      for (const [index, target] of result.targets.entries()) {
+        if (target.outcome.success || target.outcome.roll === null) continue;
+        const added = await offerInspiration(
+          io,
+          campaignId,
+          map.id,
+          targetTokens[index],
+          `${targetTokens[index].name} fails the ${ABILITY_FULL[ability]} save against ${action.name} (${target.outcome.roll.total} vs DC ${result.dc}).`
+        );
+        if (added !== null) inspiredSaves.set(index, added);
+      }
+      if (inspiredSaves.size > 0) {
+        const first = result;
+        result = resolveSave({
+          ...saveRequest,
+          fixed: {
+            damage: first.damage,
+            saves: first.targets.map((target, index) => {
+              const added = inspiredSaves.get(index);
+              const kept = { outcome: target.outcome, ...(target.rerolled ? { first: target.rerolled } : {}) };
+              if (added === undefined || !target.outcome.roll) return kept;
+              const total = target.outcome.roll.total + added;
+              return { ...kept, outcome: { ...target.outcome, roll: { ...target.outcome.roll, total }, success: total >= target.outcome.dc }, inspired: added };
             }),
           },
         });

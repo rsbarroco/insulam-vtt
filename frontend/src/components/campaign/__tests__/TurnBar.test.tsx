@@ -557,6 +557,24 @@ describe('the features the server counts', () => {
     render(<TurnBar />);
     expect(await screen.findByRole('button', { name: 'Bardic Inspiration (3/3)' })).toBeDisabled();
   });
+
+  it('gives Bardic Inspiration to the creature picked', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [],
+      resources: [{ name: 'Bardic Inspiration', max: 3, used: 0 }],
+    });
+    h.useFeature.mockReset().mockResolvedValue({ ok: true, summary: 'Hero gives Ogre a d6 Bardic Inspiration die', left: 2 });
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Bardic Inspiration (3/3)' }));
+    fireEvent.change(screen.getByLabelText('Creature inspired'), { target: { value: 'ogre' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Inspire' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Bardic Inspiration', undefined, { targetId: 'ogre' }));
+  });
 });
 
 describe('a paladin', () => {

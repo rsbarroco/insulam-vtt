@@ -39,7 +39,7 @@ export interface SaveRequest {
    */
   fixed?: {
     damage: SaveResult['damage'];
-    saves: ReadonlyArray<{ outcome: SaveOutcome; first?: SaveOutcome }>;
+    saves: ReadonlyArray<{ outcome: SaveOutcome; first?: SaveOutcome; inspired?: number }>;
   };
 }
 
@@ -58,6 +58,8 @@ export interface TargetSaveResult {
   protected?: boolean;
   /** Indomitable rerolled a failed save: the first roll; `outcome` is the reroll, which stands. */
   rerolled?: SaveOutcome;
+  /** Bardic Inspiration added this much to a failed save; `outcome` has it in its total. */
+  inspired?: number;
   /** What the save was rolled with, for a feature that rolls it again. */
   rolledWith: SaveInput;
 }
@@ -159,6 +161,7 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
       instantDeath,
       ...(evades && damage.length > 0 ? (target.protected ? { protected: true } : { evaded: true }) : {}),
       ...(rerolled ? { rerolled } : {}),
+      ...(fixed?.inspired ? { inspired: fixed.inspired } : {}),
       rolledWith: input,
     };
   });
@@ -166,7 +169,8 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
   const rolled = damage.map((entry) => `${entry.rolled.total}${entry.type ? ` ${entry.type}` : ''}`).join(' + ');
   const each = results.map((result) => {
     const rolledSave = result.outcome.roll ? ` (${result.outcome.roll.total})` : ' (no roll)';
-    const verdict = `${result.rerolled ? `fails (${result.rerolled.roll?.total}), Indomitable: ` : ''}${result.outcome.success ? 'saves' : 'fails'}`;
+    const inspiration = result.inspired && result.outcome.roll ? `fails (${result.outcome.roll.total - result.inspired}), Bardic Inspiration +${result.inspired}: ` : '';
+    const verdict = `${result.rerolled ? `fails (${result.rerolled.roll?.total}), Indomitable: ` : ''}${inspiration}${result.outcome.success ? 'saves' : 'fails'}`;
     const harm = damage.length > 0 ? `, ${result.dealt} damage${result.evaded ? ' (Evasion)' : result.protected ? ' (Careful Spell)' : ''}` : '';
     const fate = result.instantDeath ? ', killed outright' : result.dropped ? ', drops to 0' : '';
     return `${result.name} ${verdict}${rolledSave}${harm}${fate}`;
