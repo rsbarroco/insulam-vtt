@@ -147,3 +147,19 @@ export function withTacticalMind(result: CheckResult, dc: number, rolled: number
     summary: `${result.summary}; Tactical Mind +${rolled}: ${total}, ${success ? 'success' : 'still a failure'}`,
   };
 }
+
+/**
+ * A failed check with a Bardic Inspiration die added once its player chose
+ * it: the die rolled, which may turn the check into a success.
+ */
+export function withInspiration(result: CheckResult, dc: number, rolled: number): CheckResult {
+  if (result.success !== false) return result;
+  const total = result.total + rolled;
+  const success = total >= dc;
+  return {
+    ...result,
+    total,
+    success,
+    summary: `${result.summary}; Bardic Inspiration +${rolled}: ${total}, ${success ? 'success' : 'still a failure'}`,
+  };
+}

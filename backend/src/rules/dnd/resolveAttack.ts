@@ -14,7 +14,7 @@
 import { coverBetween, distanceFeet, type BoardHeights, type Cover, type Standing } from '../../utils/boardSight';
 import type { CombatAction, DamageComponent } from './actions';
 import { attackModifiers, canAct, readConditions } from './conditions';
-import { attackRoll, rollDie, rollMode, type AttackOutcome, type RollDie, type RollMode } from './d20';
+import { attackRoll, coverBonus, rollDie, rollMode, type AttackOutcome, type RollDie, type RollMode } from './d20';
 import { lucky } from './species';
 import type { DamageReduction } from './reactions';
 import { atLeastThree } from './feats';
@@ -72,6 +72,12 @@ export interface AttackRequest {
   hitDamage?: ReadonlyArray<{ label: string; damage: DamageComponent }>;
   /** A feature that gives up any Advantage on this roll and refuses one with Disadvantage, by name: "Brutal Strike". */
   forgoAdvantage?: string;
+  /**
+   * The d20 already rolled, with a die added once it missed: Bardic
+   * Inspiration. The roll is kept, the die added to its total, and the hit
+   * or miss decided again; a 1 still misses.
+   */
+  inspired?: { roll: AttackOutcome['roll']; added: number; label: string };
 }
 
 export interface AttackRefusal {
@@ -165,7 +171,9 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     reasons.some((reason) => reason.startsWith('Disadvantage'))
   );
 
-  const outcome = attackRoll(
+  const outcome = request.inspired
+    ? inspiredOutcome(request.inspired, target.armorClass, cover, modifiers.criticalOnHit)
+    : attackRoll(
     {
       bonus: profile.bonus + modifiers.penalty,
       armorClass: target.armorClass,
@@ -178,6 +186,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
 
   const damage: AttackResult['damage'] = [];
   const bonuses: string[] = [];
+  if (request.inspired) bonuses.push(`${request.inspired.label} +${request.inspired.added}`);
   let dealt = 0;
   let hp = target.hp;
   let dropped = false;
@@ -392,4 +401,17 @@ function summarize(
   const amount = `${dealt}${types ? ` ${types}` : ''} damage${note ? ` (${note})` : ''}`;
   const fate = instantDeath ? `; ${target} is killed outright` : dropped ? `; ${target} drops to 0 hit points` : '';
   return `${versus}: ${outcome.critical ? 'critical hit' : 'hit'}, ${amount}${fate}`;
+}
+
+/** A missed attack roll with a die added afterwards: the same d20, a new total, the hit decided again. */
+function inspiredOutcome(
+  inspired: NonNullable<AttackRequest['inspired']>,
+  armorClass: number,
+  cover: Cover,
+  criticalOnHit: boolean | undefined
+): AttackOutcome {
+  const rolled = { ...inspired.roll, total: inspired.roll.total + inspired.added };
+  const needed = armorClass + coverBonus(cover);
+  const hit = rolled.natural === 20 || (rolled.natural !== 1 && rolled.total >= needed);
+  return { roll: rolled, armorClass: needed, hit, critical: hit && (rolled.natural === 20 || criticalOnHit === true) };
 }

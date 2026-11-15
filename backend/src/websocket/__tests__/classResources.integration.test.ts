@@ -271,14 +271,15 @@ describe('class features the table applies', () => {
   it('Bardic Inspiration names the die and spends the Bonus Action', async () => {
     await asClass('Bard', 5);
     fight();
-    expect(await use('Bardic Inspiration')).toEqual({
+    const inspire = () => ask(player, 'combat.feature', { tokenId: HERO, feature: 'Bardic Inspiration', targetId: ALLY });
+    expect(await inspire()).toEqual({
       ok: true,
       left: 2,
       summary:
-        'Hero uses Bardic Inspiration: a creature within 60 feet gains a d8 Bardic Inspiration die (2 uses left)',
+        'Hero gives Ally a d8 Bardic Inspiration die, to add to a D20 Test it fails within the hour (2 uses left)',
     });
     expect(getState(campaignId).turn?.bonusAction).toBe(true);
-    expect((await use('Bardic Inspiration')).error).toBe(
+    expect((await inspire()).error).toBe(
       'Hero has used its Bonus Action this turn'
     );
   });
@@ -358,10 +359,10 @@ describe('Lay on Hands', () => {
     expect((await lay({ targetId: OGRE, cure: 'Poisoned' })).error).toBe('Ogre is not Poisoned');
   });
 
-  it('takes a target only for Lay on Hands', async () => {
+  it('takes a target only for Lay on Hands and Bardic Inspiration', async () => {
     await paladin();
     expect((await ask(player, 'combat.feature', { tokenId: HERO, feature: 'Channel Divinity', targetId: OGRE })).error).toBe(
-      'Only Lay on Hands takes a target'
+      'Only Lay on Hands and Bardic Inspiration take a target'
     );
   });
 });
