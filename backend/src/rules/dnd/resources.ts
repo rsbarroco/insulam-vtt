@@ -39,6 +39,8 @@
 //     as the Wisdom modifier, at least one; all back on a Long Rest.
 //   • Arcane Recovery (Wizard 1): once, slots recovered as a Short Rest ends;
 //     back on a Long Rest.
+//   • Overchannel (Evoker 14): no limit of uses, but each use since the last
+//     Long Rest is counted (to 20), as the count sets what the next one costs.
 //   • Wholeness of Body (Warrior of the Open Hand 6): as many uses as the
 //     Wisdom modifier, at least one, for a Monk whose sheet lists the
 //     feature; all back on a Long Rest.
@@ -51,6 +53,13 @@
 //     level 1 spell slot; back on a Long Rest.
 //   • Natural Recovery (Circle of the Land 6, when the sheet lists it): once,
 //     slots recovered as a Short Rest ends; back on a Long Rest.
+//   • Magical Cunning (Warlock 2): once, Pact Magic slots regained; back on
+//     a Long Rest.
+//   • Dark One's Own Luck (Fiend Patron 6): as many uses as the Charisma
+//     modifier, at least one, for a Warlock whose sheet lists the feature;
+//     all back on a Long Rest.
+//   • Hurl Through Hell (Fiend Patron 14): once, for a Warlock whose sheet
+//     lists the feature; back on a Long Rest.
 //
 // A sheet keeps what it has spent in `featureUses`: { "Second Wind": 1 }.
 // A gestalt character is both of its classes at its full level.
@@ -59,7 +68,7 @@
 // ============================================
 
 import { columnAt } from './classes';
-import { hasFeature, readFeatures } from './featureEffects';
+import { featureName, hasFeature, readFeatures } from './featureEffects';
 import { hasRelentlessEndurance } from './species';
 
 export type ResourceName =
@@ -77,6 +86,7 @@ export type ResourceName =
   | 'Relentless Endurance'
   | 'Indomitable'
   | 'Arcane Recovery'
+  | 'Overchannel'
   | 'Wholeness of Body'
   | 'Stroke of Luck'
   | 'Intimidating Presence'
@@ -86,7 +96,10 @@ export type ResourceName =
   | 'Tireless'
   | "Nature's Veil"
   | 'Innate Sorcery'
-  | 'Sorcerous Restoration';
+  | 'Sorcerous Restoration'
+  | 'Magical Cunning'
+  | "Dark One's Own Luck"
+  | 'Hurl Through Hell';
 
 /** The features spent a point at a time, several at once: the rest are spent one use at a time. */
 export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points', 'Lay on Hands'];
@@ -180,6 +193,8 @@ export function resourcesOf(sheet: Sheet): Resource[] {
   }
   // Once, until a Long Rest: slots recovered as a Short Rest ends.
   if (has(classes, 'Wizard')) add('Arcane Recovery', 1, 'none');
+  // An Evoker's Overchannel has no number of uses: what is counted is how often it was used, which sets its cost.
+  if (has(classes, 'Wizard') && hasFeature(readFeatures(sheet), 'Overchannel')) add('Overchannel', 20, 'none');
   // A subclass feature: read from the sheet's features, as the sheet does not say the subclass another way.
   if (has(classes, 'Monk') && level >= 6 && hasFeature(readFeatures(sheet), 'Wholeness of Body')) {
     add('Wholeness of Body', Math.max(1, abilityModifier(sheet, 'wisdom')), 'none');
@@ -203,6 +218,14 @@ export function resourcesOf(sheet: Sheet): Resource[] {
     add('Innate Sorcery', 2, 'none');
     // Once, until a Long Rest: Sorcery Points regained as a Short Rest ends.
     add('Sorcerous Restoration', level >= 5 ? 1 : 0, 'none');
+  }
+  if (has(classes, 'Warlock')) {
+    // The Fiend Patron's features are read from the sheet's features, whichever apostrophe they are written with.
+    const listed = (name: string) =>
+      readFeatures(sheet).some((feature) => featureName(feature.name).toLowerCase().replace(/’/g, "'") === name);
+    if (level >= 2) add('Magical Cunning', 1, 'none');
+    if (level >= 6 && listed("dark one's own luck")) add("Dark One's Own Luck", Math.max(1, abilityModifier(sheet, 'charisma')), 'none');
+    if (level >= 14 && listed('hurl through hell')) add('Hurl Through Hell', 1, 'none');
   }
   return out;
 }

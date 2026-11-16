@@ -1713,6 +1713,12 @@ export interface CombatActionSummary {
   divide?: { pool: number; rangeFeet: number };
   /** Land's Aid: the dice ("2d6") one creature in its area regains, named with `healId` in `combat.save`. */
   areaHeal?: string;
+  /** Magic Missile, made with `combat.save` and `darts`: how many darts at its own level, what each deals and its range. */
+  darts?: { count: number; damage: string; rangeFeet: number };
+  /** An Evoker's Sculpt Spells can protect creatures from this spell. */
+  sculpt?: boolean;
+  /** An Evoker's Overchannel can make this spell deal its maximum damage, with a slot of level 1–5. */
+  overchannel?: boolean;
 }
 export type CombatExtraAttack = 'cleave' | 'light' | 'flurry' | 'horde';
 /** A feature the turn can offer, with its rule. */
@@ -1757,6 +1763,8 @@ export type CombatActionsAck =
       cures?: LayOnHandsCure[];
       /** Font of Inspiration: the spell slot levels a Bard could expend now to regain a use of Bardic Inspiration. */
       fontOfInspiration?: number[];
+      /** A Warlock's pact weapons (action indexes), which can deal Necrotic, Psychic or Radiant damage, and whether it has Fiendish Vigor. */
+      warlock?: { pactWeapons: number[]; fiendishVigor: boolean } | null;
     }
   | { ok: false; error: string };
 
@@ -1794,7 +1802,13 @@ export interface CombatAttackEvent {
   sacredWeapon?: true;
   /** With a Sacred Weapon: a hit deals Radiant damage instead of the weapon's own type. */
   radiant?: true;
+  /** An Evoker's Overchannel: the spell deals its maximum damage. */
+  overchannel?: true;
+  /** Pact of the Blade: the damage type the pact weapon deals instead of its own. */
+  pactDamage?: PactDamageType;
 }
+/** The damage types a Warlock's pact weapon can deal by choice. */
+export type PactDamageType = 'necrotic' | 'psychic' | 'radiant';
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
   | { ok: false; error: string };
@@ -1806,18 +1820,25 @@ export interface CombatSaveEvent {
   action: number;
   slotLevel?: number;
   /** The empty square an area is aimed at, which must be within the action's range. */
-  point?: { x: number; y: number   /** A Sorcerer's Metamagic, with the creatures Careful or Heightened Spell picks. */
+  point?: { x: number; y: number };
+  /** A Sorcerer's Metamagic, with the creatures Careful or Heightened Spell picks. */
   metamagic?: { option: CastingMetamagic; targetIds?: string[]; damageType?: TransmutedType };
-};
   /** Land's Aid: the creature in the area that regains Hit Points. */
   healId?: string;
+  /** An Evoker's Sculpt Spells: the other creatures that succeed on the save and take no damage. */
+  sculpt?: { targetIds: string[] };
+  /** An Evoker's Overchannel: the spell deals its maximum damage. */
+  overchannel?: true;
+  /** Magic Missile: how many darts strike each of `targetIds`, in the same order. */
+  darts?: number[];
 }
+/** `dc` and `ability` are absent for Magic Missile, which calls for no save. */
 export type CombatSaveAck =
   | {
       ok: true;
       summary: string;
-      dc: number;
-      ability: string;
+      dc?: number;
+      ability?: string;
       targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }>;
       /** Land's Aid: the creature that regained Hit Points, and how many. */
       healed?: { tokenId: string; amount: number };
@@ -1880,7 +1901,8 @@ export type CombatFeatureName =
   | "Nature's Veil"
   | 'Font of Magic'
   | 'Innate Sorcery'
-  | 'Font of Inspiration';
+  | 'Font of Inspiration'
+  | 'Fiendish Vigor';
 /** `combat.prompt`: the server asks whether a creature takes a reaction, once a roll is known. */
 export interface CombatPrompt {
   promptId: string;

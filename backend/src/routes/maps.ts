@@ -1,5 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { darkvisionFeet } from '../rules/dnd/species';
+import { devilsSightFeet } from '../rules/dnd/warlock';
 import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
@@ -1528,7 +1529,11 @@ router.post('/:id/tokens', campaignDM, async (req: AuthenticatedRequest, res: Re
       if (!controllerGiven && (await canHoldTokens(campaignId, character.userId))) {
         controlledBy = character.userId;
       }
-      const feet = darkvisionFeet((character.data ?? {}) as Record<string, unknown>);
+      // A Warlock's Devil's Sight sees in Darkness within 120 feet, farther than any species' Darkvision.
+      const feet = Math.max(
+        darkvisionFeet((character.data ?? {}) as Record<string, unknown>),
+        devilsSightFeet((character.data ?? {}) as Record<string, unknown>)
+      );
       if (feet > 0) speciesSight = Math.floor(feet / (map.feetPerSquare || 5));
     }
 

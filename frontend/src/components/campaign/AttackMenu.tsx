@@ -14,6 +14,7 @@ import type {
   CombatExtraAttack,
   CunningEffect,
   TransmutedType,
+  PactDamageType,
 } from '@/types';
 import type socketService from '@/services/socket';
 import Button from '@/components/ui/Button';
@@ -134,6 +135,40 @@ function ExtraAttacks({
   );
 }
 
+/** Sculpt Spells: the creatures an Evocation spell's area catches, to tick the ones it spares. */
+function SculptPicks({
+  action,
+  caught,
+  picked,
+  onToggle,
+}: {
+  action: CombatActionSummary;
+  caught: Array<{ id: string; name: string }>;
+  picked: string[];
+  onToggle: (id: string) => void;
+}) {
+  if (caught.length === 0) return null;
+  return (
+    <span
+      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 pb-1 text-xs text-ink-muted"
+      title="Sculpt Spells: 1 + the level of the slot of the other creatures you can see succeed on the save and take no damage."
+    >
+      Sculpt Spells spares
+      {caught.map((creature) => (
+        <label key={creature.id} className="flex items-center gap-1 text-ink">
+          <input
+            type="checkbox"
+            checked={picked.includes(creature.id)}
+            aria-label={`${action.name}: Sculpt Spells spares ${creature.name}`}
+            onChange={() => onToggle(creature.id)}
+          />
+          {creature.name}
+        </label>
+      ))}
+    </span>
+  );
+}
+
 const ROW =
   'w-full text-left rounded-md px-2 py-1.5 hover:bg-ink/10 focus-visible:bg-ink/10 disabled:opacity-50';
 
@@ -157,7 +192,9 @@ function ActionRow({
     ? attackText(action.attack)
     : action.heal
       ? `heals ${action.heal.dice} · ${action.heal.rangeFeet <= 5 ? 'touch' : `range ${action.heal.rangeFeet} ft`}`
-      : saveText(action.save!);
+      : action.darts
+        ? `${action.darts.count} darts, ${action.darts.damage} each · no roll · range ${action.darts.rangeFeet} ft`
+        : saveText(action.save!);
   const caught = catches
     ? `${what} · ${catches.length > 0 ? `catches ${catches.join(', ')}` : 'catches nobody'}`
     : what;
@@ -238,6 +275,12 @@ export default function AttackMenu({
   const [radiant, setRadiant] = useState(false);
   // The other creatures an action that chooses several (Abjure Foes) is also aimed at, by action index.
   const [alsoAt, setAlsoAt] = useState<Record<number, string[]>>({});
+  // An Evoker's choices as a spell is cast: the creatures Sculpt Spells protects, and Overchannel.
+  const [sculpted, setSculpted] = useState<string[]>([]);
+  const [overchannel, setOverchannel] = useState(false);
+  const [overchannelUses, setOverchannelUses] = useState(0);
+  const [pactWeapons, setPactWeapons] = useState<number[]>([]);
+  const [pactDamage, setPactDamage] = useState<'' | PactDamageType>('');
 
   useEffect(() => {
     let current = true;
@@ -252,6 +295,8 @@ export default function AttackMenu({
         setCunningEffects(answer.cunningStrike ?? []);
         setCunningLimit(answer.cunningStrikeLimit ?? 1);
         setSacred(answer.sacredWeapon ?? null);
+        setOverchannelUses((answer.resources ?? []).find((entry) => entry.name === 'Overchannel')?.used ?? 0);
+        setPactWeapons(answer.warlock?.pactWeapons ?? []);
       } else setProblem(answer.error);
     });
     return () => {
@@ -262,7 +307,7 @@ export default function AttackMenu({
   const attacks = (actions ?? []).filter((action) =>
     point
       ? action.save?.area !== undefined && action.save !== null
-      : action.attack !== null || action.save !== null || action.heal !== undefined
+      : action.attack !== null || action.save !== null || action.heal !== undefined || action.darts !== undefined
   );
   const anyAttackRoll = attacks.some((action) => action.attack !== null);
   const multiattacks = point ? [] : (actions ?? []).filter((action) => (action.multiattack ?? []).length > 0);
@@ -352,7 +397,28 @@ export default function AttackMenu({
     extra?: CombatExtraAttack
   ) => {
     const slot = slotLevel === undefined ? {} : { slotLevel };
+    // Overchannel changes a spell cast with a slot of level 1 to 5.
+    const maximum =
+      overchannel && action.overchannel && (slotLevel ?? action.spell?.level ?? 0) <= 5
+        ? { overchannel: true as const }
+        : {};
     setBusy(true);
+    // Magic Missile: every dart at the creature the menu is on, one more for each slot level above the spell's.
+    if (action.darts) {
+      const count = action.darts.count + Math.max(0, (slotLevel ?? 0) - (action.spell?.level ?? 0));
+      const answer = await socket.resolveSave({
+        sourceId: attacker.id,
+        targetIds: [target.id],
+        action: action.index,
+        ...slot,
+        darts: [count],
+        ...maximum,
+        ...(meta === 'distant' || meta === 'quickened' ? { metamagic: { option: meta } } : {}),
+      });
+      setBusy(false);
+      onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: true } : answer);
+      return;
+    }
     if (action.heal) {
       const answer = await socket.heal({ casterId: attacker.id, targetId: target.id, action: action.index, ...slot });
       setBusy(false);
@@ -374,8 +440,10 @@ export default function AttackMenu({
           : {}),
         ...(imbue && sacred && !extra && action.attack.kind === 'melee' && !action.spell ? { sacredWeapon: true as const } : {}),
         ...(radiant && sacredFor(action) ? { radiant: true as const } : {}),
+        ...(pactDamage && pactWeapons.includes(action.index) ? { pactDamage } : {}),
         ...(action.spell && (meta === 'distant' || meta === 'quickened') ? { metamagic: { option: meta } } : {}),
         ...(action.spell && meta === 'transmuted' ? { metamagic: { option: meta, damageType: transmuteTo } } : {}),
+        ...maximum,
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -394,6 +462,8 @@ export default function AttackMenu({
         : meta === 'careful'
           ? targetIds.filter((id) => id !== target.id)
           : undefined;
+    // Sculpt Spells protects the creatures ticked under the spell, among those it catches.
+    const sculptPicks = targetIds.filter((id) => sculpted.includes(id));
     const answer = await socket.resolveSave({
       sourceId: attacker.id,
       targetIds,
@@ -403,6 +473,8 @@ export default function AttackMenu({
       ...(action.spell && meta
         ? { metamagic: { option: meta, ...(metaPicks ? { targetIds: metaPicks } : {}), ...(meta === 'transmuted' ? { damageType: transmuteTo } : {}) } }
         : {}),
+      ...(action.sculpt && sculptPicks.length > 0 ? { sculpt: { targetIds: sculptPicks } } : {}),
+      ...maximum,
     });
     setBusy(false);
     onResolved(
@@ -593,6 +665,18 @@ export default function AttackMenu({
                       })}
                     </span>
                   )}
+                  {action.sculpt && action.save?.area && (
+                    <SculptPicks
+                      action={action}
+                      caught={caughtBy(action.save.area).filter((c) => c.id !== attacker.id)}
+                      picked={sculpted}
+                      onToggle={(id) =>
+                        setSculpted((now) =>
+                          now.includes(id) ? now.filter((other) => other !== id) : [...now, id]
+                        )
+                      }
+                    />
+                  )}
                   {action.beams && action.beams > 1 && (
                     <span className="flex px-2 pb-1">
                       <Button
@@ -761,6 +845,28 @@ export default function AttackMenu({
               </select>
             </label>
           )}
+          {attacks.some((action) => action.overchannel) && (
+            <label
+              className="flex items-center gap-2 text-sm text-ink"
+              title={`Overchannel: a Wizard spell cast with a slot of level 1 to 5 deals its maximum damage. ${
+                overchannelUses === 0
+                  ? 'Free this time; each later use before a Long Rest deals you Necrotic damage.'
+                  : `Used ${overchannelUses} ${overchannelUses === 1 ? 'time' : 'times'} since the last Long Rest: this one deals you ${overchannelUses + 1}d12 Necrotic damage for each level of the slot, past Resistance and Immunity.`
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={overchannel}
+                onChange={(event) => setOverchannel(event.target.checked)}
+              />
+              Overchannel
+              {overchannelUses > 0 && (
+                <span className="text-xs text-ink-muted">
+                  ({overchannelUses + 1}d12 Necrotic a slot level to you)
+                </span>
+              )}
+            </label>
+          )}
           {anyAttackRoll && canBrutal && (
             <label
               className="flex items-center justify-between gap-2 text-sm text-ink"
@@ -775,6 +881,24 @@ export default function AttackMenu({
                 <option value="">No Brutal Strike</option>
                 <option value="forceful">Forceful Blow (push 15 ft)</option>
                 <option value="hamstring">Hamstring Blow (−15 ft Speed)</option>
+              </select>
+            </label>
+          )}
+          {attacks.some((action) => pactWeapons.includes(action.index)) && (
+            <label
+              className="flex items-center justify-between gap-2 text-sm text-ink"
+              title="Pact of the Blade: your pact weapon can deal Necrotic, Psychic or Radiant damage instead of its own type."
+            >
+              Pact weapon deals
+              <select
+                value={pactDamage}
+                onChange={(event) => setPactDamage(event.target.value as '' | PactDamageType)}
+                className="input-cozy text-sm py-1"
+              >
+                <option value="">Its own damage type</option>
+                <option value="necrotic">Necrotic</option>
+                <option value="psychic">Psychic</option>
+                <option value="radiant">Radiant</option>
               </select>
             </label>
           )}

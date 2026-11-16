@@ -209,7 +209,7 @@ export default function CampaignRoster() {
    * same as the creature library, because a menu click has no cursor position.
    */
   /** A rest for the character the menu is open on: the server rolls and restores, and says what came back. */
-  const handleRest = async (kind: 'short' | 'shortFinish' | 'long', restore?: true) => {
+  const handleRest = async (kind: 'short' | 'shortFinish' | 'long' | 'magicalCunning', restore?: true) => {
     if (!contextMenu || !socket) return;
     const { characterId } = contextMenu;
     handleCloseContextMenu();
@@ -464,6 +464,13 @@ export default function CampaignRoster() {
               icon: Coffee,
               label: 'Finish short rest, with Sorcerous Restoration',
               onClick: () => void handleRest('shortFinish', true),
+              visible:
+                menuCharacterIsDnd && canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
+            },
+            {
+              icon: Coffee,
+              label: 'Magical Cunning: regain Pact Magic slots',
+              onClick: () => void handleRest('magicalCunning'),
               visible:
                 menuCharacterIsDnd && canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
             },

@@ -87,6 +87,7 @@ export default function TurnBar() {
     preserveLife: { index: number; pool: number } | null;
     cures: LayOnHandsCure[];
     fontOfMagic: { create: Array<{ level: number; cost: number }>; convert: number[] } | null;
+    fiendishVigor: boolean;
   } | null>(null);
   // Asked again after a feature is used, so its uses left are the sheet's.
   const [listed, setListed] = useState(0);
@@ -119,6 +120,7 @@ export default function TurnBar() {
               wildShapeForms: answer.wildShapeForms ?? [],
               wildShape: answer.wildShape ?? null,
               fontOfInspiration: answer.fontOfInspiration ?? [],
+              fiendishVigor: answer.warlock?.fiendishVigor === true,
               preserveLife: (() => {
                 const found = answer.actions.find((action) => action.divide);
                 return found?.divide ? { index: found.index, pool: found.divide.pool } : null;
@@ -605,6 +607,18 @@ export default function TurnBar() {
           {entry.name} ({entry.max - entry.used}/{entry.max})
         </Button>
       ))}
+
+      {canAct && known?.fiendishVigor && (
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={turn.action !== null}
+          title="Fiendish Vigor: cast False Life on yourself without a spell slot, a Magic action, for 12 Temporary Hit Points."
+          onClick={() => void applyOnServer('Fiendish Vigor')}
+        >
+          Fiendish Vigor
+        </Button>
+      )}
 
       {surge && (
         <Button
