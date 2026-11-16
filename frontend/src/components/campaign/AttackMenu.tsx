@@ -7,7 +7,13 @@
 // ============================================
 
 import { useEffect, useState } from 'react';
-import type { AttackMode, CastingMetamagic, CombatActionSummary, CombatExtraAttack } from '@/types';
+import type {
+  AttackMode,
+  CastingMetamagic,
+  CombatActionSummary,
+  CombatExtraAttack,
+  CunningEffect,
+} from '@/types';
 import type socketService from '@/services/socket';
 import Button from '@/components/ui/Button';
 
@@ -32,6 +38,17 @@ interface AttackMenuProps {
 }
 
 type Area = NonNullable<NonNullable<CombatActionSummary['save']>['area']>;
+
+/** A Cunning Strike effect as the menu offers it, with the Sneak Attack dice it costs. */
+const CUNNING_OPTIONS: Record<CunningEffect, string> = {
+  poison: 'Poison (−1d6)',
+  trip: 'Trip (−1d6)',
+  withdraw: 'Withdraw (−1d6)',
+  daze: 'Daze (−2d6)',
+  knockOut: 'Knock Out (−6d6)',
+  obscure: 'Obscure (−3d6)',
+  stealth: 'Stealth Attack (−1d6)',
+};
 
 const signed = (bonus: number) => (bonus >= 0 ? `+${bonus}` : String(bonus));
 
@@ -202,8 +219,10 @@ export default function AttackMenu({
   const [metaOptions, setMetaOptions] = useState<CastingMetamagic[]>([]);
   const [meta, setMeta] = useState<'' | CastingMetamagic>('');
   const [huntersMark, setHuntersMark] = useState<string | null>(null);
-  const [cunningEffects, setCunningEffects] = useState<Array<'poison' | 'trip' | 'withdraw'>>([]);
-  const [cunning, setCunning] = useState<'' | 'poison' | 'trip' | 'withdraw'>('');
+  const [cunningEffects, setCunningEffects] = useState<CunningEffect[]>([]);
+  const [cunningLimit, setCunningLimit] = useState(1);
+  const [cunning, setCunning] = useState<'' | CunningEffect>('');
+  const [cunningSecond, setCunningSecond] = useState<'' | CunningEffect>('');
   const [brutal, setBrutal] = useState<'' | 'forceful' | 'hamstring'>('');
 
   useEffect(() => {
@@ -217,6 +236,7 @@ export default function AttackMenu({
         setMetaOptions(answer.metamagic ?? []);
         setHuntersMark((answer.concentrationSpells ?? []).find((spell) => /^hunter[’']?s mark$/i.test(spell)) ?? null);
         setCunningEffects(answer.cunningStrike ?? []);
+        setCunningLimit(answer.cunningStrikeLimit ?? 1);
       } else setProblem(answer.error);
     });
     return () => {
@@ -321,7 +341,9 @@ export default function AttackMenu({
         ...(extra ? { extra } : {}),
         ...(reckless ? { reckless: true as const } : {}),
         ...(brutal && !action.spell ? { brutal } : {}),
-        ...(cunning && !action.spell ? { cunning } : {}),
+        ...(cunning && !action.spell
+          ? { cunning: cunningSecond ? [cunning, cunningSecond] : cunning }
+          : {}),
         ...(action.spell && (meta === 'distant' || meta === 'quickened') ? { metamagic: { option: meta } } : {}),
       });
       setBusy(false);
@@ -537,22 +559,45 @@ export default function AttackMenu({
           {anyAttackRoll && cunningEffects.length > 0 && (
             <label
               className="flex items-center justify-between gap-2 text-sm text-ink"
-              title="Cunning Strike: forgo 1d6 of your Sneak Attack for an effect, if this attack deals Sneak Attack. Saves are against 8 + Dexterity modifier + Proficiency Bonus."
+              title="Cunning Strike: forgo dice of your Sneak Attack for an effect, if this attack deals Sneak Attack. Saves are against 8 + Dexterity modifier + Proficiency Bonus."
             >
               Cunning Strike
               <select
                 value={cunning}
-                onChange={(event) =>
-                  setCunning(event.target.value as '' | 'poison' | 'trip' | 'withdraw')
-                }
+                onChange={(event) => {
+                  setCunning(event.target.value as '' | CunningEffect);
+                  setCunningSecond('');
+                }}
                 className="input-cozy text-sm py-1"
               >
                 <option value="">No Cunning Strike</option>
-                {cunningEffects.includes('poison') && <option value="poison">Poison (−1d6)</option>}
-                {cunningEffects.includes('trip') && <option value="trip">Trip (−1d6)</option>}
-                {cunningEffects.includes('withdraw') && (
-                  <option value="withdraw">Withdraw (−1d6)</option>
-                )}
+                {cunningEffects.map((effect) => (
+                  <option key={effect} value={effect}>
+                    {CUNNING_OPTIONS[effect]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {anyAttackRoll && cunning && cunningLimit > 1 && cunningEffects.length > 1 && (
+            <label
+              className="flex items-center justify-between gap-2 text-sm text-ink"
+              title="Improved Cunning Strike: a second effect on the same Sneak Attack, paying the dice of each."
+            >
+              Second effect
+              <select
+                value={cunningSecond}
+                onChange={(event) => setCunningSecond(event.target.value as '' | CunningEffect)}
+                className="input-cozy text-sm py-1"
+              >
+                <option value="">None</option>
+                {cunningEffects
+                  .filter((effect) => effect !== cunning)
+                  .map((effect) => (
+                    <option key={effect} value={effect}>
+                      {CUNNING_OPTIONS[effect]}
+                    </option>
+                  ))}
               </select>
             </label>
           )}

@@ -61,4 +61,36 @@ describe('TurnFeatures', () => {
     );
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('offers a Rogue Steady Aim while it has not moved, and a Thief its Fast Hands check', async () => {
+    const use = vi.fn().mockResolvedValue({ ok: true, summary: 'Hero uses Steady Aim', left: 0 });
+    const sleight = vi.fn().mockResolvedValue({ ok: true, summary: 'Hero Dexterity (Sleight of Hand) check: 15' });
+    const { rerender } = render(
+      <TurnFeatures
+        features={['Steady Aim', 'Fast Hands']}
+        bonusActionSpent={false}
+        use={use}
+        hide={vi.fn()}
+        sleight={sleight}
+        onResult={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Steady Aim' }));
+    await waitFor(() => expect(use).toHaveBeenCalledWith('Steady Aim'));
+    fireEvent.click(screen.getByRole('button', { name: 'Fast Hands: Sleight of Hand' }));
+    await waitFor(() => expect(sleight).toHaveBeenCalled());
+    rerender(
+      <TurnFeatures
+        features={['Steady Aim', 'Fast Hands']}
+        bonusActionSpent={false}
+        use={use}
+        hide={vi.fn()}
+        sleight={sleight}
+        moved
+        onResult={() => {}}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Steady Aim' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Fast Hands: Sleight of Hand' })).toBeEnabled();
+  });
 });

@@ -39,7 +39,7 @@ export interface SaveRequest {
    */
   fixed?: {
     damage: SaveResult['damage'];
-    saves: ReadonlyArray<{ outcome: SaveOutcome; first?: SaveOutcome; inspired?: number }>;
+    saves: ReadonlyArray<{ outcome: SaveOutcome; first?: SaveOutcome; rerolledBy?: string; inspired?: number; turned?: SaveOutcome }>;
   };
 }
 
@@ -58,8 +58,12 @@ export interface TargetSaveResult {
   protected?: boolean;
   /** Indomitable rerolled a failed save: the first roll; `outcome` is the reroll, which stands. */
   rerolled?: SaveOutcome;
+  /** The feature that rerolled it, when not Indomitable: "Disciplined Survivor". */
+  rerolledBy?: string;
   /** Bardic Inspiration added this much to a failed save; `outcome` has it in its total. */
   inspired?: number;
+  /** Stroke of Luck turned a failed save's d20 into a 20: the save as it stood; `outcome` is with the 20. */
+  turned?: SaveOutcome;
   /** What the save was rolled with, for a feature that rolls it again. */
   rolledWith: SaveInput;
 }
@@ -161,7 +165,9 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
       instantDeath,
       ...(evades && damage.length > 0 ? (target.protected ? { protected: true } : { evaded: true }) : {}),
       ...(rerolled ? { rerolled } : {}),
+      ...(rerolled && fixed?.rerolledBy ? { rerolledBy: fixed.rerolledBy } : {}),
       ...(fixed?.inspired ? { inspired: fixed.inspired } : {}),
+      ...(fixed?.turned ? { turned: fixed.turned } : {}),
       rolledWith: input,
     };
   });
@@ -170,7 +176,8 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
   const each = results.map((result) => {
     const rolledSave = result.outcome.roll ? ` (${result.outcome.roll.total})` : ' (no roll)';
     const inspiration = result.inspired && result.outcome.roll ? `fails (${result.outcome.roll.total - result.inspired}), Bardic Inspiration +${result.inspired}: ` : '';
-    const verdict = `${result.rerolled ? `fails (${result.rerolled.roll?.total}), Indomitable: ` : ''}${inspiration}${result.outcome.success ? 'saves' : 'fails'}`;
+    const luck = result.turned ? `fails (${result.turned.roll?.total}), Stroke of Luck, the d20 becomes a 20: ` : '';
+    const verdict = `${result.rerolled ? `fails (${result.rerolled.roll?.total}), ${result.rerolledBy ?? 'Indomitable'}: ` : ''}${result.turned ? '' : inspiration}${luck}${result.outcome.success ? 'saves' : 'fails'}`;
     const harm = damage.length > 0 ? `, ${result.dealt} damage${result.evaded ? ' (Evasion)' : result.protected ? ' (Careful Spell)' : ''}` : '';
     const fate = result.instantDeath ? ', killed outright' : result.dropped ? ', drops to 0' : '';
     return `${result.name} ${verdict}${rolledSave}${harm}${fate}`;

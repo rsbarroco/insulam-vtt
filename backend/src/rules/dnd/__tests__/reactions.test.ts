@@ -14,6 +14,11 @@ describe('Deflect Attacks', () => {
     });
   });
 
+  it('answers a hit of any damage type with Deflect Energy', () => {
+    const monk = { class: 'Monk', level: 13, featuresAndTraits: ['Deflect Energy (Monk 13)'] };
+    expect(deflectReduction(monk).types).toEqual(expect.arrayContaining(['fire', 'psychic', 'slashing']));
+  });
+
   it('reads the Monk level of a gestalt character, and none for another class', () => {
     expect(monkLevel({ class: 'Fighter / Monk', level: 7 })).toBe(7);
     expect(monkLevel({ class: 'Rogue', level: 7 })).toBe(0);

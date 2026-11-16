@@ -1,4 +1,4 @@
-import { checkModifiers, passiveScore, resolveCheck, SKILL_CHECKS, withTacticalMind } from '../checks';
+import { checkModifiers, passiveScore, resolveCheck, SKILL_CHECKS, withStrokeOfLuck, withTacticalMind } from '../checks';
 import { readConditions } from '../conditions';
 
 const having = (...names: string[]) => readConditions(names);
@@ -107,5 +107,35 @@ describe('Tactical Mind', () => {
   it('leaves a check that succeeded as it is', () => {
     const passed = resolveCheck(check({ dc: 15 }), dice(12));
     expect(withTacticalMind(passed, 15, 7)).toBe(passed);
+  });
+});
+
+describe('Reliable Talent', () => {
+  it('treats a d20 of 9 or lower as a 10, and leaves a higher one', () => {
+    const low = resolveCheck(check({ dc: 15, reliable: true }), dice(3));
+    expect(low).toMatchObject({ total: 15, success: true, reasons: ['Reliable Talent: the 3 on the d20 counts as 10'] });
+    expect(low.roll).toMatchObject({ natural: 10, dice: [3] });
+    expect(resolveCheck(check({ reliable: true }), dice(14))).toMatchObject({ total: 19, reasons: [] });
+    expect(resolveCheck(check(), dice(3)).total).toBe(8);
+  });
+
+  it('applies to the d20 that counts with Disadvantage', () => {
+    expect(resolveCheck(check({ reliable: true, mode: 'disadvantage' }), dice(15, 4))).toMatchObject({ total: 15 });
+  });
+});
+
+describe('Stroke of Luck', () => {
+  it('turns the d20 of a failed check into a 20, keeping what was added after the roll', () => {
+    const failed = resolveCheck(check({ dc: 25 }), dice(4));
+    const lucky = withStrokeOfLuck(failed, 25);
+    expect(lucky).toMatchObject({ total: 25, success: true });
+    expect(lucky.summary).toBe('Hero Dexterity (Stealth) check: 9 vs DC 25: failure; Stroke of Luck, the d20 becomes a 20: 25, success');
+    const helped = withTacticalMind(resolveCheck(check({ dc: 30 }), dice(4)), 30, 3);
+    expect(withStrokeOfLuck(helped, 30)).toMatchObject({ total: 28, success: false });
+  });
+
+  it('leaves a check that succeeded as it is', () => {
+    const passed = resolveCheck(check({ dc: 15 }), dice(12));
+    expect(withStrokeOfLuck(passed, 15)).toBe(passed);
   });
 });

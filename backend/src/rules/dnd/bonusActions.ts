@@ -5,6 +5,9 @@
 //
 //   • Cunning Action (Rogue 2): a Bonus Action to take the Dash, Disengage
 //     or Hide action.
+//   • Steady Aim (Rogue 3): a Bonus Action, only if the Rogue has not moved
+//     this turn: Advantage on its next attack roll this turn, and its Speed
+//     is 0 until the end of the turn.
 //   • Monk's Focus (Monk 2), each a Bonus Action:
 //       - Flurry of Blows: 1 Focus Point, two Unarmed Strikes.
 //       - Patient Defense: the Disengage action; for 1 Focus Point, the
@@ -75,4 +78,16 @@ export function turnFeatureEffect(
         focus: options.focus ? 1 : 0,
       };
   }
+}
+
+/** Whether a sheet has Steady Aim: a Rogue of level 3. */
+export function hasSteadyAim(sheet: Sheet): boolean {
+  return hasLevel(sheet, 'Rogue', 3);
+}
+
+/** Why Steady Aim cannot be used on a turn, or null when it can: it needs the Rogue not to have moved. */
+export function steadyAimRefusal(turn: { movementSpent: number; steadyAim?: 'ready' | 'used' }): string | null {
+  if (turn.steadyAim) return 'Steady Aim has been used this turn';
+  if (turn.movementSpent > 0) return 'Steady Aim is used only on a turn the Rogue has not moved';
+  return null;
 }

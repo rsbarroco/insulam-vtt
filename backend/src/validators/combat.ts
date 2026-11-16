@@ -3,6 +3,7 @@
 // ============================================
 
 import { z } from 'zod';
+import { CUNNING_EFFECTS } from '../rules/dnd/cunningStrike';
 
 const tokenId = z.string().uuid('A creature is named by its token id');
 
@@ -32,8 +33,8 @@ export const CombatAttackSchema = z
     reckless: z.literal(true).optional(),
     /** Brutal Strike on a Reckless Attack turn: give up Advantage on this Strength attack for an extra die and this effect on a hit. */
     brutal: z.enum(['forceful', 'hamstring']).optional(),
-    /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
-    cunning: z.enum(['poison', 'trip', 'withdraw']).optional(),
+    /** Cunning Strike: forgo Sneak Attack dice for this effect, or these two with Improved Cunning Strike, if Sneak Attack is dealt. */
+    cunning: z.union([z.enum(CUNNING_EFFECTS), z.array(z.enum(CUNNING_EFFECTS)).min(1).max(2)]).optional(),
     /** A Sorcerer's Metamagic for a spell attack, chosen as it is cast. */
     metamagic: z.object({ option: z.enum(['distant', 'quickened']) }).strict().optional(),
   })
@@ -80,7 +81,7 @@ export const CombatCheckSchema = z
     ability: z.enum(ABILITIES).optional(),
     /** The Hide action: Stealth against DC 15, and the Invisible condition on a success. */
     hide: z.literal(true).optional(),
-    /** With `hide`: taken as a Bonus Action through Cunning Action. */
+    /** With `hide`: taken as a Bonus Action through Cunning Action. With `skill: 'sleightOfHand'`: a Thief's Fast Hands. */
     bonusAction: z.literal(true).optional(),
     /** The Difficulty Class, when the table set one. */
     dc: z.number().int().min(1).max(40).optional(),
@@ -124,6 +125,8 @@ export const CombatFeatureSchema = z
       'Patient Defense',
       'Step of the Wind',
       'End Wild Shape',
+      'Wholeness of Body',
+      'Steady Aim',
     ]),
     /** Cunning Action: the action it takes as a Bonus Action (Hide is `combat.check` with `bonusAction`). */
     as: z.enum(['Dash', 'Disengage']).optional(),
@@ -165,15 +168,22 @@ export const CombatConcentrateSchema = z
   .strict()
   .refine((value) => (value.spell === undefined) !== (value.end === undefined), { message: 'Give a spell to concentrate on, or end' });
 
-/** `combat.heal`: a caster casts one of its healing spells on a creature, at a slot level. */
+/** `combat.heal`: a caster casts one of its healing spells on a creature, at a slot level; or, with `shares`, divides Preserve Life's Hit Points among creatures. */
 export const CombatHealSchema = z
   .object({
     casterId: tokenId,
-    targetId: tokenId,
+    targetId: tokenId.optional(),
     action: z.number().int().min(0).max(199),
     slotLevel: z.number().int().min(1).max(9).optional(),
+    shares: z
+      .array(z.object({ targetId: tokenId, amount: z.number().int().min(1).max(100) }).strict())
+      .min(1)
+      .max(20)
+      .optional(),
   })
-  .strict();
+  .strict()
+  .refine((data) => (data.targetId === undefined) !== (data.shares === undefined), 'Send the creature healed, or the shares of Preserve Life')
+  .refine((data) => data.shares === undefined || data.slotLevel === undefined, 'Preserve Life takes no spell slot');
 
 /** `combat.undo`: no payload; the last resolved combat action is undone. */
 export const CombatUndoSchema = z.object({}).strict();

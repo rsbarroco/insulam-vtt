@@ -321,3 +321,32 @@ describe('damage added once the hit is known', () => {
     expect(withExtraDamage(miss, creature('Ogre', 3), 'Longsword', smite)).toBe(miss);
   });
 });
+
+describe('Elusive', () => {
+  it('takes every Advantage off an attack roll against the target, and says so', () => {
+    const result = ok(resolveAttack(request({ mode: 'advantage', extraReasons: ['Advantage: Vex'], noAdvantage: 'Elusive' }), dice(4, 19, 5)));
+    expect(result.outcome.roll).toMatchObject({ mode: 'normal', dice: [4] });
+    expect(result.reasons).toEqual(['No Advantage: Elusive (Ogre)']);
+  });
+
+  it('leaves Disadvantage, and does nothing for an Incapacitated target', () => {
+    const hindered = ok(resolveAttack(request({ mode: 'disadvantage', extraReasons: ['Advantage: Vex'], noAdvantage: 'Elusive' }), dice(15, 4)));
+    expect(hindered.outcome.roll).toMatchObject({ mode: 'disadvantage', natural: 4 });
+    const stunned = ok(
+      resolveAttack(request({ target: creature('Ogre', 3, { conditions: ['stunned'] }), noAdvantage: 'Elusive' }), dice(4, 19, 5))
+    );
+    expect(stunned.outcome.roll.mode).toBe('advantage');
+  });
+});
+
+describe('Stroke of Luck', () => {
+  it('turns a missed roll into a 20: a Critical Hit, with the damage rolled', () => {
+    const missed = ok(resolveAttack(request(), dice(1)));
+    expect(missed.outcome.hit).toBe(false);
+    const turned = ok(resolveAttack(request({ turned: { roll: missed.outcome.roll, label: 'Stroke of Luck' } }), dice(5, 6)));
+    expect(turned.outcome).toMatchObject({ hit: true, critical: true });
+    expect(turned.outcome.roll).toMatchObject({ natural: 20, total: 25 });
+    expect(turned.dealt).toBe(5 + 6 + 3);
+    expect(turned.bonuses).toContain('Stroke of Luck: the d20 becomes a 20');
+  });
+});

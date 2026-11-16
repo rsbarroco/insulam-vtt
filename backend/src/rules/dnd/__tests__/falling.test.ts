@@ -1,4 +1,4 @@
-import { fallDice, resolveFall } from '../falling';
+import { fallDice, resolveFall, withSlowFall } from '../falling';
 
 const threes = () => 3;
 const hero = (over = {}) => ({ name: 'Hero', hp: { current: 20, max: 20, temp: 0 }, ...over });
@@ -63,6 +63,24 @@ describe('resolveFall', () => {
       hp: null,
       prone: true,
       dropped: false,
+    });
+  });
+
+  it('takes Slow Fall off the damage: what is left, or none and no Prone', () => {
+    const faller = hero({ hp: { current: 20, max: 20, temp: 0 } });
+    const fell = resolveFall(faller, 50, threes);
+    expect(withSlowFall(fell, faller, 10)).toMatchObject({
+      dealt: 5,
+      hp: { current: 15, max: 20, temp: 0 },
+      prone: true,
+      summary: 'Hero falls 50 ft: 5 bludgeoning damage (10 taken off by Slow Fall), Prone',
+    });
+    expect(withSlowFall(fell, faller, 20)).toMatchObject({
+      dealt: 0,
+      hp: { current: 20, max: 20, temp: 0 },
+      prone: false,
+      dropped: false,
+      summary: 'Hero falls 50 ft: no damage (15 taken off by Slow Fall)',
     });
   });
 });

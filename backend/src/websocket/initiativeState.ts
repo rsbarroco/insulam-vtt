@@ -40,6 +40,12 @@ export interface TurnState {
   attacks: number;
   /** Disengaged with a Bonus Action (Cunning Action, Patient Defense, Step of the Wind): its movement provokes no Opportunity Attacks. */
   disengaged?: boolean;
+  /**
+   * A Rogue's Steady Aim, taken this turn: its Speed is 0 until the turn
+   * ends, and its next attack roll this turn has Advantage (`ready`, then
+   * `used` once that roll is made).
+   */
+  steadyAim?: 'ready' | 'used';
 }
 
 export interface CombatState {
@@ -100,9 +106,11 @@ export interface CombatState {
  * Studied: a Fighter's Studied Attacks, after its attack roll missed the
  * target: its next attack roll against it has Advantage, until the end of the
  * Fighter's next turn.
+ * Addle: Open Hand Technique keeps the creature (both ids) from Opportunity
+ * Attacks until the start of its next turn.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;

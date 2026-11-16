@@ -32,6 +32,11 @@
 //     many times as the column says; all back on a Long Rest.
 //   • Arcane Recovery (Wizard 1): once, slots recovered as a Short Rest ends;
 //     back on a Long Rest.
+//   • Wholeness of Body (Warrior of the Open Hand 6): as many uses as the
+//     Wisdom modifier, at least one, for a Monk whose sheet lists the
+//     feature; all back on a Long Rest.
+//   • Stroke of Luck (Rogue 20): once, a failed D20 Test's d20 becomes a 20;
+//     back on a Short or Long Rest.
 //
 // A sheet keeps what it has spent in `featureUses`: { "Second Wind": 1 }.
 // A gestalt character is both of its classes at its full level.
@@ -40,6 +45,7 @@
 // ============================================
 
 import { columnAt } from './classes';
+import { hasFeature, readFeatures } from './featureEffects';
 import { hasRelentlessEndurance } from './species';
 
 export type ResourceName =
@@ -55,7 +61,9 @@ export type ResourceName =
   | 'Lay on Hands'
   | 'Relentless Endurance'
   | 'Indomitable'
-  | 'Arcane Recovery';
+  | 'Arcane Recovery'
+  | 'Wholeness of Body'
+  | 'Stroke of Luck';
 
 /** The features spent a point at a time, several at once: the rest are spent one use at a time. */
 export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points', 'Lay on Hands'];
@@ -143,6 +151,12 @@ export function resourcesOf(sheet: Sheet): Resource[] {
   if (has(classes, 'Ranger')) add('Favored Enemy', count('Ranger', 'Favored Enemy', level), 'none');
   // Once, until a Long Rest: slots recovered as a Short Rest ends.
   if (has(classes, 'Wizard')) add('Arcane Recovery', 1, 'none');
+  // A subclass feature: read from the sheet's features, as the sheet does not say the subclass another way.
+  if (has(classes, 'Monk') && level >= 6 && hasFeature(readFeatures(sheet), 'Wholeness of Body')) {
+    add('Wholeness of Body', Math.max(1, abilityModifier(sheet, 'wisdom')), 'none');
+  }
+  // Once, until a Short or Long Rest: a failed D20 Test's roll becomes a 20.
+  if (has(classes, 'Rogue')) add('Stroke of Luck', level >= 20 ? 1 : 0, 'all');
   return out;
 }
 

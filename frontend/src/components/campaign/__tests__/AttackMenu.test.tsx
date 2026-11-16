@@ -368,3 +368,62 @@ describe('AttackMenu extra attacks', () => {
     expect(screen.queryByRole('button', { name: 'Help against it' })).toBeNull();
   });
 });
+
+describe('AttackMenu Cunning Strike', () => {
+  const renderRogue = (cunningStrikeLimit: 1 | 2) => {
+    const socket = {
+      listCombatActions: vi.fn().mockResolvedValue({
+        ok: true,
+        actions: [greataxe],
+        cunningStrike: ['trip', 'withdraw', 'daze', 'obscure'],
+        cunningStrikeLimit,
+      }),
+      resolveAttack: vi.fn().mockResolvedValue({ ok: true, summary: 'hit', hit: true }),
+      resolveSave: vi.fn(),
+    };
+    render(
+      <AttackMenu
+        socket={socket as unknown as typeof socketService}
+        attacker={{ id: 'hero', name: 'Hero' }}
+        target={{ id: 'ogre', name: 'Ogre' }}
+        situation={null}
+        style={{}}
+        caughtBy={() => []}
+        onAim={() => {}}
+        onResolved={() => {}}
+        onClose={() => {}}
+      />
+    );
+    return socket;
+  };
+
+  it('sends two effects with Improved Cunning Strike', async () => {
+    const socket = renderRogue(2);
+    fireEvent.change(await screen.findByLabelText('Cunning Strike'), { target: { value: 'obscure' } });
+    fireEvent.change(screen.getByLabelText('Second effect'), { target: { value: 'trip' } });
+    fireEvent.click(screen.getByText('Greataxe'));
+    await waitFor(() =>
+      expect(socket.resolveAttack).toHaveBeenCalledWith({
+        attackerId: 'hero',
+        targetId: 'ogre',
+        action: 0,
+        cunning: ['obscure', 'trip'],
+      })
+    );
+  });
+
+  it('offers one effect without it', async () => {
+    const socket = renderRogue(1);
+    fireEvent.change(await screen.findByLabelText('Cunning Strike'), { target: { value: 'daze' } });
+    expect(screen.queryByLabelText('Second effect')).toBeNull();
+    fireEvent.click(screen.getByText('Greataxe'));
+    await waitFor(() =>
+      expect(socket.resolveAttack).toHaveBeenCalledWith({
+        attackerId: 'hero',
+        targetId: 'ogre',
+        action: 0,
+        cunning: 'daze',
+      })
+    );
+  });
+});

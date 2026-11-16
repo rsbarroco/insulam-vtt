@@ -815,8 +815,14 @@ class SocketClient {
     return this.askFor<CombatUndoAck>('combat.undo', {}, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 
-  /** A caster casts one of its healing spells on a creature; the server rolls it, heals and spends the slot. */
-  heal(cast: { casterId: string; targetId: string; action: number; slotLevel?: number }): Promise<CombatHealAck> {
+  /** A caster casts one of its healing spells on a creature; the server rolls it, heals and spends the slot. With `shares`, Preserve Life is divided among the creatures chosen. */
+  heal(cast: {
+    casterId: string;
+    targetId?: string;
+    action: number;
+    slotLevel?: number;
+    shares?: Array<{ targetId: string; amount: number }>;
+  }): Promise<CombatHealAck> {
     return this.askFor<CombatHealAck>('combat.heal', cast, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
   }
 

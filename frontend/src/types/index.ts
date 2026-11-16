@@ -1623,6 +1623,8 @@ export interface TurnState {
   attacks: number;
   /** Disengaged with a Bonus Action (Cunning Action, Patient Defense, Step of the Wind): its movement provokes no Opportunity Attacks. */
   disengaged?: boolean;
+  /** A Rogue's Steady Aim, taken this turn: Speed 0 until the turn ends, Advantage on its next attack roll (`ready`, then `used`). */
+  steadyAim?: 'ready' | 'used';
 }
 
 export interface CombatState {
@@ -1644,7 +1646,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1703,6 +1705,8 @@ export interface CombatActionSummary {
   legendary?: { max: number; used: number };
   /** A healing spell, made with `combat.heal`: what it restores at its own level ("2d8+3") and its range. */
   heal?: { dice: string; rangeFeet: number };
+  /** Preserve Life, made with `combat.heal` and `shares`: the Hit Points to divide and how far it reaches. */
+  divide?: { pool: number; rangeFeet: number };
 }
 export type CombatExtraAttack = 'cleave' | 'light' | 'flurry';
 /** A feature the turn can offer, with its rule. */
@@ -1736,11 +1740,15 @@ export type CombatActionsAck =
       wildShapeForms?: string[];
       wildShape?: string | null;
       /** A Rogue's Cunning Strike effects it can use with a Sneak Attack. */
-      cunningStrike?: Array<'poison' | 'trip' | 'withdraw'>;
+      cunningStrike?: CunningEffect[];
+      /** How many of them one Sneak Attack takes: two with Improved Cunning Strike. */
+      cunningStrikeLimit?: 1 | 2;
     }
   | { ok: false; error: string };
 
 export type AttackMode = 'normal' | 'advantage' | 'disadvantage';
+/** A Rogue's Cunning Strike effects: Devious Strikes adds Daze, Knock Out and Obscure, a Thief's Supreme Sneak the Stealth Attack. */
+export type CunningEffect = 'poison' | 'trip' | 'withdraw' | 'daze' | 'knockOut' | 'obscure' | 'stealth';
 /** A Sorcerer's Metamagic chosen as a spell is cast. */
 export type CastingMetamagic = 'careful' | 'distant' | 'heightened' | 'quickened';
 /** `combat.attack`: one attack from one token against another. */
@@ -1762,8 +1770,8 @@ export interface CombatAttackEvent {
   reckless?: true;
   /** Brutal Strike: give up Advantage on this Strength attack for an extra die and this effect on a hit. */
   brutal?: 'forceful' | 'hamstring';
-  /** Cunning Strike: forgo a Sneak Attack die for this effect, if Sneak Attack is dealt. */
-  cunning?: 'poison' | 'trip' | 'withdraw';
+  /** Cunning Strike: forgo Sneak Attack dice for this effect, or two of them with Improved Cunning Strike, if Sneak Attack is dealt. */
+  cunning?: CunningEffect | CunningEffect[];
   /** A Sorcerer's Metamagic for a spell attack. */
   metamagic?: { option: 'distant' | 'quickened' };
 }
@@ -1792,7 +1800,7 @@ export interface CombatCheckEvent {
   skill?: string;
   ability?: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
   hide?: true;
-  /** With `hide`: taken as a Bonus Action through Cunning Action. */
+  /** With `hide`: taken as a Bonus Action through Cunning Action. With `skill: 'sleightOfHand'`: a Thief's Fast Hands. */
   bonusAction?: true;
   dc?: number;
   mode?: AttackMode;
@@ -1828,7 +1836,9 @@ export type CombatFeatureName =
   | 'Flurry of Blows'
   | 'Patient Defense'
   | 'Step of the Wind'
-  | 'End Wild Shape';
+  | 'End Wild Shape'
+  | 'Wholeness of Body'
+  | 'Steady Aim';
 /** `combat.prompt`: the server asks whether a creature takes a reaction, once a roll is known. */
 export interface CombatPrompt {
   promptId: string;
@@ -1854,7 +1864,15 @@ export type CombatHelpAck = { ok: true; summary: string } | { ok: false; error: 
 export type CombatUndoAck = { ok: true; summary: string; left: number } | { ok: false; error: string };
 
 /** `combat.heal`: what the healing spell restored. */
-export type CombatHealAck = { ok: true; summary: string; healed: number } | { ok: false; error: string };
+export type CombatHealAck =
+  | {
+      ok: true;
+      summary: string;
+      healed: number;
+      /** Preserve Life: what each creature chosen regained. */
+      restored?: Array<{ tokenId: string; healed: number }>;
+    }
+  | { ok: false; error: string };
 
 /** `combat.concentrate`: concentration started on a spell, or ended. */
 export type CombatConcentrateAck = { ok: true; summary: string } | { ok: false; error: string };

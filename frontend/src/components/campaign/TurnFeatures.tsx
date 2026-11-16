@@ -9,13 +9,18 @@ interface TurnFeaturesProps {
   bonusActionSpent: boolean;
   use: (feature: CombatFeatureName, options?: TurnOptions) => Promise<CombatFeatureAck>;
   hide: () => Promise<{ ok: true; summary: string } | { ok: false; error: string }>;
+  /** A Thief's Fast Hands: a Dexterity (Sleight of Hand) check as a Bonus Action. */
+  sleight?: () => Promise<{ ok: true; summary: string } | { ok: false; error: string }>;
+  /** Whether the creature has moved this turn: Steady Aim needs it not to have. */
+  moved?: boolean;
   onResult: (message: string, ok: boolean) => void;
 }
 
 /**
  * The Bonus Action class features that change the turn, on the turn bar: a
  * Rogue's Cunning Action (Dash, Disengage, Hide) and a Monk's Focus (Flurry
- * of Blows, Patient Defense, Step of the Wind). The server checks the class,
+ * of Blows, Patient Defense, Step of the Wind), a Rogue's Steady Aim and a
+ * Thief's Fast Hands (Sleight of Hand). The server checks the class,
  * spends the Focus Point and applies what each does.
  */
 export default function TurnFeatures({
@@ -23,6 +28,8 @@ export default function TurnFeatures({
   bonusActionSpent,
   use,
   hide,
+  sleight,
+  moved = false,
   onResult,
 }: TurnFeaturesProps) {
   // A sheet writes "Monk’s Focus" with a curly apostrophe or a straight one.
@@ -34,12 +41,12 @@ export default function TurnFeatures({
     const result = await answer;
     onResult(result.ok ? result.summary : result.error, result.ok);
   };
-  const button = (label: string, title: string, action: () => void) => (
+  const button = (label: string, title: string, action: () => void, unavailable = false) => (
     <Button
       key={label}
       variant="secondary"
       size="sm"
-      disabled={bonusActionSpent}
+      disabled={bonusActionSpent || unavailable}
       title={title}
       onClick={action}
     >
@@ -48,7 +55,9 @@ export default function TurnFeatures({
   );
   const rogue = has('Cunning Action');
   const monk = has("Monk's Focus");
-  if (!rogue && !monk) return null;
+  const steady = has('Steady Aim');
+  const fastHands = has('Fast Hands') && sleight !== undefined;
+  if (!rogue && !monk && !steady && !fastHands) return null;
   return (
     <span
       className="flex flex-wrap items-center gap-1"
@@ -72,6 +81,19 @@ export default function TurnFeatures({
           () => void send(hide())
         ),
       ]}
+      {steady &&
+        button(
+          'Steady Aim',
+          'Steady Aim: Advantage on your next attack roll this turn, if you have not moved; your Speed is 0 until the turn ends',
+          () => void send(use('Steady Aim')),
+          moved
+        )}
+      {fastHands &&
+        button(
+          'Fast Hands: Sleight of Hand',
+          'Fast Hands: a Dexterity (Sleight of Hand) check as a Bonus Action. Utilize or a magic item is the table’s: tick the Bonus Action.',
+          () => void send(sleight!())
+        )}
       {monk && [
         button(
           'Flurry of Blows',

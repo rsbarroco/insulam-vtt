@@ -10,7 +10,12 @@
 //
 // Turn Undead, also a Magic action: each Undead of the Cleric's choice within
 // 30 feet makes a Wisdom save against the spell save DC, or is Frightened and
-// Incapacitated for 1 minute, or until it takes damage.
+// Incapacitated for 1 minute, or until it takes damage. From Cleric 5 (Sear
+// Undead) each Undead that fails also takes Wisdom-modifier d8s of Radiant
+// damage, rolled once, which does not end the effect.
+//
+// Preserve Life (Life Domain) is listed too when the sheet has the feature:
+// Hit Points divided among Bloodied creatures (see cleric.ts).
 //
 // The sheet's actions offer Divine Spark three ways (healing, Radiant,
 // Necrotic) and Turn Undead while a use is left; the server spends the use
@@ -18,6 +23,7 @@
 // ============================================
 
 import type { CombatAction } from './actions';
+import { preserveLifePool, PRESERVE_LIFE_FEET, searUndeadDice } from './cleric';
 import { abilityModifier, classLevel, resourcesOf } from './resources';
 
 type Sheet = Record<string, unknown>;
@@ -53,6 +59,8 @@ export function channelDivinityActions(sheet: Sheet): CombatAction[] {
     name: `Divine Spark (${label})`,
     save: { ability: 'con', dc: spellSaveDC(sheet), halfOnSuccess: true, damage: [{ roll: { count, sides: 8, bonus: wisdom }, type }] },
   });
+  const sear = searUndeadDice(sheet);
+  const pool = preserveLifePool(sheet);
   return [
     { ...base, name: 'Divine Spark (healing)', heal: { roll: { count, sides: 8 }, bonus: wisdom } },
     harm('radiant', 'Radiant'),
@@ -60,9 +68,21 @@ export function channelDivinityActions(sheet: Sheet): CombatAction[] {
     {
       ...base,
       name: 'Turn Undead',
-      text: 'Channel Divinity: each Undead of your choice within 30 feet makes a Wisdom save or is Frightened and Incapacitated for 1 minute, or until it takes damage.',
+      text: `Channel Divinity: each Undead of your choice within 30 feet makes a Wisdom save or is Frightened and Incapacitated for 1 minute, or until it takes damage.${sear > 0 ? ` Sear Undead: each that fails takes ${sear}d8 Radiant damage, which does not end the effect.` : ''}`,
       onlyCreatureType: 'undead',
-      save: { ability: 'wis', dc: spellSaveDC(sheet), halfOnSuccess: false, damage: [] },
+      save: { ability: 'wis', dc: spellSaveDC(sheet), halfOnSuccess: false, damage: sear > 0 ? [{ roll: { count: sear, sides: 8 }, type: 'radiant' }] : [] },
     },
+    // Last, so the actions before it keep their places on a sheet without the feature.
+    ...(pool > 0
+      ? [
+          {
+            ...base,
+            name: 'Preserve Life',
+            rangeFeet: PRESERVE_LIFE_FEET,
+            divide: { pool },
+            text: `Channel Divinity: restore ${pool} Hit Points (five times your Cleric level), divided among Bloodied creatures within 30 feet, yourself among them. None is restored to more than half its Hit Point maximum.`,
+          },
+        ]
+      : []),
   ];
 }

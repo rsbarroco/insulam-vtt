@@ -31,17 +31,17 @@ import { resolveSave, type SaveResult } from '../../rules/dnd/resolveSave';
 import { canAct, DODGING, effectiveSpeed, RAGING, readConditions, saveModifiers, type Ability } from '../../rules/dnd/conditions';
 import { rollDie, savingThrow } from '../../rules/dnd/d20';
 import { leavesReachOf, sideOf } from '../../rules/dnd/opportunity';
-import { resolveFall } from '../../rules/dnd/falling';
+import { resolveFall, withSlowFall } from '../../rules/dnd/falling';
 import { longRest, spendHitDie } from '../../rules/dnd/rests';
 import { bardicDie, classLevel, POINT_RESOURCES, rageDamage, resourcesOf, restoreResources, secondWindBonus, spendResource, type ResourceName } from '../../rules/dnd/resources';
 import { canWrestle, proficiencyBonusForChallenge, pushedTo, unarmedActions } from '../../rules/dnd/unarmed';
 import { challengeNumber } from '../../rules/dnd/monsters';
-import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, withInspiration, withTacticalMind, type SkillCheck } from '../../rules/dnd/checks';
+import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, withInspiration, withStrokeOfLuck, withTacticalMind, type SkillCheck } from '../../rules/dnd/checks';
 import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rerollLowest, rollDamage, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
 import { criticalFrom, DEFY_DEATH, duelingBonus, hasRemarkableAthlete, hasStudiedAttacks, hasSurvivor, heroicRally, readInventory, withDamageBonus } from '../../rules/dnd/fighter';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
-import { attacksPerAction, featureOptions, hasFeature, readFeatures } from '../../rules/dnd/featureEffects';
+import { attacksPerAction, featureName, featureOptions, hasFeature, readFeatures } from '../../rules/dnd/featureEffects';
 import { resolveAttack, withExtraDamage, withReaction, withRerolledDamage, type AttackRequest, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
 import { distanceFeet, type Standing } from '../../utils/boardSight';
 import { sneakAttackDamage, sneakAttackDice } from '../../rules/dnd/sneakAttack';
@@ -49,20 +49,33 @@ import { canSmiteWith, divineSmiteDamage, hasDivineSmite } from '../../rules/dnd
 import { deflectReduction } from '../../rules/dnd/reactions';
 import { answerPrompt, askReaction } from '../reactionPrompts';
 import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
+import {
+  flurryStrikes,
+  martialArtsDie,
+  OPEN_HAND_OPTIONS,
+  OPEN_HAND_PUSH_FEET,
+  redirectDamage,
+  REDIRECT_MELEE_FEET,
+  REDIRECT_RANGED_FEET,
+  selfRestorable,
+  slowFallReduction,
+  wholenessOfBodyHealing,
+} from '../../rules/dnd/monk';
 import { AURA_FEET, auraOfProtectionBonus } from '../../rules/dnd/auras';
 import { channelDivinityActions, TURN_UNDEAD_TURNS } from '../../rules/dnd/channelDivinity';
+import { blessedHealerHealing, discipleOfLifeBonus, divineStrikeDamage, divineStrikeDice, DIVINE_STRIKE_OPTIONS, hasSupremeHealing, preserveLife, rollHealing, withPotentSpellcasting } from '../../rules/dnd/cleric';
 import { wildShapeForms, wildShapeOf, wildShapeTemporaryHitPoints } from '../../rules/dnd/wildShape';
 import { arcaneRecovery } from '../../rules/dnd/arcaneRecovery';
 import { carefulCount, distantAction, empoweredCount, knowsMetamagic, METAMAGIC, type CastingMetamagic } from '../../rules/dnd/metamagic';
 import { repels, withInvocations } from '../../rules/dnd/invocations';
-import { CUNNING_COST, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit } from '../../rules/dnd/cunningStrike';
+import { chooseCunningStrike, cunningEffectsOf, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit, type CunningEffect } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
 import { onTurnEnd, onTurnStart } from '../turnHooks';
 import { commitUndo, prepareUndo, restoreSnapshot, takeLastUndo, undoCount } from '../combatUndo';
 import { multiattackSteps, type MultiattackStep } from '../../rules/dnd/multiattack';
-import { hasTurnFeature, turnFeatureEffect, type TurnFeature } from '../../rules/dnd/bonusActions';
+import { hasSteadyAim, hasTurnFeature, steadyAimRefusal, turnFeatureEffect, type TurnFeature } from '../../rules/dnd/bonusActions';
 import { conditionsOnFailure, conditionsOnHit, fits, sizeOfSquares, turnLimit, type ConditionRider } from '../../rules/dnd/actionConditions';
 import { extrasOf, hasTwoWeaponFighting, withoutAbilityModifier, type ExtraAttack } from '../../rules/dnd/extraAttacks';
 
@@ -90,6 +103,8 @@ interface ActionSummary {
   legendary?: { max: number; used: number };
   /** A healing spell, made with `combat.heal`: what it restores at its own level ("2d8+3") and its range. */
   heal?: { dice: string; rangeFeet: number };
+  /** Preserve Life, made with `combat.heal` and `shares`: the Hit Points to divide and how far it reaches. */
+  divide?: { pool: number; rangeFeet: number };
 }
 
 const standing = (token: Token): Standing => ({
@@ -143,6 +158,7 @@ function summarizeAction(action: CombatAction, index: number, slots: Record<numb
       : null,
     ...(extrasOf(action).length > 0 ? { extras: extrasOf(action) } : {}),
     ...(action.beams && action.beams > 1 ? { beams: action.beams } : {}),
+    ...(action.divide ? { divide: { pool: action.divide.pool, rangeFeet: action.rangeFeet ?? 30 } } : {}),
   };
 }
 
@@ -164,7 +180,7 @@ function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatA
   const own = form
     ? actionsFromStatBlock(form.statBlock as unknown as Parameters<typeof actionsFromStatBlock>[0])
     : sheet
-    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...withInvocations(sheet, spellActionsFromSheet(sheet as SheetSpellcasting)), ...channelDivinityActions(sheet)]
+    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...withPotentSpellcasting(sheet, withInvocations(sheet, spellActionsFromSheet(sheet as SheetSpellcasting))), ...channelDivinityActions(sheet)]
     : token.statBlock
       ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0])
       : [];
@@ -559,7 +575,8 @@ function spendBonusAction(campaignId: string, tokenId: string): void {
  * A class feature taken as a Bonus Action that changes the turn: Cunning
  * Action's Dash or Disengage, a Monk's Flurry of Blows, Patient Defense or
  * Step of the Wind, with the Focus Point it costs. On the creature's own turn,
- * with its Bonus Action left.
+ * with its Bonus Action left. Heightened Focus adds a third Flurry of Blows
+ * strike, and Temporary Hit Points to Patient Defense taken with a Focus Point.
  */
 async function takeTurnFeature(
   io: Server,
@@ -579,11 +596,13 @@ async function takeTurnFeature(
     const fresh = await tx.character.findUnique({ where: { id: characterId } });
     const sheet = (fresh?.data ?? {}) as Record<string, unknown>;
     if (!fresh || !hasTurnFeature(sheet, feature)) return { refusal: `${token.name} has no ${feature}` };
-    if (effect.focus === 0) return { updated: null };
+    // Heightened Focus (Monk 10): a third Flurry of Blows strike, and Temporary Hit Points with Patient Defense.
+    const heightened = hasFeature(readFeatures(sheet), 'Heightened Focus') ? { sides: martialArtsDie(sheet) } : null;
+    if (effect.focus === 0) return { updated: null, heightened };
     const result = spendResource(sheet, 'Focus Points', effect.focus);
     if (!result.ok) return { refusal: `${token.name}: ${result.reason}` };
     left = result.left;
-    return { updated: await tx.character.update({ where: { id: characterId }, data: { data: toJson(result.sheet) } }) };
+    return { updated: await tx.character.update({ where: { id: characterId }, data: { data: toJson(result.sheet) } }), heightened };
   });
   if ('refusal' in spent) return { refusal: spent.refusal! };
   if (spent.updated) {
@@ -603,16 +622,24 @@ async function takeTurnFeature(
   }
   if (effect.dodge) combat.dodging = [...combat.dodging.filter((id) => id !== token.id), token.id];
   setCombatState(campaignId, combat);
-  if (effect.strikes > 0) turnAttacksOf(campaignId)?.flurry.set(token.id, effect.strikes);
+  const strikes = effect.strikes > 0 ? flurryStrikes(spent.heightened !== null && spent.heightened !== undefined) : 0;
+  if (strikes > 0) turnAttacksOf(campaignId)?.flurry.set(token.id, strikes);
   await resendInitiativeState(io, campaignId);
+  // Heightened Focus: Patient Defense with a Focus Point gives two rolls of the Martial Arts die in Temporary Hit Points.
+  let temporary = '';
+  if (feature === 'Patient Defense' && effect.focus > 0 && spent.heightened) {
+    const rolled = rollDie(spent.heightened.sides) + rollDie(spent.heightened.sides);
+    const kept = await giveTemporaryHitPoints(io, campaignId, characterId, rolled);
+    temporary = `; Heightened Focus: ${rolled} Temporary Hit Points${kept > rolled ? ` (keeps the ${kept} it has)` : ''}`;
+  }
   const did = [
     ...(effect.dash ? ['Dash'] : []),
     ...(effect.disengage ? ['Disengage'] : []),
     ...(effect.dodge ? ['Dodge'] : []),
-    ...(effect.strikes > 0 ? [`${effect.strikes} Unarmed Strikes`] : []),
+    ...(strikes > 0 ? [`${strikes} Unarmed Strikes`] : []),
   ].join(' and ');
   const cost = effect.focus > 0 ? ` (1 Focus Point, ${left} left)` : '';
-  return { summary: `${token.name} uses ${feature}: ${did}${cost}`, left };
+  return { summary: `${token.name} uses ${feature}: ${did}${cost}${temporary}`, left };
 }
 
 /**
@@ -676,6 +703,81 @@ async function layOnHands(
   }
   await healToken(io, campaignId, map.id, target, cost);
   return { summary: `${paladin.name} uses Lay on Hands: ${target.name} regains ${cost} Hit Points (${spent.left} left)`, left: spent.left };
+}
+
+/**
+ * Preserve Life: a Life Domain Cleric's use of Channel Divinity restores five
+ * times its Cleric level in Hit Points, divided as `shares` say among Bloodied
+ * creatures within 30 feet (itself among them), none to more than half its
+ * Hit Point maximum. Spends the use and the Magic action.
+ */
+async function dividePreserveLife(
+  io: Server,
+  socket: AuthenticatedSocket,
+  campaignId: string,
+  map: { id: string; tokens: Parameters<typeof readTokens>[0]; tileHeights: Parameters<typeof readTileHeights>[0]; feetPerSquare: number; diagonalRule: string },
+  cleric: Token,
+  actionIndex: number,
+  shares: ReadonlyArray<{ targetId: string; amount: number }>,
+  ack: SocketAck | null
+): Promise<void> {
+  const sheet = await sheetOf(cleric, campaignId);
+  const action = actionsOf(cleric, sheet)[actionIndex];
+  if (!action?.divide) return refuseRequest(socket, ack, 'Only Preserve Life divides Hit Points among creatures');
+  const tokens = readTokens(map.tokens);
+  const board = {
+    heights: readTileHeights(map.tileHeights),
+    feetPerSquare: map.feetPerSquare,
+    diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+  };
+  const reach = action.rangeFeet ?? 30;
+  const chosen: Token[] = [];
+  for (const share of shares) {
+    const token = tokens.find((t) => t.id === share.targetId);
+    if (!token || token.layer !== cleric.layer || (socket.role !== 'DM' && hiddenFromPlayers(token))) {
+      return refuseRequest(socket, ack, 'That creature is not on the map');
+    }
+    if (chosen.some((other) => other.id === token.id)) return refuseRequest(socket, ack, `${token.name} is chosen twice`);
+    if (token.id !== cleric.id && distanceFeet(standing(cleric), standing(token), board) > reach) {
+      return refuseRequest(socket, ack, `${token.name} is beyond the ${reach} ft range of ${action.name}`);
+    }
+    chosen.push(token);
+  }
+  const sheets = await Promise.all(chosen.map((token) => sheetOf(token, campaignId)));
+  const plan = preserveLife(
+    action.divide.pool,
+    chosen.map((token, index) => ({
+      name: token.name,
+      hp: sheets[index] ? extractCharacterHp(DND, sheets[index]!) : (token.hp ?? null),
+      amount: shares[index].amount,
+    }))
+  );
+  if ('error' in plan) return refuseRequest(socket, ack, plan.error);
+
+  const undo = await prepareUndo(campaignId, map.id, [cleric.characterId, ...chosen.map((token) => token.characterId)]);
+  for (const [index, token] of chosen.entries()) {
+    if (plan.restored[index] > 0) await healToken(io, campaignId, map.id, token, plan.restored[index]);
+  }
+  if (action.channel) await spendSheetUse(campaignId, cleric, action.channel);
+  await spendAction(io, campaignId, cleric.id, 'Magic');
+  const total = plan.restored.reduce((sum, amount) => sum + amount, 0);
+  const summary = `${action.name}, a use of Channel Divinity: ${chosen.map((token, index) => `${token.name} regains ${plan.restored[index]} Hit Points`).join(', ')}`;
+  await logRoll(
+    io,
+    socket,
+    campaignId,
+    {
+      expression: String(total),
+      total,
+      breakdown: { expression: String(total), rolls: plan.restored.map((value) => ({ type: 'modifier' as const, value })), total, formula: `${plan.restored.join(' + ')} = ${total}` },
+    },
+    cleric.name,
+    summary,
+    hiddenFromPlayers(cleric) || chosen.some(hiddenFromPlayers)
+  );
+  commitUndo(campaignId, undo, summary);
+  ack?.({ ok: true, summary, healed: total, restored: chosen.map((token, index) => ({ tokenId: token.id, healed: plan.restored[index] })) });
+  logger.debug('combat.heal', { campaignId, casterId: cleric.id, shares: shares.length, healed: total });
 }
 
 /** Give Hit Points back to a creature, on its sheet or on its token; a character healed from 0 starts its death saves afresh. */
@@ -884,6 +986,23 @@ function useSneakAttack(campaignId: string, tokenId: string): void {
   else sneakAttacks.set(campaignId, { turn, tokens: new Set([tokenId]) });
 }
 
+/** The turn in each campaign whose Divine Strikes have been dealt, and by whom: once on each of the Cleric's turns. */
+const divineStrikes = new Map<string, { turn: string; tokens: Set<string> }>();
+
+function divineStrikeUsed(campaignId: string, tokenId: string): boolean {
+  const turn = sneakTurnOf(campaignId);
+  const used = divineStrikes.get(campaignId);
+  return turn !== null && used?.turn === turn && used.tokens.has(tokenId);
+}
+
+function useDivineStrike(campaignId: string, tokenId: string): void {
+  const turn = sneakTurnOf(campaignId);
+  if (turn === null) return;
+  const used = divineStrikes.get(campaignId);
+  if (used?.turn === turn) used.tokens.add(tokenId);
+  else divineStrikes.set(campaignId, { turn, tokens: new Set([tokenId]) });
+}
+
 /** The turn each campaign's last Action Surge was used in: once a turn. */
 const actionSurges = new Map<string, { tokenId: string; round: number }>();
 
@@ -956,6 +1075,8 @@ export async function offerOpportunityAttacks(
 
   const candidates = before.combatants
     .filter((c) => c.tokenId !== moverId && c.mapId === map.id && !before.reactionsSpent.includes(c.tokenId))
+    // Open Hand Technique's Addle: no Opportunity Attacks until the start of the creature's next turn.
+    .filter((c) => !before.marks.some((mark) => mark.kind === 'addle' && mark.targetId === c.tokenId))
     .map((c) => tokens.find((t) => t.id === c.tokenId))
     .filter((token): token is Token => {
       if (!token || token.layer !== mover.layer) return false;
@@ -1281,6 +1402,23 @@ async function offerInspiration(io: Server, campaignId: string, mapId: string, t
   return rollDie(held.sides);
 }
 
+/**
+ * Stroke of Luck (Rogue 20), as the rules have it: a Rogue that fails a D20
+ * Test with its use left is asked whether to turn the roll into a 20. True
+ * when it is taken; the caller spends the use.
+ */
+async function offerStrokeOfLuck(io: Server, campaignId: string, token: Token, sheet: Record<string, unknown> | null, failed: string): Promise<boolean> {
+  const uses = sheet ? resourcesOf(sheet).find((entry) => entry.name === 'Stroke of Luck') : undefined;
+  if (!uses || uses.used >= uses.max) return false;
+  const choice = await askReaction(io, campaignId, { token, text: `${failed} Stroke of Luck turns the d20 into a 20.`, options: ['Stroke of Luck'] });
+  return choice === 'Stroke of Luck';
+}
+
+/** The names of a sheet's features in lower case, without the class and level each came from. */
+function featureNamesOf(sheet: Record<string, unknown> | null): Set<string> {
+  return new Set(readFeatures(sheet).map((feature) => featureName(feature.name).toLowerCase()));
+}
+
 /** Set one key of a token's metadata (null to remove it), and tell the table. */
 async function setTokenMetadata(io: Server, campaignId: string, mapId: string, tokenId: string, key: string, value: unknown): Promise<void> {
   const map = { id: mapId };
@@ -1322,12 +1460,18 @@ async function giveTemporaryHitPoints(io: Server, campaignId: string, characterI
 /** A creature that takes damage stops being turned: the conditions Turn Undead gave it come off. */
 async function endTurned(io: Server, campaignId: string, mapId: string, token: Token): Promise<string[]> {
   const combat = getCombatState(campaignId);
-  const turned = combat.marks.filter((mark) => mark.kind === 'condition' && mark.targetId === token.id && mark.action === 'Turn Undead');
+  // A Rogue's Knock Out ends the same way.
+  const turned = combat.marks.filter(
+    (mark) => mark.kind === 'condition' && mark.targetId === token.id && (mark.action === 'Turn Undead' || mark.action === 'Knock Out')
+  );
   if (turned.length === 0) return [];
   combat.marks = combat.marks.filter((mark) => !turned.includes(mark));
   setCombatState(campaignId, combat);
   for (const mark of turned) await takeCondition(io, campaignId, mapId, token.id, mark.condition!);
-  return [`${token.name} is no longer turned`];
+  return [
+    ...(turned.some((mark) => mark.action === 'Turn Undead') ? [`${token.name} is no longer turned`] : []),
+    ...(turned.some((mark) => mark.action === 'Knock Out') ? [`${token.name} is no longer Unconscious (Knock Out)`] : []),
+  ];
 }
 
 /** Hunter's Mark, as a sheet names it. */
@@ -1571,6 +1715,64 @@ async function repeatSavesAtTurnEnd(io: Server, socket: AuthenticatedSocket, cam
 }
 onTurnEnd(repeatSavesAtTurnEnd);
 
+/**
+ * A save a Monk's feature calls for (a redirected attack, Open Hand
+ * Technique): rolled with the creature's conditions and the best Aura of
+ * Protection it stands in. Answers whether it saved and "Dexterity 12 vs DC 14".
+ */
+async function monkFeatureSave(
+  campaignId: string,
+  mapId: string,
+  token: Token,
+  sheet: Record<string, unknown> | null,
+  ability: Ability,
+  dc: number,
+  conditions: readonly string[] = token.conditions ?? []
+): Promise<{ success: boolean; text: string }> {
+  const modifiers = saveModifiers(readConditions([...conditions], typeof sheet?.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined), ability, {
+    dangerSense: sheet !== null && hasFeature(readFeatures(sheet), 'Danger Sense'),
+  });
+  const aura = await auraFor(campaignId, mapId, token);
+  const save = savingThrow(
+    { bonus: (saveBonusOf(token, sheet, ability) ?? 0) + aura.bonus + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
+    sheet && hasLuck(sheet) ? lucky(rollDie) : rollDie
+  );
+  const label = `${ABILITY_FULL[ability][0].toUpperCase()}${ABILITY_FULL[ability].slice(1)}`;
+  return { success: save.success, text: `${label} ${save.roll ? save.roll.total : 'no roll'} vs DC ${dc}` };
+}
+
+/**
+ * Self-Restoration (Monk 10): at the end of each of its turns, the Monk ends
+ * one of Charmed, Frightened or Poisoned on itself. With one of them it comes
+ * off; with several its player is asked which, and the first goes when nobody
+ * answers. No roll is made, so the table sees the condition leave the token.
+ */
+async function selfRestorationAtTurnEnd(io: Server, _socket: AuthenticatedSocket, campaignId: string, tokenId: string): Promise<void> {
+  const combat = getCombatState(campaignId);
+  const mapId = combat.combatants.find((entry) => entry.tokenId === tokenId)?.mapId;
+  const map = mapId ? await prisma.map.findUnique({ where: { id: mapId } }) : null;
+  const token = map ? readTokens(map.tokens).find((t) => t.id === tokenId) : undefined;
+  if (!map || !token?.characterId) return;
+  const carried = selfRestorable(token.conditions ?? []);
+  if (carried.length === 0) return;
+  const sheet = await sheetOf(token, campaignId);
+  if (!sheet || !hasFeature(readFeatures(sheet), 'Self-Restoration')) return;
+  const asked =
+    carried.length > 1
+      ? await askReaction(io, campaignId, {
+          token,
+          text: `${token.name}'s turn ends. Self-Restoration ends one condition:`,
+          options: carried,
+        })
+      : null;
+  const condition = asked ?? carried[0];
+  await takeCondition(io, campaignId, map.id, tokenId, condition);
+  const now = getCombatState(campaignId);
+  now.marks = now.marks.filter((kept) => !(kept.kind === 'condition' && kept.targetId === tokenId && kept.condition?.toLowerCase() === condition.toLowerCase()));
+  setCombatState(campaignId, now);
+}
+onTurnEnd(selfRestorationAtTurnEnd);
+
 export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket): void {
   /** The campaign's current map with what an attack needs, or null. */
   async function currentMap(campaignId: string) {
@@ -1629,10 +1831,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           wildShapeForms: sheet ? wildShapeForms(sheet) : [],
           wildShape: wildShapeOf(token)?.name ?? null,
           // A Rogue's Cunning Strike effects it can use: Poison only with a Poisoner's Kit.
-          cunningStrike:
-            sheet && hasFeature(features, 'Cunning Strike')
-              ? (['poison', 'trip', 'withdraw'] as const).filter((effect) => effect !== 'poison' || hasPoisonersKit(sheet))
-              : [],
+          cunningStrike: sheet
+            ? cunningEffectsOf(featureNamesOf(sheet)).filter(
+                (effect) => (effect !== 'poison' || hasPoisonersKit(sheet)) && (effect !== 'stealth' || (token.conditions ?? []).includes('Invisible'))
+              )
+            : [],
+          // Improved Cunning Strike: two effects on one Sneak Attack.
+          cunningStrikeLimit: sheet && hasFeature(features, 'Improved Cunning Strike') ? 2 : 1,
           // The class features it spends and gets back on a rest, with what is left.
           resources: sheet ? resourcesOf(sheet).map(({ name, max, used }) => ({ name, max, used })) : [],
           // The spell it concentrates on, and those it could.
@@ -1652,7 +1857,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. After a Melee weapon or Unarmed Strike hit, a Paladin with Divine Smite prepared and its Bonus Action left is asked (`combat.prompt`) which slot to smite with: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit, spending the slot and the Bonus Action. After a hit with a Monk weapon or an Unarmed Strike, a Monk with Stunning Strike and a Focus Point left is asked, once a turn: the point is spent and the target makes a Constitution save (DC 8 + Wisdom modifier + Proficiency Bonus), Stunned until the start of the Monk's next turn on a failure, its Speed halved and the next attack roll against it with Advantage on a success. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. A hit on a creature with Uncanny Dodge or Deflect Attacks and its reaction unspent waits while its controller is asked (`combat.prompt`, answered with `combat.react`), and the ack comes once that is settled. With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. After a Melee weapon or Unarmed Strike hit, a Paladin with Divine Smite prepared and its Bonus Action left is asked (`combat.prompt`) which slot to smite with: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit, spending the slot and the Bonus Action. After a hit with a Monk weapon or an Unarmed Strike, a Monk with Stunning Strike and a Focus Point left is asked, once a turn: the point is spent and the target makes a Constitution save (DC 8 + Wisdom modifier + Proficiency Bonus), Stunned until the start of the Monk's next turn on a failure, its Speed halved and the next attack roll against it with Advantage on a success. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. `cunning` may be two different effects in an array with Improved Cunning Strike, paying the dice of each, and Devious Strikes adds `daze` (2d6: a Constitution save or a note that on its next turn the target only moves, or takes an action, or a Bonus Action), `knockOut` (6d6: a Constitution save or Unconscious, repeating the save at the end of each of its turns and ending when it takes damage) and `obscure` (3d6: a Dexterity save or Blinded until the end of its next turn); a Thief's Supreme Sneak adds `stealth` (1d6, while it has the Invisible condition: a note that the attack does not end it). A Rogue that took Steady Aim this turn makes its next attack roll with Advantage. No attack roll against a creature with Elusive has Advantage unless it is Incapacitated. A level 20 Rogue that misses, with Stroke of Luck unspent, is asked (`combat.prompt`) whether to turn the d20 into a 20, a Critical Hit. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. A hit on a creature with Uncanny Dodge or Deflect Attacks and its reaction unspent waits while its controller is asked (`combat.prompt`, answered with `combat.react`), and the ack comes once that is settled. A Monk whose Deflect Attacks brings the damage to 0, with a Focus Point left and the attacker in sight within 5 feet (60 for a ranged attack), is then asked whether to redirect it: the point is spent and the attacker makes a Dexterity save (DC 8 + the Monk's Wisdom modifier + Proficiency Bonus) or takes two Martial Arts dice + the Monk's Dexterity modifier of the attack's damage type. After a hit with a Flurry of Blows strike (`extra: 'flurry'`), a Monk with Open Hand Technique is asked for Addle (no Opportunity Attacks for the target until its next turn starts), Push (a Strength save or pushed 15 ft) or Topple (a Dexterity save or Prone). With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -1662,7 +1867,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.attack', ack)) return;
       const parsed = CombatAttackSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid attack');
-      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, brutal, cunning } = parsed.data;
+      const { attackerId, targetId, mode, slotLevel, opportunity, extra, readied, legendary, reckless, brutal } = parsed.data;
+      const cunning: CunningEffect[] = parsed.data.cunning === undefined ? [] : Array.isArray(parsed.data.cunning) ? parsed.data.cunning : [parsed.data.cunning];
       if (extra && opportunity) return refuseRequest(socket, ack, 'An Opportunity Attack is not an extra attack');
       if (readied && (opportunity || extra)) return refuseRequest(socket, ack, 'A readied attack is made on its own');
       // A readied attack is the one readied: its action, against its target, while the mark lasts.
@@ -1842,7 +2048,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const targetReckless = turnNow.marks.some((mark) => mark.kind === 'reckless' && mark.attackerId === targetId);
       // A target that saved against a Stunning Strike: the next attack roll against it has Advantage.
       const staggered = turnNow.marks.find((mark) => mark.kind === 'stunning' && mark.targetId === targetId && mark.action !== 'used');
+      // Steady Aim: the Rogue's next attack roll this turn has Advantage.
+      const steadied = acting?.steadyAim === 'ready';
       const extraReasons = [
+        ...(steadied ? ['Advantage: Steady Aim'] : []),
         ...(staggered ? ['Advantage: Stunning Strike'] : []),
         ...(attackingRecklessly ? ['Advantage: Reckless Attack'] : []),
         ...(targetReckless ? [`Advantage: Reckless Attack (${targetToken.name})`] : []),
@@ -1876,21 +2085,29 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             distanceFeet(standing(t), targetStanding, boardOf) <= 5
         );
       // Cunning Strike: the dice its effect costs come off the Sneak Attack before the roll.
-      if (cunning) {
-        if (!attackerSheet || !hasFeature(readFeatures(attackerSheet), 'Cunning Strike')) {
-          return refuseRequest(socket, ack, `${attackerToken.name} has no Cunning Strike`);
+      // Improved Cunning Strike allows two effects; Devious Strikes and Supreme Sneak add their own.
+      let cunningCost = 0;
+      let cunningLabel = '';
+      if (cunning.length > 0) {
+        const chosen = chooseCunningStrike(cunning, featureNamesOf(attackerSheet), sneakDice);
+        if (!chosen.ok) {
+          return refuseRequest(socket, ack, chosen.reason === 'no Cunning Strike' ? `${attackerToken.name} has no Cunning Strike` : chosen.reason);
         }
-        if (sneakDice < CUNNING_COST[cunning]) return refuseRequest(socket, ack, 'Cunning Strike needs a Sneak Attack to forgo dice from');
-        if (cunning === 'poison' && !hasPoisonersKit(attackerSheet)) {
+        if (cunning.includes('poison') && !hasPoisonersKit(attackerSheet!)) {
           return refuseRequest(socket, ack, 'The Poison effect needs a Poisoner’s Kit in the inventory');
         }
+        if (cunning.includes('stealth') && !(attackerToken.conditions ?? []).includes('Invisible')) {
+          return refuseRequest(socket, ack, 'Stealth Attack is used while hidden: the Hide action’s Invisible condition');
+        }
+        cunningCost = chosen.cost;
+        cunningLabel = chosen.label;
       }
-      const sneakRolled = cunning ? sneakDice - CUNNING_COST[cunning] : sneakDice;
+      const sneakRolled = sneakDice - cunningCost;
       const sneakAttack = (rolled: 'normal' | 'advantage' | 'disadvantage') => {
         // With every die forgone, a Sneak Attack still counts as dealt: the effect needs it.
         const damage = sneakAttackDamage(Math.max(1, sneakRolled), action, rolled, allyBesideTarget);
         if (!damage) return null;
-        return { label: `Sneak Attack (${sneakRolled}d6${cunning ? `, Cunning Strike: ${CUNNING_LABELS[cunning]}` : ''})`, damage: sneakRolled > 0 ? damage : { ...damage, roll: { ...damage.roll, count: 0 } } };
+        return { label: `Sneak Attack (${sneakRolled}d6${cunningLabel ? `, Cunning Strike: ${cunningLabel}` : ''})`, damage: sneakRolled > 0 ? damage : { ...damage, roll: { ...damage.roll, count: 0 } } };
       };
 
       // On a lit map, darkness decides who sees whom, as the views draw it.
@@ -1905,6 +2122,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         unseen: lit,
         extraReasons,
         ...(brutal ? { forgoAdvantage: 'Brutal Strike' } : {}),
+        // Elusive (Rogue 18): no attack roll against it has Advantage, unless it is Incapacitated.
+        ...(targetSheet && hasFeature(readFeatures(targetSheet), 'Elusive') ? { noAdvantage: 'Elusive' } : {}),
         hitDamage: [
           // Hunter's Mark: a hit on the creature the attacker marks adds 1d6 Force.
           ...(huntersMarkOf(campaignId, attackerId) === targetId
@@ -1960,6 +2179,18 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           if (again.ok) result = { ...again, bonuses: [...result.bonuses.filter((bonus) => !again.bonuses.includes(bonus)), ...again.bonuses] };
         }
       }
+      // Stroke of Luck: a Rogue that still misses, with its use left, is asked; the d20 becomes a 20.
+      let luckSpent = false;
+      if (
+        !result.outcome.hit &&
+        (await offerStrokeOfLuck(io, campaignId, attackerToken, attackerSheet, `${attackerToken.name}'s ${action.name} misses ${targetToken.name} (${result.outcome.roll.total} against AC ${result.outcome.armorClass}).`))
+      ) {
+        const again = resolveAttack({ ...attackRequest, inspired: undefined, turned: { roll: result.outcome.roll, label: 'Stroke of Luck' } });
+        if (again.ok) {
+          result = { ...again, bonuses: [...result.bonuses.filter((bonus) => !again.bonuses.includes(bonus)), ...again.bonuses] };
+          luckSpent = true;
+        }
+      }
       if (attackerSheet && action.source === 'spell' && result.outcome.hit && result.damage.length > 0 && knowsMetamagic(attackerSheet, 'empowered') && pointsLeft() >= 1) {
         const dice = result.damage.flatMap((line) => line.rolled.dice).join(', ');
         const choice = await askReaction(io, campaignId, {
@@ -1997,7 +2228,23 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           });
         }
       }
+      // Divine Strike (Blessed Strikes): once on each of the Cleric's turns, a weapon hit can add Radiant or Necrotic damage.
+      let divineStrike = false;
+      const strikeDice = result.outcome.hit && !(turnNow.active && !acting) && !divineStrikeUsed(campaignId, attackerId) ? divineStrikeDice(attackerSheet, action) : 0;
+      if (strikeDice > 0) {
+        const choice = await askReaction(io, campaignId, {
+          token: attackerToken,
+          text: `${attackerToken.name} ${result.outcome.critical ? 'lands a Critical Hit on' : 'hits'} ${targetToken.name} with ${action.name} for ${result.dealt} damage.`,
+          options: Object.keys(DIVINE_STRIKE_OPTIONS),
+        });
+        const type = choice ? DIVINE_STRIKE_OPTIONS[choice] : undefined;
+        if (choice && type) {
+          divineStrike = true;
+          result = withExtraDamage(result, target, action.name, { label: choice, damage: divineStrikeDamage(strikeDice, type) });
+        }
+      }
       // Uncanny Dodge, Deflect Attacks: once the hit and its damage are known, the target's player is asked.
+      let redirect: { dealt: number; hp: HitPoints | null; line: string } | null = null;
       if (result.outcome.hit && result.dealt > 0 && targetSheet && !getCombatState(campaignId).reactionsSpent.includes(targetId)) {
         const targetState = readConditions(targetToken.conditions ?? []);
         const own = readFeatures(targetSheet);
@@ -2018,6 +2265,42 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         });
         if (choice === 'Uncanny Dodge') result = withReaction(result, target, action.name, { kind: 'halve', label: 'Uncanny Dodge' });
         if (choice === 'Deflect Attacks') result = withReaction(result, target, action.name, { kind: 'reduce', reduction: deflectReduction(targetSheet) });
+        // Deflect Attacks, the redirect: with the damage brought to 0, the Monk may spend a Focus Point to send the
+        // attack back at an attacker it can see, within 5 feet (a melee attack) or 60 feet (a ranged one).
+        const redirectPoints = resourcesOf(targetSheet).find((entry) => entry.name === 'Focus Points');
+        const redirectOption = 'Redirect (1 Focus Point)';
+        if (
+          choice === 'Deflect Attacks' &&
+          result.reducedBy &&
+          result.dealt === 0 &&
+          redirectPoints !== undefined &&
+          redirectPoints.used < redirectPoints.max &&
+          result.distanceFeet <= (action.attack?.kind === 'ranged' ? REDIRECT_RANGED_FEET : REDIRECT_MELEE_FEET) &&
+          !targetState.has.has('blinded') &&
+          !readConditions(attackerToken.conditions ?? []).has.has('invisible') &&
+          !lit?.attacker &&
+          (await askReaction(io, campaignId, {
+            token: targetToken,
+            text: `${targetToken.name} deflects ${attackerToken.name}'s ${action.name}: no damage. Redirect it at ${attackerToken.name}?`,
+            options: [redirectOption],
+          })) === redirectOption
+        ) {
+          const dc = monkSaveDC(targetSheet);
+          const save = await monkFeatureSave(campaignId, map.id, attackerToken, attackerSheet, 'dex', dc);
+          if (save.success) redirect = { dealt: 0, hp: null, line: `Deflect Attacks redirect (1 Focus Point): ${attackerToken.name} saves (${save.text})` };
+          else {
+            // The damage is of the type the attack dealt.
+            const type = result.damage.find((line) => line.type !== null)?.type ?? 'bludgeoning';
+            const rolled = rollDamage(redirectDamage(targetSheet));
+            const struck = combatant(attackerToken, attackerSheet, [], attackerRaging);
+            const applied = applyDamage(struck.hp ?? { current: 1, max: 1, temp: 0 }, [{ amount: rolled.total, type }], struck.defences);
+            redirect = {
+              dealt: applied.dealt,
+              hp: struck.hp ? applied.hp : null,
+              line: `Deflect Attacks redirect (1 Focus Point): ${attackerToken.name} fails (${save.text}) and takes ${applied.dealt} ${type} damage`,
+            };
+          }
+        }
       }
       const undo = await prepareUndo(campaignId, map.id, [attackerToken.characterId, targetToken.characterId]);
       // The slot goes before the damage: a cast that finds it gone changes nothing.
@@ -2033,6 +2316,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
 
       const endured = await applyDealt(io, campaignId, map.id, [{ token: targetToken, sheet: targetSheet, dealt: result.dealt, hp: result.hp, critical: result.outcome.critical }]);
+      // A deflected attack sent back: the Monk's Focus Point, and what the attacker took.
+      if (redirect) {
+        await spendSheetUse(campaignId, targetToken, 'Focus Points');
+        endured.push(redirect.line, ...(await applyDealt(io, campaignId, map.id, [{ token: attackerToken, sheet: attackerSheet, dealt: redirect.dealt, hp: redirect.hp }])));
+      }
       spendRecharge(campaignId, attackerId, action);
       if (meta || afterRollPoints > 0) {
         await spendSheetUse(campaignId, attackerToken, 'Sorcery Points', (meta && !('error' in meta) ? meta.cost : 0) + afterRollPoints);
@@ -2043,6 +2331,15 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (vexed || sapped || helped || studied) useMarks(campaignId, [vexed, sapped, helped, studied]);
       // Studied Attacks: a miss gives the Fighter Advantage on its next attack roll against this creature.
       if (!result.outcome.hit && hasStudiedAttacks(attackerFeatures)) addMark(campaignId, { kind: 'studied', attackerId, targetId });
+      // Steady Aim is spent by the roll it gave Advantage to.
+      if (steadied) {
+        const now = getCombatState(campaignId);
+        if (now.turn && now.currentTokenId === attackerId) {
+          now.turn = { ...now.turn, steadyAim: 'used' };
+          setCombatState(campaignId, now);
+        }
+      }
+      if (luckSpent) await spendSheetUse(campaignId, attackerToken, 'Stroke of Luck');
       if (result.halvedBy || result.reducedBy) await spendReaction(io, campaignId, targetId);
       if (reckless && !alreadyReckless) {
         const now = getCombatState(campaignId);
@@ -2057,6 +2354,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
       if (result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) useSneakAttack(campaignId, attackerId);
       if (result.bonuses.includes('Savage Attacker')) useSavage(campaignId, attackerId);
+      if (divineStrike) useDivineStrike(campaignId, attackerId);
       if (attackerRaging && turnNow.currentTokenId === attackerId) keepRaging(campaignId, attackerId);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
       // A stat block's hit can leave a condition: a grapple, a poison, a fall.
@@ -2116,9 +2414,43 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           }
         }
       }
+      // Open Hand Technique: a hit with a Flurry of Blows strike imposes Addle, Push or Topple; the Monk's player is asked.
+      if (extra === 'flurry' && result.outcome.hit && !result.dropped && attackerSheet && hasFeature(readFeatures(attackerSheet), 'Open Hand Technique')) {
+        const technique = await askReaction(io, campaignId, {
+          token: attackerToken,
+          text: `${attackerToken.name} hits ${targetToken.name} with a Flurry of Blows strike. Open Hand Technique:`,
+          options: OPEN_HAND_OPTIONS,
+        });
+        const dc = monkSaveDC(attackerSheet);
+        // A Stunned creature fails Strength and Dexterity saves: the Stunning Strike just before counts.
+        const carried = [...(targetToken.conditions ?? []), ...(stunLines.some((line) => line.includes('Stunned')) ? ['Stunned'] : [])];
+        if (technique === 'Addle') {
+          addMark(campaignId, { kind: 'addle', attackerId: targetId, targetId });
+          const now = getCombatState(campaignId);
+          now.opportunities = now.opportunities.filter((offered) => offered.attackerId !== targetId);
+          setCombatState(campaignId, now);
+          await resendInitiativeState(io, campaignId);
+          stunLines.push(`Open Hand Technique (Addle): ${targetToken.name} can't make Opportunity Attacks until the start of its next turn`);
+        } else if (technique === 'Push') {
+          const save = await monkFeatureSave(campaignId, map.id, targetToken, targetSheet, 'str', dc, carried);
+          if (save.success) stunLines.push(`Open Hand Technique (Push): ${targetToken.name} saves (${save.text})`);
+          else {
+            const squares = Math.max(1, Math.round(OPEN_HAND_PUSH_FEET / (map.feetPerSquare || 5)));
+            const moved = await pushToken(io, campaignId, map, attackerToken, targetToken, squares);
+            stunLines.push(`Open Hand Technique (Push): ${targetToken.name} fails (${save.text}) and ${moved ? `is pushed ${OPEN_HAND_PUSH_FEET} ft` : 'has nowhere to be pushed'}`);
+          }
+        } else if (technique === 'Topple') {
+          const save = await monkFeatureSave(campaignId, map.id, targetToken, targetSheet, 'dex', dc, carried);
+          if (save.success) stunLines.push(`Open Hand Technique (Topple): ${targetToken.name} saves (${save.text})`);
+          else {
+            await giveCondition(io, campaignId, map.id, targetToken.id, 'Prone');
+            stunLines.push(`Open Hand Technique (Topple): ${targetToken.name} fails (${save.text}) and is Prone`);
+          }
+        }
+      }
       // Cunning Strike: when Sneak Attack was dealt, its effect right after the damage.
       const cunningLines: string[] = [];
-      if (cunning && attackerSheet && result.outcome.hit && result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) {
+      if (cunning.length > 0 && attackerSheet && result.outcome.hit && result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) {
         const dc = cunningStrikeDC(attackerSheet);
         const aura = await auraFor(campaignId, map.id, targetToken);
         const saveAgainst = (ability: Ability) => {
@@ -2126,26 +2458,54 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           return savingThrow({ bonus: (saveBonusOf(targetToken, targetSheet, ability) ?? 0) + aura.bonus + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail });
         };
         const rolledOf = (save: ReturnType<typeof savingThrow>) => (save.roll ? `${save.roll.total}` : 'no roll');
-        if (cunning === 'poison' && !result.dropped) {
-          const save = saveAgainst('con');
-          if (save.success) cunningLines.push(`Cunning Strike (Poison): ${targetToken.name} saves (Constitution ${rolledOf(save)} vs DC ${dc})`);
-          else {
-            cunningLines.push(`Cunning Strike (Poison): ${targetToken.name} fails (Constitution ${rolledOf(save)} vs DC ${dc})`);
-            cunningLines.push(...(await applyRiders(io, campaignId, map.id, attackerToken, targetToken, [{ condition: 'Poisoned', repeats: true }], { ability: 'con', dc })));
+        // An effect that calls for a save: the save, its line, and what a failure does.
+        const saveOr = async (effect: CunningEffect, ability: Ability, failed: () => Promise<string[]> | string[]) => {
+          const save = saveAgainst(ability);
+          const head = `Cunning Strike (${CUNNING_LABELS[effect]}): ${targetToken.name}`;
+          const versus = `(${ABILITY_CHECK_NAMES[ability]} ${rolledOf(save)} vs DC ${dc})`;
+          if (save.success) {
+            cunningLines.push(`${head} saves ${versus}`);
+            return;
           }
-        } else if (cunning === 'trip' && !result.dropped) {
-          if (Math.max(targetToken.size?.width ?? 1, targetToken.size?.height ?? 1) > 2) {
-            cunningLines.push(`Cunning Strike (Trip): ${targetToken.name} is too large to trip`);
-          } else {
-            const save = saveAgainst('dex');
-            if (save.success) cunningLines.push(`Cunning Strike (Trip): ${targetToken.name} saves (Dexterity ${rolledOf(save)} vs DC ${dc})`);
-            else {
-              await giveCondition(io, campaignId, map.id, targetToken.id, 'Prone');
-              cunningLines.push(`Cunning Strike (Trip): ${targetToken.name} fails (Dexterity ${rolledOf(save)} vs DC ${dc}) and is Prone`);
+          const after = await failed();
+          cunningLines.push(`${head} fails ${versus}${effect === 'trip' ? ' and is Prone' : ''}`, ...after);
+        };
+        for (const effect of cunning) {
+          if (effect === 'withdraw') {
+            cunningLines.push(`Cunning Strike (Withdraw): ${attackerToken.name} may move up to half its Speed without provoking Opportunity Attacks`);
+          } else if (effect === 'stealth') {
+            cunningLines.push(
+              `Cunning Strike (Stealth Attack): the attack does not end ${attackerToken.name}'s Invisible condition if it ends the turn behind Three-Quarters or Total Cover`
+            );
+          } else if (result.dropped) {
+            continue;
+          } else if (effect === 'poison') {
+            await saveOr(effect, 'con', () => applyRiders(io, campaignId, map.id, attackerToken, targetToken, [{ condition: 'Poisoned', repeats: true }], { ability: 'con', dc }));
+          } else if (effect === 'trip') {
+            if (Math.max(targetToken.size?.width ?? 1, targetToken.size?.height ?? 1) > 2) {
+              cunningLines.push(`Cunning Strike (Trip): ${targetToken.name} is too large to trip`);
+            } else {
+              await saveOr(effect, 'dex', async () => {
+                await giveCondition(io, campaignId, map.id, targetToken.id, 'Prone');
+                return [];
+              });
             }
+          } else if (effect === 'daze') {
+            await saveOr(effect, 'con', () => [`${targetToken.name} is dazed: on its next turn it can only move, or take an action, or take a Bonus Action`]);
+          } else if (effect === 'knockOut') {
+            await saveOr(effect, 'con', async () => {
+              const lines = await applyRiders(io, campaignId, map.id, attackerToken, targetToken, [{ condition: 'Unconscious', repeats: true }], { ability: 'con', dc });
+              // Damage ends it: the mark is named so the next damage takes the condition off.
+              const now = getCombatState(campaignId);
+              now.marks = now.marks.map((mark) =>
+                mark.kind === 'condition' && mark.targetId === targetId && mark.condition === 'Unconscious' && mark.ends === 'save' ? { ...mark, action: 'Knock Out' } : mark
+              );
+              setCombatState(campaignId, now);
+              return [...lines, 'for 1 minute or until it takes damage'];
+            });
+          } else if (effect === 'obscure') {
+            await saveOr(effect, 'dex', () => applyRiders(io, campaignId, map.id, attackerToken, targetToken, [{ condition: 'Blinded', until: 'end of its next turn' }]));
           }
-        } else if (cunning === 'withdraw') {
-          cunningLines.push(`Cunning Strike (Withdraw): ${attackerToken.name} may move up to half its Speed without provoking Opportunity Attacks`);
         }
       }
       // Repelling Blast: a hit with the cantrip may push a Large or smaller creature 10 feet; the Warlock's player is asked.
@@ -2236,7 +2596,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FALL — A token on the current map has fallen `feet` feet: the server rolls 1d6 Bludgeoning damage for every 10 feet, at most 20d6, takes it from the token's hit points through its defences, gives it the Prone condition unless it took no damage, and records the roll in the dice log. The DM, or the player who controls the token.
+   * COMBAT.FALL — A token on the current map has fallen `feet` feet: the server rolls 1d6 Bludgeoning damage for every 10 feet, at most 20d6, takes it from the token's hit points through its defences, gives it the Prone condition unless it took no damage, and records the roll in the dice log. A Monk with Slow Fall that would take damage, able to act and with its reaction unspent, is asked first (`combat.prompt`): the reaction takes five times its Monk level off the damage. The DM, or the player who controls the token.
    */
   socket.on('combat.fall', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2256,8 +2616,29 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
       const sheet = await sheetOf(token, campaignId);
       const faller = combatant(token, sheet);
-      const result = resolveFall({ name: faller.name, hp: faller.hp, defences: faller.defences }, feet);
+      let result = resolveFall({ name: faller.name, hp: faller.hp, defences: faller.defences }, feet);
+      // Slow Fall: a Monk that would take damage is asked, and its Reaction takes five times its Monk level off.
+      let slowed = false;
+      if (
+        sheet &&
+        result.dealt > 0 &&
+        hasFeature(readFeatures(sheet), 'Slow Fall') &&
+        slowFallReduction(sheet) > 0 &&
+        canAct(readConditions(token.conditions ?? [])) &&
+        !getCombatState(campaignId).reactionsSpent.includes(tokenId)
+      ) {
+        const choice = await askReaction(io, campaignId, {
+          token,
+          text: `${token.name} falls ${feet} ft for ${result.dealt} damage.`,
+          options: ['Slow Fall'],
+        });
+        if (choice === 'Slow Fall') {
+          result = withSlowFall(result, { name: faller.name, hp: faller.hp }, slowFallReduction(sheet));
+          slowed = true;
+        }
+      }
       const undo = await prepareUndo(campaignId, map.id, [token.characterId]);
+      if (slowed) await spendReaction(io, campaignId, tokenId);
 
       const endured = await applyDealt(io, campaignId, map.id, [{ token, sheet, dealt: result.dealt, hp: result.hp }]);
       const summary = [result.summary, ...endured].join('; ');
@@ -2293,7 +2674,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.CHECK — A token on the current map makes an ability check: a skill, a bare ability, or the Hide action. A failed check with a DC by a Fighter with Tactical Mind waits while its controller is asked whether to add 1d10 (`combat.prompt`). The server reads the bonus from the character's sheet or the stat block, rolls the d20 with the token's conditions (Disadvantage while Poisoned or Frightened, the Exhaustion penalty), compares the total with the DC when one is given, and records the roll in the dice log. The Hide action is a Dexterity (Stealth) check against DC 15 that gives the token the Invisible condition on a success and is its action on its own turn. The DM, or the player who controls the token.
+   * COMBAT.CHECK — A token on the current map makes an ability check: a skill, a bare ability, or the Hide action. A failed check with a DC by a Fighter with Tactical Mind waits while its controller is asked whether to add 1d10 (`combat.prompt`), and one by a level 20 Rogue with Stroke of Luck unspent while it is asked whether to turn the d20 into a 20. A Rogue with Reliable Talent treats a d20 of 9 or lower as a 10 on a check with a skill its sheet marks proficient. With `skill: 'sleightOfHand'` and `bonusAction: true` a Thief with Fast Hands makes the check as a Bonus Action on its own turn. The server reads the bonus from the character's sheet or the stat block, rolls the d20 with the token's conditions (Disadvantage while Poisoned or Frightened, the Exhaustion penalty), compares the total with the DC when one is given, and records the roll in the dice log. The Hide action is a Dexterity (Stealth) check against DC 15 that gives the token the Invisible condition on a success and is its action on its own turn. The DM, or the player who controls the token.
    */
   socket.on('combat.check', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2304,6 +2685,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const parsed = CombatCheckSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
       const { tokenId, ability, hide, mode, bonusAction } = parsed.data;
+      const fastHands = bonusAction === true && !hide && parsed.data.skill === 'sleightOfHand';
       const skill = hide ? 'stealth' : parsed.data.skill;
       const dc = hide ? HIDE_DC : parsed.data.dc;
 
@@ -2320,9 +2702,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       // Hide as a Bonus Action is a Rogue's Cunning Action, on its own turn with the Bonus Action left.
       if (bonusAction) {
         const turnNow = getCombatState(campaignId);
-        if (!hide) return refuseRequest(socket, ack, 'Only the Hide action is taken as a Bonus Action');
-        if (!sheet || !hasTurnFeature(sheet, 'Cunning Action')) return refuseRequest(socket, ack, `${token.name} has no Cunning Action`);
-        if (!(someoneActing(turnNow) && turnNow.currentTokenId === tokenId && turnNow.turn)) return refuseRequest(socket, ack, 'Cunning Action is a Bonus Action on the creature’s own turn');
+        // A Thief's Fast Hands: a Dexterity (Sleight of Hand) check as a Bonus Action.
+        if (!hide && !fastHands) return refuseRequest(socket, ack, 'Only the Hide action, or a Sleight of Hand check with Fast Hands, is taken as a Bonus Action');
+        if (fastHands && !(sheet && hasFeature(readFeatures(sheet), 'Fast Hands'))) return refuseRequest(socket, ack, `${token.name} has no Fast Hands`);
+        if (hide && (!sheet || !hasTurnFeature(sheet, 'Cunning Action'))) return refuseRequest(socket, ack, `${token.name} has no Cunning Action`);
+        if (!(someoneActing(turnNow) && turnNow.currentTokenId === tokenId && turnNow.turn)) {
+          return refuseRequest(socket, ack, `${hide ? 'Cunning Action' : 'Fast Hands'} is a Bonus Action on the creature’s own turn`);
+        }
         if (turnNow.turn.bonusAction) return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
       }
 
@@ -2334,7 +2720,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const used = skill ? SKILL_CHECKS[skill].ability : ability!;
       // A Champion's Remarkable Athlete: Advantage on Strength (Athletics) checks.
       const athlete = skill === 'athletics' && used === 'str' && sheet !== null && hasRemarkableAthlete(readFeatures(sheet));
-      let result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet), ...(athlete ? { extraReasons: ['Advantage: Remarkable Athlete'] } : {}) });
+      // Reliable Talent (Rogue 7): on a check with a skill the sheet marks proficient, a d20 of 9 or lower counts as 10.
+      const trained = skill ? (sheet?.skills as Record<string, { proficient?: unknown; expertise?: unknown } | undefined> | undefined)?.[skill] : undefined;
+      const reliable = sheet !== null && hasFeature(readFeatures(sheet), 'Reliable Talent') && (trained?.proficient === true || trained?.expertise === true);
+      let result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet), reliable, ...(athlete ? { extraReasons: ['Advantage: Remarkable Athlete'] } : {}) });
       // Tactical Mind: a Fighter that failed the check, with a use of Second Wind left, is asked; it adds 1d10,
       // and the use is spent only if that turns the check into a success.
       const secondWind = sheet ? resourcesOf(sheet).find((entry) => entry.name === 'Second Wind') : undefined;
@@ -2354,10 +2743,15 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         const added = await offerInspiration(io, campaignId, map.id, token, `${token.name} fails the ${label} check (${result.total} vs DC ${dc}).`);
         if (added !== null) result = withInspiration(result, dc, added);
       }
+      // Stroke of Luck: a Rogue that still fails, with its use left, is asked; the d20 becomes a 20.
+      if (result.success === false && dc !== undefined && (await offerStrokeOfLuck(io, campaignId, token, sheet, `${token.name} fails the ${label} check (${result.total} vs DC ${dc}).`))) {
+        result = withStrokeOfLuck(result, dc);
+        await spendSheetUse(campaignId, token, 'Stroke of Luck');
+      }
 
       const hidden = hide === true && result.success === true;
       if (hidden) await giveCondition(io, campaignId, map.id, tokenId, 'Invisible');
-      if (hide && bonusAction) {
+      if ((hide || fastHands) && bonusAction) {
         spendBonusAction(campaignId, tokenId);
         await resendInitiativeState(io, campaignId);
       } else if (hide) await spendAction(io, campaignId, tokenId, 'Hide');
@@ -2493,7 +2887,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). `Bardic Inspiration` (a Bonus Action) takes the `targetId` of another creature within 60 feet: the die is kept on its token for an hour, and its controller is asked after a failed attack roll, save or check whether to add it. Also `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Wild Shape` (a Bonus Action) takes the `form` of a Beast the Druid's level allows: the form is kept on the token, the character gains Temporary Hit Points equal to its Druid level, and the Beast's actions, Armor Class and physical scores become its own until `End Wild Shape`. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll), `Wholeness of Body` (a Bonus Action of a Monk whose sheet lists it: the Martial Arts die + Wisdom modifier Hit Points, at least 1, Wisdom-modifier uses until a Long Rest) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). `Bardic Inspiration` (a Bonus Action) takes the `targetId` of another creature within 60 feet: the die is kept on its token for an hour, and its controller is asked after a failed attack roll, save or check whether to add it. Also `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Wild Shape` (a Bonus Action) takes the `form` of a Beast the Druid's level allows: the form is kept on the token, the character gains Temporary Hit Points equal to its Druid level, and the Beast's actions, Armor Class and physical scores become its own until `End Wild Shape`. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition. `Steady Aim` (a Rogue of level 3, a Bonus Action on its own turn, only if it has not moved this turn) gives Advantage on its next attack roll this turn and sets its Speed to 0 until the turn ends (`turn.steadyAim`). The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2566,8 +2960,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (!combat.active) return refuseRequest(socket, ack, 'A Rage is kept during combat');
         if (isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is already raging`);
       }
+      // Steady Aim (Rogue 3): a Bonus Action on a turn it has not moved; Advantage on its next attack roll, Speed 0.
+      if (feature === 'Steady Aim') {
+        if (!hasSteadyAim(ownSheet)) return refuseRequest(socket, ack, `${token.name} has no Steady Aim`);
+        if (!ownTurn || !combat.turn) return refuseRequest(socket, ack, 'Steady Aim is a Bonus Action on the creature’s own turn');
+        if (combat.turn.bonusAction) return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
+        const refusal = steadyAimRefusal(combat.turn);
+        if (refusal) return refuseRequest(socket, ack, refusal);
+        combat.turn = { ...combat.turn, bonusAction: true, steadyAim: 'ready' };
+        setCombatState(campaignId, combat);
+        await resendInitiativeState(io, campaignId);
+        const summary = `${token.name} uses Steady Aim: Advantage on its next attack roll this turn, and its Speed is 0 until the turn ends`;
+        ack?.({ ok: true, summary, left: 0 });
+        return;
+      }
       const bonusAction =
-        feature === 'Second Wind' || feature === 'Rage' || feature === 'Bardic Inspiration' || feature === 'Lay on Hands' ||
+        feature === 'Second Wind' || feature === 'Rage' || feature === 'Bardic Inspiration' || feature === 'Lay on Hands' || feature === 'Wholeness of Body' ||
         feature === 'Cunning Action' || feature === 'Flurry of Blows' || feature === 'Patient Defense' || feature === 'Step of the Wind';
       if (bonusAction && ownTurn && combat.turn!.bonusAction) {
         return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
@@ -2622,14 +3030,24 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         const spent = spendResource(sheet, feature, amount ?? 1);
         if (!spent.ok) return { refusal: `${token.name}: ${spent.reason}` };
         let next = spent.sheet;
-        let healed: { rolled: number; bonus: number; hp: { current: number; max: number; temp: number } } | null = null;
+        let healed: { rolled: number; bonus: number; sides: number; hp: { current: number; max: number; temp: number } } | null = null;
         if (feature === 'Second Wind') {
           const rolled = rollDie(10);
           const bonus = secondWindBonus(sheet);
           const change = applyHpDelta(DND, next, rolled + bonus);
           if ('error' in change) return { refusal: `${token.name} tracks no Hit Points` };
           next = change.data as Record<string, unknown>;
-          healed = { rolled, bonus, hp: change.hp };
+          healed = { rolled, bonus, sides: 10, hp: change.hp };
+        }
+        // Wholeness of Body: the Martial Arts die + Wisdom modifier, at least 1 Hit Point.
+        if (feature === 'Wholeness of Body') {
+          const sides = martialArtsDie(sheet);
+          const rolled = rollDie(sides);
+          const total = wholenessOfBodyHealing(sheet, rolled);
+          const change = applyHpDelta(DND, next, total);
+          if ('error' in change) return { refusal: `${token.name} tracks no Hit Points` };
+          next = change.data as Record<string, unknown>;
+          healed = { rolled, bonus: total - rolled, sides, hp: change.hp };
         }
         const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(next) } });
         return { updated, healed, left: spent.left };
@@ -2644,9 +3062,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       let summary: string;
       if (healed) {
         io.to(campaignId).emit('character.hp.updated', { characterId, hp: healed.hp });
-        summary = `${token.name} uses Second Wind: regains ${healed.rolled + healed.bonus} Hit Points (${usesLeft})`;
+        summary = `${token.name} uses ${feature}: regains ${healed.rolled + healed.bonus} Hit Points (${usesLeft})`;
         if (ownTurn) spendBonusAction(campaignId, tokenId);
-        const expression = `1d10+${healed.bonus}`;
+        const expression = `1d${healed.sides}${healed.bonus < 0 ? '-' : '+'}${Math.abs(healed.bonus)}`;
         await logRoll(
           io,
           socket,
@@ -2657,11 +3075,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             breakdown: {
               expression,
               rolls: [
-                { type: 'dice' as const, notation: '1d10', count: 1, sides: 10, results: [healed.rolled], kept: [healed.rolled], total: healed.rolled },
+                { type: 'dice' as const, notation: `1d${healed.sides}`, count: 1, sides: healed.sides, results: [healed.rolled], kept: [healed.rolled], total: healed.rolled },
                 { type: 'modifier' as const, value: healed.bonus },
               ],
               total: healed.rolled + healed.bonus,
-              formula: `[${healed.rolled}] + ${healed.bonus} = ${healed.rolled + healed.bonus}`,
+              formula: `[${healed.rolled}] ${healed.bonus < 0 ? '-' : '+'} ${Math.abs(healed.bonus)} = ${healed.rolled + healed.bonus}`,
             },
           },
           token.name,
@@ -2915,7 +3333,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.HEAL — A caster casts one of its healing spells (Cure Wounds, Healing Word, …, by its place in `combat.actions`) on a creature within the spell's range, at a slot level: the server rolls the spell's dice plus the caster's spellcasting modifier, restores that many Hit Points to the creature's sheet or token (a character healed from 0 starts its death saves afresh), spends the slot, spends the action or the Bonus Action on the caster's turn, and records the roll in the dice log. The DM, or the player who controls the caster; a player may not target a hidden token.
+   * COMBAT.HEAL — A caster casts one of its healing spells (Cure Wounds, Healing Word, …, by its place in `combat.actions`) on a creature within the spell's range, at a slot level: the server rolls the spell's dice plus the caster's spellcasting modifier, restores that many Hit Points to the creature's sheet or token (a character healed from 0 starts its death saves afresh), spends the slot, spends the action or the Bonus Action on the caster's turn, and records the roll in the dice log. A Life Domain Cleric's features are applied: Disciple of Life adds 2 + the slot's level, Blessed Healer restores as much to the Cleric when the creature healed is another, and Supreme Healing takes each die at its highest number. With `shares` in place of `targetId` it resolves Preserve Life, dividing five times the Cleric level among Bloodied creatures within 30 feet. The DM, or the player who controls the caster; a player may not target a hidden token.
    */
   socket.on('combat.heal', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2925,7 +3343,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.heal', ack)) return;
       const parsed = CombatHealSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { casterId, targetId, action: actionIndex, slotLevel } = parsed.data;
+      const { casterId, targetId, action: actionIndex, slotLevel, shares } = parsed.data;
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -2934,12 +3352,15 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!caster || !canControlToken(socket.role, caster.controlledBy, socket.userId)) {
         return refuseRequest(socket, ack, 'You can only act for your own token');
       }
+      // Preserve Life: Hit Points divided among the creatures chosen.
+      if (shares) return void (await dividePreserveLife(io, socket, campaignId, map, caster, actionIndex, shares, ack));
       const target = tokens.find((t) => t.id === targetId);
       if (!target || target.layer !== caster.layer || (socket.role !== 'DM' && hiddenFromPlayers(target))) {
         return refuseRequest(socket, ack, 'That creature is not on the map');
       }
       const sheet = await sheetOf(caster, campaignId);
       const listed = actionsOf(caster, sheet)[actionIndex];
+      if (listed?.divide) return refuseRequest(socket, ack, `${listed.name} divides its Hit Points among creatures: send shares`);
       if (!listed?.heal) return refuseRequest(socket, ack, 'That is not a healing spell the caster has');
       const cast = castWithSlot(sheet as SheetSpellcasting | null, listed, slotLevel);
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
@@ -2966,8 +3387,15 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, caster.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
-      const rolled = rollDamage({ count: heal.roll.count, sides: heal.roll.sides, bonus: heal.bonus });
+      // The Life Domain: Supreme Healing takes each die at its highest, Disciple of Life adds to a spell cast with a
+      // slot, and Blessed Healer heals the Cleric when that spell heals another.
+      const supreme = hasSupremeHealing(sheet);
+      const dice = rollHealing(heal, supreme);
+      const disciple = discipleOfLifeBonus(sheet, cast.slotLevel);
+      const rolled = { ...dice, total: dice.total + disciple };
+      const blessed = blessedHealerHealing(sheet, cast.slotLevel, target.id !== caster.id);
       await healToken(io, campaignId, map.id, target, rolled.total);
+      if (blessed > 0) await healToken(io, campaignId, map.id, caster, blessed);
       if (action.channel) await spendSheetUse(campaignId, caster, action.channel);
       if (action.cost === 'bonusAction') {
         if (ownTurn) spendBonusAction(campaignId, casterId);
@@ -2975,9 +3403,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       } else await spendAction(io, campaignId, casterId, 'Magic');
 
       const expression = `${heal.roll.count}d${heal.roll.sides}${heal.bonus < 0 ? '-' : '+'}${Math.abs(heal.bonus)}`;
-      const summary = action.channel
-        ? `${action.name}, a use of ${action.channel}: ${target.name} regains ${rolled.total} Hit Points`
-        : `${action.name} (level ${cast.slotLevel ?? action.spell?.level ?? 0}): ${target.name} regains ${rolled.total} Hit Points`;
+      const lifeNotes = [...(supreme ? ['Supreme Healing'] : []), ...(disciple > 0 ? [`Disciple of Life +${disciple}`] : [])];
+      const summary =
+        (action.channel
+          ? `${action.name}, a use of ${action.channel}: ${target.name} regains ${rolled.total} Hit Points`
+          : `${action.name} (level ${cast.slotLevel ?? action.spell?.level ?? 0}): ${target.name} regains ${rolled.total} Hit Points`) +
+        (lifeNotes.length > 0 ? ` (${lifeNotes.join(', ')})` : '') +
+        (blessed > 0 ? `; ${caster.name} regains ${blessed} Hit Points (Blessed Healer)` : '');
       await logRoll(
         io,
         socket,
@@ -2990,9 +3422,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             rolls: [
               { type: 'dice' as const, notation: `${heal.roll.count}d${heal.roll.sides}`, count: rolled.dice.length, sides: heal.roll.sides, results: rolled.dice, kept: rolled.dice, total: rolled.dice.reduce((sum, die) => sum + die, 0) },
               { type: 'modifier' as const, value: heal.bonus },
+              ...(disciple > 0 ? [{ type: 'modifier' as const, value: disciple }] : []),
             ],
             total: rolled.total,
-            formula: `[${rolled.dice.join(', ')}] ${heal.bonus < 0 ? '-' : '+'} ${Math.abs(heal.bonus)} = ${rolled.total}`,
+            formula: `[${rolled.dice.join(', ')}] ${heal.bonus < 0 ? '-' : '+'} ${Math.abs(heal.bonus)}${disciple > 0 ? ` + ${disciple}` : ''} = ${rolled.total}`,
           },
         },
         caster.name,
@@ -3062,7 +3495,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions, cover and the best Aura of Protection it stands in, asks a Fighter that failed whether to roll again with Indomitable, applies full, half or no damage to each one's hit points and records the roll in the dice log. The DM, or the player who controls the acting token; a player may not target a hidden token.
+   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions, cover and the best Aura of Protection it stands in, asks a Fighter that failed whether to roll again with Indomitable (and a Monk with Disciplined Survivor whether to roll again for a Focus Point) and a level 20 Rogue that failed whether to turn the d20 into a 20 with Stroke of Luck, applies full, half or no damage to each one's hit points and records the roll in the dice log. The DM, or the player who controls the acting token; a player may not target a hidden token.
    */
   socket.on('combat.save', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -3197,16 +3630,25 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         }
       }
       // Indomitable: a Fighter that failed a save it rolled is asked, and may roll it again with its Fighter level added.
+      // Disciplined Survivor: a Monk that failed is asked the same way; a Focus Point rolls the save again as it was.
       const rerolled = new Set<number>();
+      const disciplined = new Set<number>();
       for (const [index, target] of result.targets.entries()) {
         const bonus = indomitableBonus(targetSheets[index]);
-        if (target.outcome.success || target.outcome.roll === null || bonus === null) continue;
+        const own = targetSheets[index];
+        const focusLeft = own ? resourcesOf(own).find((entry) => entry.name === 'Focus Points') : undefined;
+        const survivor = own !== null && hasFeature(readFeatures(own), 'Disciplined Survivor') && focusLeft !== undefined && focusLeft.used < focusLeft.max;
+        if (target.outcome.success || target.outcome.roll === null || (bonus === null && !survivor)) continue;
         const choice = await askReaction(io, campaignId, {
           token: targetTokens[index],
           text: `${targetTokens[index].name} fails the ${ABILITY_FULL[ability]} save against ${action.name} (${target.outcome.roll.total} vs DC ${result.dc}).`,
-          options: ['Indomitable'],
+          options: [...(bonus !== null ? ['Indomitable'] : []), ...(survivor ? ['Disciplined Survivor'] : [])],
         });
         if (choice === 'Indomitable') rerolled.add(index);
+        if (choice === 'Disciplined Survivor') {
+          rerolled.add(index);
+          disciplined.add(index);
+        }
       }
       if (rerolled.size > 0) {
         const first = result;
@@ -3216,8 +3658,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             damage: first.damage,
             saves: first.targets.map((target, index) => {
               if (!rerolled.has(index)) return { outcome: target.outcome };
-              const input = { ...target.rolledWith, bonus: target.rolledWith.bonus + indomitableBonus(targetSheets[index])! };
-              return { outcome: savingThrow(input, hasLuck(targetSheets[index]) ? lucky(rollDie) : rollDie), first: target.outcome };
+              const input = disciplined.has(index)
+                ? target.rolledWith
+                : { ...target.rolledWith, bonus: target.rolledWith.bonus + indomitableBonus(targetSheets[index])! };
+              return {
+                outcome: savingThrow(input, hasLuck(targetSheets[index]) ? lucky(rollDie) : rollDie),
+                first: target.outcome,
+                ...(disciplined.has(index) ? { rerolledBy: 'Disciplined Survivor' } : {}),
+              };
             }),
           },
         });
@@ -3244,7 +3692,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             damage: first.damage,
             saves: first.targets.map((target, index) => {
               const added = inspiredSaves.get(index);
-              const kept = { outcome: target.outcome, ...(target.rerolled ? { first: target.rerolled } : {}) };
+              const kept = { outcome: target.outcome, ...(target.rerolled ? { first: target.rerolled, ...(target.rerolledBy ? { rerolledBy: target.rerolledBy } : {}) } : {}) };
               if (added === undefined || !target.outcome.roll) return kept;
               const total = target.outcome.roll.total + added;
               return { ...kept, outcome: { ...target.outcome, roll: { ...target.outcome.roll, total }, success: total >= target.outcome.dc }, inspired: added };
@@ -3252,6 +3700,35 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           },
         });
         if (!result.ok) return refuseRequest(socket, ack, result.reason);
+      }
+      // Stroke of Luck: a Rogue that still fails a save it rolled, with its use left, is asked; the d20 becomes a 20.
+      const luckySaves = new Set<number>();
+      for (const [index, target] of result.targets.entries()) {
+        if (target.outcome.success || target.outcome.roll === null) continue;
+        const failed = `${targetTokens[index].name} fails the ${ABILITY_FULL[ability]} save against ${action.name} (${target.outcome.roll.total} vs DC ${result.dc}).`;
+        if (await offerStrokeOfLuck(io, campaignId, targetTokens[index], targetSheets[index], failed)) luckySaves.add(index);
+      }
+      if (luckySaves.size > 0) {
+        const first = result;
+        result = resolveSave({
+          ...saveRequest,
+          fixed: {
+            damage: first.damage,
+            saves: first.targets.map((target, index) => {
+              const kept = {
+                outcome: target.outcome,
+                ...(target.rerolled ? { first: target.rerolled, ...(target.rerolledBy ? { rerolledBy: target.rerolledBy } : {}) } : {}),
+                ...(target.inspired ? { inspired: target.inspired } : {}),
+              };
+              if (!luckySaves.has(index) || !target.outcome.roll) return kept;
+              // What was added after the roll stays added.
+              const total = target.outcome.roll.total - target.outcome.roll.natural + 20;
+              return { ...kept, outcome: { ...target.outcome, roll: { ...target.outcome.roll, natural: 20, total }, success: total >= target.outcome.dc }, turned: target.outcome };
+            }),
+          },
+        });
+        if (!result.ok) return refuseRequest(socket, ack, result.reason);
+        for (const index of luckySaves) await spendSheetUse(campaignId, targetTokens[index], 'Stroke of Luck');
       }
       const undo = await prepareUndo(campaignId, map.id, [sourceToken.characterId, ...targetTokens.map((t) => t.characterId)]);
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, sourceToken.characterId!, cast.slotLevel))) {
@@ -3263,7 +3740,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (meta || empowered) await spendSheetUse(campaignId, sourceToken, 'Sorcery Points', (meta?.cost ?? 0) + (empowered ? 1 : 0));
       // A target that rolled again with Indomitable spends the use.
       for (const [index, target] of result.targets.entries()) {
-        if (target.rerolled) await spendSheetUse(campaignId, targetTokens[index], 'Indomitable');
+        if (target.rerolled) await spendSheetUse(campaignId, targetTokens[index], target.rerolledBy === 'Disciplined Survivor' ? 'Focus Points' : 'Indomitable');
       }
       const concentrating = action.spell ? findSpell(action.name) : null;
       if (concentrating?.concentration) startConcentration(campaignId, sourceId, concentrating.name);
@@ -3284,6 +3761,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         }
       }
       // Turn Undead: an Undead that fails is Frightened and Incapacitated for 1 minute, or until it takes damage.
+      // Sear Undead's damage was dealt above, before the effect began, so it does not end it.
+      const turnedAgain: string[] = [];
       if (action.onlyCreatureType && action.channel) {
         for (const [index, target] of result.targets.entries()) {
           if (target.outcome.success || target.dropped) continue;
@@ -3300,13 +3779,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             }
           }
           riders.push(`${turned.name} is turned: Frightened and Incapacitated for 1 minute, or until it takes damage`);
+          turnedAgain.push(`${turned.name} is no longer turned`);
         }
       }
       // What a failed save against an Unarmed Strike leaves the target with.
       const auraLines = auras.flatMap((aura, index) =>
         aura.bonus > 0 && aura.from ? [`${targetTokens[index].name} adds +${aura.bonus} (${aura.from}'s Aura of Protection)`] : []
       );
-      let summary = [result.summary, ...auraLines, ...riders, ...endured].join('; ');
+      let summary = [result.summary, ...auraLines, ...riders, ...endured.filter((note) => !turnedAgain.includes(note))].join('; ');
       if (action.unarmed && !result.targets[0].outcome.success) {
         const [only] = targetTokens;
         if (action.unarmed === 'grapple') await giveCondition(io, campaignId, map.id, only.id, 'Grappled');
