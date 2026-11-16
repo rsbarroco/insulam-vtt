@@ -221,6 +221,11 @@ export function actionFromSpell(spell: Spell, caster: Caster, slotLevel: number 
     if (action.rangeFeet === undefined) action.rangeFeet = 5;
     return action;
   }
+  // Magic Missile: darts that strike with no roll, one more for each slot level above the spell's.
+  if (spell.id === 'magic-missile' && damage[0]) {
+    action.darts = { count: 3 + Math.max(0, Math.min(9, slotLevel) - spell.level), damage: damage[0] };
+    return action;
+  }
   if (mechanics.attack === 'melee') {
     action.attack = { kind: 'melee', bonus: caster.spellAttackBonus, reachFeet: Math.max(5, mechanics.rangeFeet ?? 5), damage };
   } else if (mechanics.attack === 'ranged' && mechanics.rangeFeet !== null) {

@@ -78,6 +78,8 @@ export interface AttackRequest {
    * or miss decided again; a 1 still misses.
    */
   inspired?: { roll: AttackOutcome['roll']; added: number; label: string };
+  /** Overchannel: each damage die of the hit at its highest number. */
+  maximum?: boolean;
   /** The lowest d20 that makes a hit a Critical Hit: a Champion's Improved (19) or Superior (18) Critical. 20 when left out. */
   criticalFrom?: number;
   /**
@@ -220,7 +222,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   let dropped = false;
   let instantDeath = false;
   if (outcome.hit) {
-    const dieRoll = request.greatWeapon ? atLeastThree(roll) : roll;
+    const dieRoll: RollDie = request.maximum ? (sides) => sides : request.greatWeapon ? atLeastThree(roll) : roll;
     const rollWeapon = () =>
       profile.damage.map((component) => ({ type: component.type, rolled: rollDamage(component.roll, outcome.critical, dieRoll) }));
     const weaponTotal = (lines: AttackResult['damage']) => lines.reduce((sum, line) => sum + line.rolled.total, 0);

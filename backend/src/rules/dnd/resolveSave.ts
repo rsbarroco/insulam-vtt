@@ -32,6 +32,10 @@ export interface SaveRequest {
   targets: readonly SaveTarget[];
   action: CombatAction;
   board: AttackRequest['board'];
+  /** Overchannel: each damage die at its highest number. */
+  maximum?: boolean;
+  /** What says so of a protected creature in the summary, when not Careful Spell: "Sculpt Spells". */
+  protectedBy?: string;
   /**
    * What was rolled already, to work the result out again once a reaction
    * changed a save (a Fighter's Indomitable): the damage as rolled, and each
@@ -39,7 +43,7 @@ export interface SaveRequest {
    */
   fixed?: {
     damage: SaveResult['damage'];
-    saves: ReadonlyArray<{ outcome: SaveOutcome; first?: SaveOutcome; rerolledBy?: string; inspired?: number; turned?: SaveOutcome }>;
+    saves: ReadonlyArray<{ outcome: SaveOutcome; first?: SaveOutcome; rerolledBy?: string; inspired?: number; turned?: SaveOutcome; inspiredBy?: string }>;
   };
 }
 
@@ -64,6 +68,8 @@ export interface TargetSaveResult {
   inspired?: number;
   /** Stroke of Luck turned a failed save's d20 into a 20: the save as it stood; `outcome` is with the 20. */
   turned?: SaveOutcome;
+  /** The feature that added it, when not Bardic Inspiration: "Dark One's Own Luck". */
+  inspiredBy?: string;
   /** What the save was rolled with, for a feature that rolls it again. */
   rolledWith: SaveInput;
 }
@@ -120,7 +126,7 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
     covers.push(cover);
   }
 
-  const damage = request.fixed?.damage ?? profile.damage.map((component) => ({ type: component.type, rolled: rollDamage(component.roll, false, roll) }));
+  const damage = request.fixed?.damage ?? profile.damage.map((component) => ({ type: component.type, rolled: rollDamage(component.roll, false, request.maximum ? (sides) => sides : roll) }));
 
   const results = targets.map((target, index): TargetSaveResult => {
     const state = readConditions(target.conditions, target.exhaustion);
@@ -168,6 +174,7 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
       ...(rerolled && fixed?.rerolledBy ? { rerolledBy: fixed.rerolledBy } : {}),
       ...(fixed?.inspired ? { inspired: fixed.inspired } : {}),
       ...(fixed?.turned ? { turned: fixed.turned } : {}),
+      ...(fixed?.inspired && fixed.inspiredBy ? { inspiredBy: fixed.inspiredBy } : {}),
       rolledWith: input,
     };
   });
@@ -175,10 +182,10 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
   const rolled = damage.map((entry) => `${entry.rolled.total}${entry.type ? ` ${entry.type}` : ''}`).join(' + ');
   const each = results.map((result) => {
     const rolledSave = result.outcome.roll ? ` (${result.outcome.roll.total})` : ' (no roll)';
-    const inspiration = result.inspired && result.outcome.roll ? `fails (${result.outcome.roll.total - result.inspired}), Bardic Inspiration +${result.inspired}: ` : '';
+    const inspiration = result.inspired && result.outcome.roll ? `fails (${result.outcome.roll.total - result.inspired}), ${result.inspiredBy ?? 'Bardic Inspiration'} +${result.inspired}: ` : '';
     const luck = result.turned ? `fails (${result.turned.roll?.total}), Stroke of Luck, the d20 becomes a 20: ` : '';
     const verdict = `${result.rerolled ? `fails (${result.rerolled.roll?.total}), ${result.rerolledBy ?? 'Indomitable'}: ` : ''}${result.turned ? '' : inspiration}${luck}${result.outcome.success ? 'saves' : 'fails'}`;
-    const harm = damage.length > 0 ? `, ${result.dealt} damage${result.evaded ? ' (Evasion)' : result.protected ? ' (Careful Spell)' : ''}` : '';
+    const harm = damage.length > 0 ? `, ${result.dealt} damage${result.evaded ? ' (Evasion)' : result.protected ? ` (${request.protectedBy ?? 'Careful Spell'})` : ''}` : '';
     const fate = result.instantDeath ? ', killed outright' : result.dropped ? ', drops to 0' : '';
     return `${result.name} ${verdict}${rolledSave}${harm}${fate}`;
   });

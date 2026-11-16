@@ -779,7 +779,7 @@ class SocketClient {
   }
 
   /** A D&D 5e character rests: `short` spends one Hit Point Die and heals, `long` (the DM's) gives everything back. */
-  rest(characterId: string, kind: 'short' | 'shortFinish' | 'long', recover?: number[], restore?: true): Promise<CombatRestAck> {
+  rest(characterId: string, kind: 'short' | 'shortFinish' | 'long' | 'magicalCunning', recover?: number[], restore?: true): Promise<CombatRestAck> {
     return this.askFor<CombatRestAck>(
       'combat.rest',
       { characterId, kind, ...(recover ? { recover } : {}), ...(restore ? { restore } : {}) },

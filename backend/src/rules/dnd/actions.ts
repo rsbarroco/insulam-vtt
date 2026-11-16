@@ -94,6 +94,8 @@ export interface CombatAction {
   maxTargets?: number;
   /** Conditions a failed save leaves for 1 minute, or until the creature takes damage: Abjure Foes frightens. */
   untilDamaged?: string[];
+  /** Darts that strike with no roll, divided among the creatures chosen: Magic Missile's count at the slot cast with, and what each deals. */
+  darts?: { count: number; damage: DamageComponent };
 }
 
 /**

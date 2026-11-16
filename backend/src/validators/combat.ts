@@ -44,6 +44,10 @@ export const CombatAttackSchema = z
     sacredWeapon: z.literal(true).optional(),
     /** With a Sacred Weapon: a hit deals Radiant damage instead of the weapon's own type. */
     radiant: z.literal(true).optional(),
+    /** An Evoker's Overchannel: a Wizard spell cast with a slot of level 1–5 deals its maximum damage. */
+    overchannel: z.literal(true).optional(),
+    /** Pact of the Blade: the damage type the Warlock's pact weapon deals instead of its own. */
+    pactDamage: z.enum(['necrotic', 'psychic', 'radiant']).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
@@ -71,9 +75,16 @@ export const CombatSaveSchema = z
       .optional(),
     /** Land's Aid: the creature in the area that regains Hit Points. */
     healId: tokenId.optional(),
+    /** An Evoker's Sculpt Spells: the other creatures of an Evocation spell that succeed on the save and take no damage. */
+    sculpt: z.object({ targetIds: z.array(tokenId).min(1).max(10) }).strict().optional(),
+    /** An Evoker's Overchannel: a Wizard spell cast with a slot of level 1–5 deals its maximum damage. */
+    overchannel: z.literal(true).optional(),
+    /** Magic Missile: how many darts strike each of `targetIds`, in the same order; all at the one target when left out. */
+    darts: z.array(z.number().int().min(1).max(11)).min(1).max(11).optional(),
   })
   .strict()
-  .refine((save) => new Set(save.targetIds).size === save.targetIds.length, { message: 'A target is named twice' });
+  .refine((save) => new Set(save.targetIds).size === save.targetIds.length, { message: 'A target is named twice' })
+  .refine((save) => save.darts === undefined || save.darts.length === save.targetIds.length, { message: 'Give the darts of each target' });
 
 /** `combat.fall`: a token that has fallen, and how far in feet. */
 export const CombatFallSchema = z.object({ tokenId, feet: z.number().int().min(10).max(5000) }).strict();
@@ -107,11 +118,11 @@ export const CombatCheckSchema = z
   })
   .refine((check) => !(check.hide && check.dc !== undefined), { message: 'The Hide action has its own DC' });
 
-/** `combat.rest`: a character rests. `short` spends one Hit Point Die, `shortFinish` ends a Short Rest; `long` is the DM's to give. */
+/** `combat.rest`: a character rests. `short` spends one Hit Point Die, `shortFinish` ends a Short Rest; `long` is the DM's to give. `magicalCunning` is a Warlock's rite that regains Pact Magic slots. */
 export const CombatRestSchema = z
   .object({
     characterId: z.string().uuid('A character is named by its id'),
-    kind: z.enum(['short', 'shortFinish', 'long']),
+    kind: z.enum(['short', 'shortFinish', 'long', 'magicalCunning']),
     /** With `shortFinish`: a Wizard's Arcane Recovery or a Land Druid's Natural Recovery, the levels of the slots it recovers (one entry per slot). */
     recover: z.array(z.number().int().min(1).max(9)).min(1).max(20).optional(),
     /** With `shortFinish`: a Sorcerer's Sorcerous Restoration, Sorcery Points regained. */
@@ -155,6 +166,7 @@ export const CombatFeatureSchema = z
       'Font of Magic',
       'Innate Sorcery',
       'Font of Inspiration',
+      'Fiendish Vigor',
     ]),
     /** Font of Magic: the level of the spell slot created from Sorcery Points (a Bonus Action). */
     create: z.number().int().min(1).max(5).optional(),
