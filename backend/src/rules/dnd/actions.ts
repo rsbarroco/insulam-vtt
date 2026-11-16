@@ -86,6 +86,10 @@ export interface CombatAction {
   beams?: number;
   /** The only creature type it can target, as stat blocks write it: Turn Undead affects Undead. */
   onlyCreatureType?: 'undead';
+  /** The most creatures it can choose, when it chooses them: Abjure Foes takes as many as the Charisma modifier. */
+  maxTargets?: number;
+  /** Conditions a failed save leaves for 1 minute, or until the creature takes damage: Abjure Foes frightens. */
+  untilDamaged?: string[];
 }
 
 /**

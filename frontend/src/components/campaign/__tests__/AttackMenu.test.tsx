@@ -13,9 +13,12 @@ const greataxe = {
   extras: ['cleave' as const],
 };
 
-function renderMenu() {
+function renderMenu(
+  listed: Record<string, unknown> = {},
+  caughtBy: () => Array<{ id: string; name: string }> = () => []
+) {
   const socket = {
-    listCombatActions: vi.fn().mockResolvedValue({ ok: true, actions: [greataxe] }),
+    listCombatActions: vi.fn().mockResolvedValue({ ok: true, actions: [greataxe], ...listed }),
     resolveAttack: vi.fn().mockResolvedValue({ ok: true, summary: 'hit; Cleave', hit: true }),
     resolveSave: vi.fn(),
     help: vi.fn().mockResolvedValue({ ok: true, summary: 'Hero helps against Ogre' }),
@@ -29,7 +32,7 @@ function renderMenu() {
       target={{ id: 'ogre', name: 'Ogre' }}
       situation={null}
       style={{}}
-      caughtBy={() => []}
+      caughtBy={caughtBy}
       onAim={() => {}}
       onResolved={onResolved}
       onClose={() => {}}
@@ -423,6 +426,65 @@ describe('AttackMenu Cunning Strike', () => {
         targetId: 'ogre',
         action: 0,
         cunning: 'daze',
+      })
+    );
+  });
+});
+
+describe('AttackMenu for a Paladin', () => {
+  it('imbues the weapon with Sacred Weapon and asks for Radiant damage', async () => {
+    const { socket } = renderMenu({ sacredWeapon: { imbued: null } });
+    fireEvent.click(await screen.findByLabelText('Sacred Weapon'));
+    fireEvent.click(screen.getByLabelText('Radiant damage'));
+    fireEvent.click(screen.getByText('Greataxe'));
+    await waitFor(() =>
+      expect(socket.resolveAttack).toHaveBeenCalledWith({
+        attackerId: 'hero',
+        targetId: 'ogre',
+        action: 0,
+        sacredWeapon: true,
+        radiant: true,
+      })
+    );
+  });
+
+  it('offers Radiant damage for the weapon already imbued', async () => {
+    const { socket } = renderMenu({ sacredWeapon: { imbued: 'Greataxe' } });
+    fireEvent.click(await screen.findByLabelText('Radiant damage'));
+    fireEvent.click(screen.getByText('Greataxe'));
+    await waitFor(() =>
+      expect(socket.resolveAttack).toHaveBeenCalledWith({
+        attackerId: 'hero',
+        targetId: 'ogre',
+        action: 0,
+        radiant: true,
+      })
+    );
+  });
+
+  it('aims Abjure Foes at the creature and the others ticked, up to its count', async () => {
+    const abjure = {
+      index: 1,
+      name: 'Abjure Foes',
+      cost: 'action' as const,
+      attack: null,
+      spell: null,
+      save: { ability: 'wis' as const, dc: 14, halfOnSuccess: false, damage: '', rangeFeet: 60, maxTargets: 2 },
+    };
+    const { socket } = renderMenu({ actions: [greataxe, abjure] }, () => [
+      { id: 'ogre', name: 'Ogre' },
+      { id: 'goblin', name: 'Goblin' },
+      { id: 'wolf', name: 'Wolf' },
+    ]);
+    socket.resolveSave.mockResolvedValue({ ok: true, summary: 'abjured', targets: [] });
+    fireEvent.click(await screen.findByLabelText('Goblin'));
+    expect(screen.getByLabelText('Wolf')).toBeDisabled();
+    fireEvent.click(screen.getByText('Abjure Foes'));
+    await waitFor(() =>
+      expect(socket.resolveSave).toHaveBeenCalledWith({
+        sourceId: 'hero',
+        targetIds: ['ogre', 'goblin'],
+        action: 1,
       })
     );
   });

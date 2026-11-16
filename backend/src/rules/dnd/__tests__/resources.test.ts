@@ -149,6 +149,7 @@ describe('the other classes’ features with uses', () => {
     expect(names({ class: 'Paladin / Cleric', level: 3 })).toEqual([
       ['Channel Divinity', 2, 'one'],
       ['Lay on Hands', 15, 'none'],
+      ["Paladin's Smite", 1, 'none'],
     ]);
     expect(names({ class: 'Druid', level: 2 })).toEqual([['Wild Shape', 2, 'one']]);
     expect(names({ class: 'Monk', level: 5 })).toEqual([['Focus Points', 5, 'all']]);

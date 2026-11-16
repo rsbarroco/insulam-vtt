@@ -18,7 +18,7 @@ import { useWebSocket } from '@/contexts/WebSocketContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCharacterHp, useCombatState, useTokenList } from '@/stores/gameStore';
 import { useToast } from '@/contexts/ToastContext';
-import type { CombatActionSummary, CombatFeatureName, CombatFeatureOption, CombatResource, Token } from '@/types';
+import type { CombatActionSummary, CombatFeatureName, CombatFeatureOption, CombatResource, LayOnHandsCure, Token } from '@/types';
 import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import {
@@ -78,6 +78,7 @@ export default function TurnBar() {
     wildShapeForms: string[];
     wildShape: string | null;
     preserveLife: { index: number; pool: number } | null;
+    cures: LayOnHandsCure[];
   } | null>(null);
   // Asked again after a feature is used, so its uses left are the sheet's.
   const [listed, setListed] = useState(0);
@@ -113,6 +114,7 @@ export default function TurnBar() {
                 const found = answer.actions.find((action) => action.divide);
                 return found?.divide ? { index: found.index, pool: found.divide.pool } : null;
               })(),
+              cures: answer.cures ?? ['Poisoned'],
             }
           : null
       );
@@ -474,8 +476,9 @@ export default function TurnBar() {
           pool={layOnHands}
           targets={touchTargets}
           bonusActionSpent={turn.bonusAction}
+          cures={known?.cures ?? ['Poisoned']}
           touch={async (targetId, amount, cure) => {
-            const answer = await socket.useFeature(actingId, 'Lay on Hands', amount, { targetId, ...(cure ? { cure: 'Poisoned' as const } : {}) });
+            const answer = await socket.useFeature(actingId, 'Lay on Hands', amount, { targetId, ...(cure ? { cure } : {}) });
             if (answer.ok) setListed((count) => count + 1);
             return answer;
           }}

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { HandHeart } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import NumberField from '@/components/ui/NumberField';
-import type { CombatFeatureAck, CombatResource } from '@/types';
+import type { CombatFeatureAck, CombatResource, LayOnHandsCure } from '@/types';
 
 /** A creature the paladin could touch: the server checks that it is within 5 feet. */
 export interface TouchTarget {
@@ -15,19 +15,23 @@ interface LayOnHandsProps {
   /** The paladin first, then the others in the fight. */
   targets: TouchTarget[];
   bonusActionSpent: boolean;
-  touch: (targetId: string, amount: number, cure: boolean) => Promise<CombatFeatureAck>;
+  /** The conditions it can end for 5 points each: Poisoned, and more with Restoring Touch. */
+  cures: LayOnHandsCure[];
+  touch: (targetId: string, amount: number, cure: LayOnHandsCure | null) => Promise<CombatFeatureAck>;
   onResult: (message: string, ok: boolean) => void;
 }
 
 /**
  * Lay on Hands, from the turn bar: pick the creature touched and how many Hit
- * Points to restore from the pool, or spend 5 to end its Poisoned condition.
+ * Points to restore from the pool, or spend 5 to end a condition: Poisoned,
+ * and with Restoring Touch the others the server lists.
  * The server keeps the pool, checks the touch and heals no more than is missing.
  */
 export default function LayOnHands({
   pool,
   targets,
   bonusActionSpent,
+  cures,
   touch,
   onResult,
 }: LayOnHandsProps) {
@@ -36,7 +40,7 @@ export default function LayOnHands({
   const [targetId, setTargetId] = useState(targets[0]?.id ?? '');
   const [amount, setAmount] = useState(Math.min(5, left));
 
-  const send = async (cure: boolean) => {
+  const send = async (cure: LayOnHandsCure | null) => {
     const answer = await touch(targetId, amount, cure);
     onResult(answer.ok ? answer.summary : answer.error, answer.ok);
     if (answer.ok) setOpen(false);
@@ -86,18 +90,22 @@ export default function LayOnHands({
               onChange={setAmount}
             />
           </label>
-          <div className="flex gap-2">
-            <Button size="sm" disabled={!targetId || amount < 1} onClick={() => void send(false)}>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" disabled={!targetId || amount < 1} onClick={() => void send(null)}>
               Heal
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!targetId || left < 5}
-              onClick={() => void send(true)}
-            >
-              Cure Poisoned
-            </Button>
+            {cures.map((cure) => (
+              <Button
+                key={cure}
+                variant="ghost"
+                size="sm"
+                disabled={!targetId || left < 5}
+                title={`Spend 5 points to end the ${cure} condition`}
+                onClick={() => void send(cure)}
+              >
+                Cure {cure}
+              </Button>
+            ))}
           </div>
         </div>
       )}
