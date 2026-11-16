@@ -7,6 +7,9 @@ import { CUNNING_EFFECTS } from '../rules/dnd/cunningStrike';
 
 const tokenId = z.string().uuid('A creature is named by its token id');
 
+/** The damage types Transmuted Spell changes a spell's damage to. */
+const TRANSMUTED = z.enum(['acid', 'cold', 'fire', 'lightning', 'poison', 'thunder']);
+
 /** `combat.actions`: whose actions to list. */
 export const CombatActionsSchema = z.object({ tokenId }).strict();
 
@@ -23,8 +26,8 @@ export const CombatAttackSchema = z
     slotLevel: z.number().int().min(1).max(9).optional(),
     /** The Opportunity Attack the target's movement offered this attacker: its reaction, not its action. */
     opportunity: z.literal(true).optional(),
-    /** An extra attack the weapon gives on the attacker's turn: Cleave after a hit, or the Light weapon's extra attack. */
-    extra: z.enum(['cleave', 'light', 'flurry']).optional(),
+    /** An extra attack the weapon gives on the attacker's turn: Cleave after a hit, or the Light weapon's extra attack. `horde` is a Hunter's Horde Breaker. */
+    extra: z.enum(['cleave', 'light', 'flurry', 'horde']).optional(),
     /** The attack the attacker readied against this target, made now with its reaction: `action` is then the readied one. */
     readied: z.literal(true).optional(),
     /** The stat block Legendary Action (by index) this attack is made for: it spends one use. */
@@ -36,7 +39,7 @@ export const CombatAttackSchema = z
     /** Cunning Strike: forgo Sneak Attack dice for this effect, or these two with Improved Cunning Strike, if Sneak Attack is dealt. */
     cunning: z.union([z.enum(CUNNING_EFFECTS), z.array(z.enum(CUNNING_EFFECTS)).min(1).max(2)]).optional(),
     /** A Sorcerer's Metamagic for a spell attack, chosen as it is cast. */
-    metamagic: z.object({ option: z.enum(['distant', 'quickened']) }).strict().optional(),
+    metamagic: z.object({ option: z.enum(['distant', 'quickened', 'transmuted']), damageType: TRANSMUTED.optional() }).strict().optional(),
     /** A Paladin's Sacred Weapon, used as it takes the Attack action: a use of Channel Divinity imbues this Melee weapon for 10 minutes. */
     sacredWeapon: z.literal(true).optional(),
     /** With a Sacred Weapon: a hit deals Radiant damage instead of the weapon's own type. */
@@ -58,7 +61,12 @@ export const CombatSaveSchema = z
     point: z.object({ x: z.number().int().min(0).max(1000), y: z.number().int().min(0).max(1000) }).strict().optional(),
     /** A Sorcerer's Metamagic, chosen as the spell is cast; `targetIds` are the creatures Careful or Heightened Spell picks. */
     metamagic: z
-      .object({ option: z.enum(['careful', 'distant', 'heightened', 'quickened']), targetIds: z.array(tokenId).min(1).max(30).optional() })
+      .object({
+        option: z.enum(['careful', 'distant', 'heightened', 'quickened', 'transmuted']),
+        targetIds: z.array(tokenId).min(1).max(30).optional(),
+        /** Transmuted Spell: the damage type the spell deals instead. */
+        damageType: TRANSMUTED.optional(),
+      })
       .strict()
       .optional(),
     /** Land's Aid: the creature in the area that regains Hit Points. */
@@ -106,9 +114,12 @@ export const CombatRestSchema = z
     kind: z.enum(['short', 'shortFinish', 'long']),
     /** With `shortFinish`: a Wizard's Arcane Recovery or a Land Druid's Natural Recovery, the levels of the slots it recovers (one entry per slot). */
     recover: z.array(z.number().int().min(1).max(9)).min(1).max(20).optional(),
+    /** With `shortFinish`: a Sorcerer's Sorcerous Restoration, Sorcery Points regained. */
+    restore: z.literal(true).optional(),
   })
   .strict()
-  .refine((rest) => rest.recover === undefined || rest.kind === 'shortFinish', { message: 'Arcane Recovery is used as a Short Rest ends' });
+  .refine((rest) => rest.recover === undefined || rest.kind === 'shortFinish', { message: 'Arcane Recovery is used as a Short Rest ends' })
+  .refine((rest) => rest.restore === undefined || rest.kind === 'shortFinish', { message: 'Sorcerous Restoration is used as a Short Rest ends' });
 
 const LAY_ON_HANDS_CURE = z.enum(['Poisoned', 'Blinded', 'Charmed', 'Deafened', 'Frightened', 'Paralyzed', 'Stunned']);
 
@@ -139,7 +150,16 @@ export const CombatFeatureSchema = z
       'Steady Aim',
       'Wild Resurgence',
       'Wild Companion',
+      'Tireless',
+      "Nature's Veil",
+      'Font of Magic',
+      'Innate Sorcery',
+      'Font of Inspiration',
     ]),
+    /** Font of Magic: the level of the spell slot created from Sorcery Points (a Bonus Action). */
+    create: z.number().int().min(1).max(5).optional(),
+    /** Font of Magic: the level of the spell slot converted into Sorcery Points (no action). */
+    convert: z.number().int().min(1).max(9).optional(),
     /** Cunning Action: the action it takes as a Bonus Action (Hide is `combat.check` with `bonusAction`). */
     as: z.enum(['Dash', 'Disengage']).optional(),
     /** Patient Defense, Step of the Wind: spend a Focus Point for the stronger use. */
@@ -148,14 +168,17 @@ export const CombatFeatureSchema = z
     amount: z.number().int().min(1).max(100).optional(),
     /** Lay on Hands: the creature touched, the user itself when left out. Bardic Inspiration: the creature inspired. */
     targetId: tokenId.optional(),
-    /** Wild Resurgence: the level of the spell slot expended for a use of Wild Shape (left out: a use for a level 1 slot). Wild Companion: the slot Find Familiar is cast with (left out: a use of Wild Shape). */
+    /** Wild Resurgence: the level of the spell slot expended for a use of Wild Shape (left out: a use for a level 1 slot). Wild Companion: the slot Find Familiar is cast with (left out: a use of Wild Shape). Font of Inspiration: the level of the spell slot expended to regain a use of Bardic Inspiration. */
     slotLevel: z.number().int().min(1).max(9).optional(),
     /** Wild Shape: the Beast whose form the Druid takes, by name. */
     form: z.string().trim().min(1).max(60).optional(),
     /** Lay on Hands: spend 5 points to end a condition, Poisoned or one of Restoring Touch's, or several at 5 points each; with `amount` it heals too. */
     cure: z.union([LAY_ON_HANDS_CURE, z.array(LAY_ON_HANDS_CURE).min(1).max(7)]).optional(),
   })
-  .strict();
+  .strict()
+  .refine((use) => (use.feature === 'Font of Magic') === ((use.create === undefined) !== (use.convert === undefined)), {
+    message: 'Font of Magic creates a spell slot or converts one',
+  });
 
 /** `combat.help`: the helper, and the enemy within 5 feet it distracts. */
 export const CombatHelpSchema = z.object({ helperId: tokenId, targetId: tokenId }).strict();

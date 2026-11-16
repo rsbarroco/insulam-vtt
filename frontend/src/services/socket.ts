@@ -779,8 +779,13 @@ class SocketClient {
   }
 
   /** A D&D 5e character rests: `short` spends one Hit Point Die and heals, `long` (the DM's) gives everything back. */
-  rest(characterId: string, kind: 'short' | 'shortFinish' | 'long', recover?: number[]): Promise<CombatRestAck> {
-    return this.askFor<CombatRestAck>('combat.rest', { characterId, kind, ...(recover ? { recover } : {}) }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+  rest(characterId: string, kind: 'short' | 'shortFinish' | 'long', recover?: number[], restore?: true): Promise<CombatRestAck> {
+    return this.askFor<CombatRestAck>(
+      'combat.rest',
+      { characterId, kind, ...(recover ? { recover } : {}), ...(restore ? { restore } : {}) },
+      ROLL_ANSWER_TIMEOUT_MS,
+      'No answer from the server'
+    );
   }
 
   /** A token's character uses a class feature with uses; the server spends the use (or `amount` points) and applies what it can. */
@@ -789,7 +794,7 @@ class SocketClient {
     feature: CombatFeatureName,
     amount?: number,
     touch?: { targetId: string; cure?: LayOnHandsCure },
-    turn?: { as?: 'Dash' | 'Disengage'; focus?: true; form?: string; slotLevel?: number }
+    turn?: { as?: 'Dash' | 'Disengage'; focus?: true; form?: string; slotLevel?: number; create?: number; convert?: number }
   ): Promise<CombatFeatureAck> {
     const payload = {
       tokenId,

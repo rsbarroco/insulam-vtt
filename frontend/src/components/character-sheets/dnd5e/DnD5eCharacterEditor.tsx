@@ -344,7 +344,7 @@ function withEveryEntry<T>(stored: unknown, keys: readonly string[], blank: () =
  * Unarmored Defense and the Defense fighting style among its features.
  */
 function armorClassFromSheet(data: DnD5eCharacterData) {
-  const mod = (ability: 'dexterity' | 'constitution' | 'wisdom') => {
+  const mod = (ability: 'dexterity' | 'constitution' | 'wisdom' | 'charisma') => {
     const stat = data.stats?.[ability];
     return typeof stat?.score === 'number' ? Math.floor((stat.score - 10) / 2) : (stat?.modifier ?? 0);
   };
@@ -352,6 +352,7 @@ function armorClassFromSheet(data: DnD5eCharacterData) {
     dex: mod('dexterity'),
     con: mod('constitution'),
     wis: mod('wisdom'),
+    cha: mod('charisma'),
     classes: (data.class ?? '').split('/').map((name) => name.trim()),
     features: (data.featuresAndTraits ?? []).map((feature) => (typeof feature === 'string' ? feature : feature.name)),
     equipped: (data.inventory ?? []).filter((item) => item.equipped).map((item) => item.name),

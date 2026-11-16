@@ -26,12 +26,17 @@
 //     Long Rest.
 //   • Sorcery Points (Sorcerer 2): the Sorcery Points column; all back on a
 //     Long Rest.
+//   • Innate Sorcery (Sorcerer 1): two uses; all back on a Long Rest.
+//   • Sorcerous Restoration (Sorcerer 5): once, Sorcery Points regained as a
+//     Short Rest ends; back on a Long Rest.
 //   • Lay on Hands (Paladin 1): a pool of five times the Paladin level in
 //     Hit Points, spent a point at a time; all back on a Long Rest.
 //   • Paladin's Smite (Paladin 2): Divine Smite cast once without a spell
 //     slot; back on a Long Rest.
 //   • Favored Enemy (Ranger 1): Hunter's Mark cast without a spell slot, as
 //     many times as the column says; all back on a Long Rest.
+//   • Tireless (Ranger 10) and Nature's Veil (Ranger 14): as many uses each
+//     as the Wisdom modifier, at least one; all back on a Long Rest.
 //   • Arcane Recovery (Wizard 1): once, slots recovered as a Short Rest ends;
 //     back on a Long Rest.
 //   • Wholeness of Body (Warrior of the Open Hand 6): as many uses as the
@@ -77,7 +82,11 @@ export type ResourceName =
   | 'Intimidating Presence'
   | 'Persistent Rage'
   | 'Wild Resurgence'
-  | 'Natural Recovery';
+  | 'Natural Recovery'
+  | 'Tireless'
+  | "Nature's Veil"
+  | 'Innate Sorcery'
+  | 'Sorcerous Restoration';
 
 /** The features spent a point at a time, several at once: the rest are spent one use at a time. */
 export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points', 'Lay on Hands'];
@@ -164,6 +173,11 @@ export function resourcesOf(sheet: Sheet): Resource[] {
   // A species trait used once until a Long Rest.
   if (hasRelentlessEndurance(sheet)) add('Relentless Endurance', 1, 'none');
   if (has(classes, 'Ranger')) add('Favored Enemy', count('Ranger', 'Favored Enemy', level), 'none');
+  if (has(classes, 'Ranger')) {
+    const uses = Math.max(1, abilityModifier(sheet, 'wisdom'));
+    add('Tireless', level >= 10 ? uses : 0, 'none');
+    add("Nature's Veil", level >= 14 ? uses : 0, 'none');
+  }
   // Once, until a Long Rest: slots recovered as a Short Rest ends.
   if (has(classes, 'Wizard')) add('Arcane Recovery', 1, 'none');
   // A subclass feature: read from the sheet's features, as the sheet does not say the subclass another way.
@@ -184,6 +198,11 @@ export function resourcesOf(sheet: Sheet): Resource[] {
     // A Circle of the Land feature, so only for a sheet that lists it.
     const land = readFeatures(sheet).some((feature) => /\bnatural recovery\b/i.test(feature.name));
     add('Natural Recovery', level >= 6 && land ? 1 : 0, 'none');
+  }
+  if (has(classes, 'Sorcerer')) {
+    add('Innate Sorcery', 2, 'none');
+    // Once, until a Long Rest: Sorcery Points regained as a Short Rest ends.
+    add('Sorcerous Restoration', level >= 5 ? 1 : 0, 'none');
   }
   return out;
 }

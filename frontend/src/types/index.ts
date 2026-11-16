@@ -1646,7 +1646,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle' | 'innate';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1714,7 +1714,7 @@ export interface CombatActionSummary {
   /** Land's Aid: the dice ("2d6") one creature in its area regains, named with `healId` in `combat.save`. */
   areaHeal?: string;
 }
-export type CombatExtraAttack = 'cleave' | 'light' | 'flurry';
+export type CombatExtraAttack = 'cleave' | 'light' | 'flurry' | 'horde';
 /** A feature the turn can offer, with its rule. */
 export interface CombatFeatureOption {
   name: string;
@@ -1742,6 +1742,8 @@ export type CombatActionsAck =
       brutalStrike?: boolean;
       /** A Sorcerer's Metamagic options chosen as a spell is cast. */
       metamagic?: CastingMetamagic[];
+      /** A Sorcerer's Font of Magic: the slots it can create with what each costs, and the slot levels it can convert. */
+      fontOfMagic?: { create: Array<{ level: number; cost: number }>; convert: number[] } | null;
       /** A Druid's Wild Shape: the Beasts it can take the form of, and the form it is in. */
       wildShapeForms?: string[];
       wildShape?: string | null;
@@ -1753,6 +1755,8 @@ export type CombatActionsAck =
       sacredWeapon?: { imbued: string | null } | null;
       /** The conditions its Lay on Hands can end, 5 points each. */
       cures?: LayOnHandsCure[];
+      /** Font of Inspiration: the spell slot levels a Bard could expend now to regain a use of Bardic Inspiration. */
+      fontOfInspiration?: number[];
     }
   | { ok: false; error: string };
 
@@ -1760,7 +1764,9 @@ export type AttackMode = 'normal' | 'advantage' | 'disadvantage';
 /** A Rogue's Cunning Strike effects: Devious Strikes adds Daze, Knock Out and Obscure, a Thief's Supreme Sneak the Stealth Attack. */
 export type CunningEffect = 'poison' | 'trip' | 'withdraw' | 'daze' | 'knockOut' | 'obscure' | 'stealth';
 /** A Sorcerer's Metamagic chosen as a spell is cast. */
-export type CastingMetamagic = 'careful' | 'distant' | 'heightened' | 'quickened';
+export type CastingMetamagic = 'careful' | 'distant' | 'heightened' | 'quickened' | 'transmuted';
+/** The damage types Transmuted Spell changes a spell's damage between. */
+export type TransmutedType = 'acid' | 'cold' | 'fire' | 'lightning' | 'poison' | 'thunder';
 /** `combat.attack`: one attack from one token against another. */
 export interface CombatAttackEvent {
   attackerId: string;
@@ -1783,7 +1789,7 @@ export interface CombatAttackEvent {
   /** Cunning Strike: forgo Sneak Attack dice for this effect, or two of them with Improved Cunning Strike, if Sneak Attack is dealt. */
   cunning?: CunningEffect | CunningEffect[];
   /** A Sorcerer's Metamagic for a spell attack. */
-  metamagic?: { option: 'distant' | 'quickened' };
+  metamagic?: { option: 'distant' | 'quickened' | 'transmuted'; damageType?: TransmutedType };
   /** A Paladin's Sacred Weapon, used with the Attack action: a use of Channel Divinity imbues this Melee weapon. */
   sacredWeapon?: true;
   /** With a Sacred Weapon: a hit deals Radiant damage instead of the weapon's own type. */
@@ -1801,7 +1807,7 @@ export interface CombatSaveEvent {
   slotLevel?: number;
   /** The empty square an area is aimed at, which must be within the action's range. */
   point?: { x: number; y: number   /** A Sorcerer's Metamagic, with the creatures Careful or Heightened Spell picks. */
-  metamagic?: { option: CastingMetamagic; targetIds?: string[] };
+  metamagic?: { option: CastingMetamagic; targetIds?: string[]; damageType?: TransmutedType };
 };
   /** Land's Aid: the creature in the area that regains Hit Points. */
   healId?: string;
@@ -1869,7 +1875,12 @@ export type CombatFeatureName =
   | 'Wholeness of Body'
   | 'Steady Aim'
   | 'Wild Resurgence'
-  | 'Wild Companion';
+  | 'Wild Companion'
+  | 'Tireless'
+  | "Nature's Veil"
+  | 'Font of Magic'
+  | 'Innate Sorcery'
+  | 'Font of Inspiration';
 /** `combat.prompt`: the server asks whether a creature takes a reaction, once a roll is known. */
 export interface CombatPrompt {
   promptId: string;

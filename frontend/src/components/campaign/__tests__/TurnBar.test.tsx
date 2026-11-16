@@ -603,6 +603,26 @@ describe('the features the server counts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Inspire' }));
     await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Bardic Inspiration', undefined, { targetId: 'ogre' }));
   });
+
+  it('expends the spell slot picked with Font of Inspiration', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [],
+      resources: [{ name: 'Bardic Inspiration', max: 3, used: 3 }],
+      fontOfInspiration: [1, 2],
+    });
+    h.useFeature.mockReset().mockResolvedValue({ ok: true, summary: 'Hero expends a level 2 spell slot', left: 1 });
+    fight();
+    render(<TurnBar />);
+    fireEvent.change(await screen.findByLabelText('Spell slot for Font of Inspiration'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Font of Inspiration' }));
+    await waitFor(() =>
+      expect(h.useFeature).toHaveBeenCalledWith('hero', 'Font of Inspiration', undefined, undefined, { slotLevel: 2 })
+    );
+  });
 });
 
 describe('a paladin', () => {

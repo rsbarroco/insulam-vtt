@@ -153,7 +153,7 @@ describe('the other classes’ features with uses', () => {
     ]);
     expect(names({ class: 'Druid', level: 2 })).toEqual([['Wild Shape', 2, 'one']]);
     expect(names({ class: 'Monk', level: 5 })).toEqual([['Focus Points', 5, 'all']]);
-    expect(names({ class: 'Sorcerer', level: 4 })).toEqual([['Sorcery Points', 4, 'none']]);
+    expect(names({ class: 'Sorcerer', level: 4 })).toEqual([['Sorcery Points', 4, 'none'], ['Innate Sorcery', 2, 'none']]);
     expect(names({ class: 'Ranger', level: 1 })).toEqual([['Favored Enemy', 2, 'none']]);
   });
 

@@ -38,6 +38,7 @@ import ConcentrationControl from './ConcentrationControl';
 import WildShapeControl from './WildShapeControl';
 import WildShapeExtras from './WildShapeExtras';
 import BardicInspiration from './BardicInspiration';
+import SorceryControl from './SorceryControl';
 import TurnFeatures from './TurnFeatures';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
@@ -47,6 +48,8 @@ const COUNTED_FEATURES = [
   'Focus Points',
   'Sorcery Points',
   'Favored Enemy',
+  'Tireless',
+  "Nature's Veil",
 ] as const satisfies readonly CombatFeatureName[];
 type CountedFeature = (typeof COUNTED_FEATURES)[number];
 const COUNTED_TITLES: Record<CountedFeature, string> = {
@@ -54,6 +57,8 @@ const COUNTED_TITLES: Record<CountedFeature, string> = {
   'Focus Points': 'Spend one Focus Point. All back on a Short or Long Rest.',
   'Sorcery Points': 'Spend one Sorcery Point. All back on a Long Rest.',
   'Favored Enemy': "Cast Hunter's Mark without a spell slot. All back on a Long Rest.",
+  Tireless: 'A Magic action: Temporary Hit Points of 1d8 plus your Wisdom modifier. All uses back on a Long Rest.',
+  "Nature's Veil": 'A Bonus Action: you are Invisible until the end of your next turn. All uses back on a Long Rest.',
 };
 
 export default function TurnBar() {
@@ -78,8 +83,10 @@ export default function TurnBar() {
     concentrationSpells: string[];
     wildShapeForms: string[];
     wildShape: string | null;
+    fontOfInspiration: number[];
     preserveLife: { index: number; pool: number } | null;
     cures: LayOnHandsCure[];
+    fontOfMagic: { create: Array<{ level: number; cost: number }>; convert: number[] } | null;
   } | null>(null);
   // Asked again after a feature is used, so its uses left are the sheet's.
   const [listed, setListed] = useState(0);
@@ -111,11 +118,13 @@ export default function TurnBar() {
               concentrationSpells: answer.concentrationSpells ?? [],
               wildShapeForms: answer.wildShapeForms ?? [],
               wildShape: answer.wildShape ?? null,
+              fontOfInspiration: answer.fontOfInspiration ?? [],
               preserveLife: (() => {
                 const found = answer.actions.find((action) => action.divide);
                 return found?.divide ? { index: found.index, pool: found.divide.pool } : null;
               })(),
               cures: answer.cures ?? ['Poisoned'],
+              fontOfMagic: answer.fontOfMagic ?? null,
             }
           : null
       );
@@ -172,6 +181,7 @@ export default function TurnBar() {
     }
     // Steady Aim is the server's to apply: Advantage on the next attack roll, Speed 0.
     if (feature.name === 'Steady Aim') return void applyOnServer('Steady Aim');
+    if (feature.name === 'Innate Sorcery' && resource('Innate Sorcery')) return void applyOnServer('Innate Sorcery');
     const counted = COUNTED_FEATURES.find((name) => name === feature.name);
     const healing = feature.name === 'Second Wind' || feature.name === 'Wholeness of Body';
     if ((healing || counted) && resource(feature.name)) return void applyOnServer(feature.name as CombatFeatureName);
@@ -554,6 +564,28 @@ export default function TurnBar() {
           bonusActionSpent={turn.bonusAction}
           inspire={async (targetId) => {
             const answer = await socket.useFeature(actingId, 'Bardic Inspiration', undefined, { targetId });
+            if (answer.ok) setListed((count) => count + 1);
+            return answer;
+          }}
+          onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
+          fontSlots={known?.fontOfInspiration ?? []}
+          regain={async (slotLevel) => {
+            const answer = await socket.useFeature(actingId, 'Font of Inspiration', undefined, undefined, { slotLevel });
+            if (answer.ok) setListed((count) => count + 1);
+            return answer;
+          }}
+        />
+      )}
+
+      {canAct && known && (known.fontOfMagic || resource('Innate Sorcery')) && (
+        <SorceryControl
+          points={resource('Sorcery Points')}
+          innate={resource('Innate Sorcery')}
+          innateActive={combat.marks.some((mark) => mark.kind === 'innate' && mark.attackerId === actingId)}
+          font={known.fontOfMagic}
+          bonusActionSpent={turn.bonusAction}
+          use={async (feature, options) => {
+            const answer = await socket.useFeature(actingId, feature, undefined, undefined, options);
             if (answer.ok) setListed((count) => count + 1);
             return answer;
           }}

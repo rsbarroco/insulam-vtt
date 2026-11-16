@@ -13,6 +13,7 @@ import type {
   CombatActionSummary,
   CombatExtraAttack,
   CunningEffect,
+  TransmutedType,
 } from '@/types';
 import type socketService from '@/services/socket';
 import Button from '@/components/ui/Button';
@@ -89,6 +90,11 @@ const EXTRA_LABELS: Record<CombatExtraAttack, { label: string; title: string }> 
   flurry: {
     label: 'Flurry of Blows strike',
     title: 'One of the two Unarmed Strikes your Flurry of Blows gave this turn.',
+  },
+  horde: {
+    label: 'Horde Breaker',
+    title:
+      'After an attack with this weapon this turn: attack a different creature within 5 feet of the first, in range, that you have not attacked this turn. Once on each of your turns.',
   },
   light: {
     label: 'Light extra attack',
@@ -219,6 +225,7 @@ export default function AttackMenu({
   const [canBrutal, setCanBrutal] = useState(false);
   const [metaOptions, setMetaOptions] = useState<CastingMetamagic[]>([]);
   const [meta, setMeta] = useState<'' | CastingMetamagic>('');
+  const [transmuteTo, setTransmuteTo] = useState<TransmutedType>('fire');
   const [huntersMark, setHuntersMark] = useState<string | null>(null);
   const [cunningEffects, setCunningEffects] = useState<CunningEffect[]>([]);
   const [cunningLimit, setCunningLimit] = useState(1);
@@ -368,6 +375,7 @@ export default function AttackMenu({
         ...(imbue && sacred && !extra && action.attack.kind === 'melee' && !action.spell ? { sacredWeapon: true as const } : {}),
         ...(radiant && sacredFor(action) ? { radiant: true as const } : {}),
         ...(action.spell && (meta === 'distant' || meta === 'quickened') ? { metamagic: { option: meta } } : {}),
+        ...(action.spell && meta === 'transmuted' ? { metamagic: { option: meta, damageType: transmuteTo } } : {}),
       });
       setBusy(false);
       onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: answer.hit } : answer);
@@ -392,7 +400,9 @@ export default function AttackMenu({
       action: action.index,
       ...slot,
       ...(point ? { point } : {}),
-      ...(action.spell && meta ? { metamagic: { option: meta, ...(metaPicks ? { targetIds: metaPicks } : {}) } } : {}),
+      ...(action.spell && meta
+        ? { metamagic: { option: meta, ...(metaPicks ? { targetIds: metaPicks } : {}), ...(meta === 'transmuted' ? { damageType: transmuteTo } : {}) } }
+        : {}),
     });
     setBusy(false);
     onResolved(
@@ -718,7 +728,7 @@ export default function AttackMenu({
           {metaOptions.length > 0 && (
             <label
               className="flex items-center justify-between gap-2 text-sm text-ink"
-              title="Metamagic, with Sorcery Points, for the spell you cast: Careful protects the other creatures the area catches, Heightened gives this creature Disadvantage on its save, Distant doubles the range, Quickened casts it as a Bonus Action."
+              title="Metamagic, with Sorcery Points, for the spell you cast: Careful protects the other creatures the area catches, Heightened gives this creature Disadvantage on its save, Distant doubles the range, Quickened casts it as a Bonus Action, Transmuted changes its Acid, Cold, Fire, Lightning, Poison or Thunder damage to another of those types."
             >
               Metamagic
               <select
@@ -731,6 +741,23 @@ export default function AttackMenu({
                 {metaOptions.includes('distant') && <option value="distant">Distant Spell (1)</option>}
                 {metaOptions.includes('heightened') && <option value="heightened">Heightened Spell (2)</option>}
                 {metaOptions.includes('quickened') && <option value="quickened">Quickened Spell (2)</option>}
+                {metaOptions.includes('transmuted') && <option value="transmuted">Transmuted Spell (1)</option>}
+              </select>
+            </label>
+          )}
+          {meta === 'transmuted' && (
+            <label className="flex items-center justify-between gap-2 text-sm text-ink">
+              Damage becomes
+              <select
+                value={transmuteTo}
+                onChange={(event) => setTransmuteTo(event.target.value as TransmutedType)}
+                className="input-cozy text-sm py-1"
+              >
+                {(['acid', 'cold', 'fire', 'lightning', 'poison', 'thunder'] as const).map((type) => (
+                  <option key={type} value={type}>
+                    {type[0].toUpperCase() + type.slice(1)}
+                  </option>
+                ))}
               </select>
             </label>
           )}
