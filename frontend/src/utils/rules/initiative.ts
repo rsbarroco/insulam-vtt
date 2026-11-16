@@ -123,6 +123,19 @@ export function dnd5eInitiativeModifier(data: unknown): number {
 }
 
 /**
+ * Whether a 5e sheet rolls Initiative with Advantage: it lists a Champion's
+ * Remarkable Athlete among its features ("Remarkable Athlete (Fighter 3)").
+ */
+export function dnd5eInitiativeAdvantage(data: unknown): boolean {
+  const features = rec(data)?.featuresAndTraits;
+  if (!Array.isArray(features)) return false;
+  return features.some((entry) => {
+    const name = typeof entry === 'string' ? entry : rec(entry)?.name;
+    return typeof name === 'string' && /^remarkable athlete(\s*\(.*\))?$/i.test(name.trim());
+  });
+}
+
+/**
  * The Dexterity modifier a 5e sheet implies.
  *
  * Recomputed from the score where one is recorded, so a stored modifier that has
@@ -256,8 +269,13 @@ export function resolveCharacterInitiative(
   if (!data) return null;
 
   switch (gameSystem) {
-    case 'DND_5E':
-      return d20With(dnd5eInitiativeModifier(data));
+    case 'DND_5E': {
+      // A Champion's Remarkable Athlete: Advantage on Initiative rolls.
+      const modifier = dnd5eInitiativeModifier(data);
+      if (!dnd5eInitiativeAdvantage(data)) return d20With(modifier);
+      const expression = `2d20kh1${formatModifier(modifier)}`;
+      return { kind: 'roll', expression, label: expression };
+    }
 
     case 'PATHFINDER_2E':
       return d20With(pf2eInitiativeBonus(data));

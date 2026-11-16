@@ -97,9 +97,12 @@ export interface CombatState {
  * Stunning: a target that saved against the Monk's Stunning Strike has its
  * Speed halved until the start of the Monk's next turn, and the next attack
  * roll against it has Advantage (`action: 'used'` once that roll is made).
+ * Studied: a Fighter's Studied Attacks, after its attack roll missed the
+ * target: its next attack roll against it has Advantage, until the end of the
+ * Fighter's next turn.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -141,7 +144,7 @@ export function freshTurn(): TurnState {
 export function advanceTurn(state: CombatState): void {
   // The turn that ends counts down a Vex its combatant made.
   const ending = state.currentTokenId;
-  const countsEnds = (mark: WeaponMark) => mark.kind === 'vex' || mark.kind === 'rage' || (mark.kind === 'condition' && mark.ends === 'end');
+  const countsEnds = (mark: WeaponMark) => mark.kind === 'vex' || mark.kind === 'rage' || mark.kind === 'studied' || (mark.kind === 'condition' && mark.ends === 'end');
   state.marks = state.marks
     .map((mark) => (countsEnds(mark) && mark.attackerId === ending ? { ...mark, turnEndsLeft: mark.turnEndsLeft - 1 } : mark))
     .filter((mark) => mark.turnEndsLeft > 0);

@@ -39,6 +39,7 @@ import { challengeNumber } from '../../rules/dnd/monsters';
 import { ABILITY_CHECK_NAMES, HIDE_DC, passiveScore, resolveCheck, SKILL_CHECKS, withInspiration, withTacticalMind, type SkillCheck } from '../../rules/dnd/checks';
 import { adjustedDamage, applyDamage, concentrationDC, DAMAGE_TYPES, rerollLowest, rollDamage, type DamageType, type Defences, type HitPoints } from '../../rules/dnd/damage';
 import { hasWeaponMastery, masteryEffect, weaponModifier } from '../../rules/dnd/masteries';
+import { criticalFrom, DEFY_DEATH, duelingBonus, hasRemarkableAthlete, hasStudiedAttacks, hasSurvivor, heroicRally, readInventory, withDamageBonus } from '../../rules/dnd/fighter';
 import { deathSavesAfterDamage, deathSavingThrow, isDying, readDeathSaves } from '../../rules/dnd/deathSaves';
 import { attacksPerAction, featureOptions, hasFeature, readFeatures } from '../../rules/dnd/featureEffects';
 import { resolveAttack, withExtraDamage, withReaction, withRerolledDamage, type AttackRequest, type AttackResult, type Combatant } from '../../rules/dnd/resolveAttack';
@@ -463,7 +464,7 @@ function addMark(campaignId: string, mark: { kind: WeaponMark['kind']; attackerI
     (kept) =>
       !(kept.kind === mark.kind && kept.targetId === mark.targetId && (mark.kind === 'slow' || kept.attackerId === mark.attackerId))
   );
-  combat.marks = [...others, { ...mark, turnEndsLeft: (mark.kind === 'vex' || mark.kind === 'rage') && own ? 2 : 1 }];
+  combat.marks = [...others, { ...mark, turnEndsLeft: (mark.kind === 'vex' || mark.kind === 'rage' || mark.kind === 'studied') && own ? 2 : 1 }];
   setCombatState(campaignId, combat);
 }
 
@@ -1478,6 +1479,34 @@ async function rechargeAtTurnStart(io: Server, socket: AuthenticatedSocket, camp
 }
 onTurnStart(rechargeAtTurnStart);
 
+/** Heroic Rally (a Champion's Survivor): at the start of its turn, Bloodied with at least 1 Hit Point, it regains 5 + its Constitution modifier. */
+async function heroicRallyAtTurnStart(io: Server, socket: AuthenticatedSocket, campaignId: string, tokenId: string): Promise<void> {
+  const mapId = getCombatState(campaignId).combatants.find((entry) => entry.tokenId === tokenId)?.mapId;
+  const map = mapId ? await prisma.map.findUnique({ where: { id: mapId } }) : null;
+  const token = map ? readTokens(map.tokens).find((t) => t.id === tokenId) : undefined;
+  if (!map || !token?.characterId) return;
+  const sheet = await sheetOf(token, campaignId);
+  if (!sheet || !hasSurvivor(readFeatures(sheet))) return;
+  const hp = extractCharacterHp(DND, sheet);
+  const amount = hp ? heroicRally(hp, abilityModifierOf(token, sheet, 'con') ?? 0) : 0;
+  if (amount <= 0) return;
+  await healToken(io, campaignId, map.id, token, amount);
+  await logRoll(
+    io,
+    socket,
+    campaignId,
+    {
+      expression: `${amount}`,
+      total: amount,
+      breakdown: { expression: `${amount}`, rolls: [{ type: 'modifier' as const, value: amount }], total: amount, formula: `${amount} = ${amount}` },
+    },
+    token.name,
+    `${token.name} rallies (Survivor): Bloodied at the start of its turn, it regains ${amount} Hit Points`,
+    hiddenFromPlayers(token)
+  );
+}
+onTurnStart(heroicRallyAtTurnStart);
+
 /**
  * At the end of a creature's turn, the saves it repeats against conditions
  * that say so: rolled by the server, logged, and on a success the condition
@@ -1780,6 +1809,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const archery = archeryBonus(attackerFeatures, action);
       if (archery > 0 && action.attack) action = { ...action, attack: { ...action.attack, bonus: action.attack.bonus + archery } };
       const savage = savageAttackerApplies(attackerFeatures, action) && !savageUsed(campaignId, attackerId);
+      // Dueling: +2 damage with a one-handed Melee weapon and no other weapon equipped; not the Light extra attack, which is a second weapon's.
+      if (extra !== 'light') action = withDamageBonus(action, duelingBonus(attackerFeatures, action, readInventory(attackerSheet)));
+      // Studied Attacks: the Fighter's last attack roll against this target missed.
+      const studied = turnNow.marks.find((mark) => mark.kind === 'studied' && mark.attackerId === attackerId && mark.targetId === targetId);
 
       // A Vex the attacker holds on this target, and a Sap on the attacker, are used by this roll.
       const vexed = turnNow.marks.find((mark) => mark.kind === 'vex' && mark.attackerId === attackerId && mark.targetId === targetId);
@@ -1814,6 +1847,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ...(attackingRecklessly ? ['Advantage: Reckless Attack'] : []),
         ...(targetReckless ? [`Advantage: Reckless Attack (${targetToken.name})`] : []),
         ...(vexed ? [`Advantage: Vex (${attackerToken.name}'s last hit)`] : []),
+        ...(studied ? ['Advantage: Studied Attacks'] : []),
         ...(helped ? [`Advantage: Help (${helperName})`] : []),
         ...(sapped ? ['Disadvantage: Sapped'] : []),
       ];
@@ -1883,6 +1917,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         bonusDamage: sneakDice > 0 ? sneakAttack : undefined,
         savage,
         greatWeapon: greatWeaponFighting(attackerFeatures, action),
+        // A Champion's Improved or Superior Critical, with weapons and Unarmed Strikes.
+        criticalFrom: criticalFrom(attackerFeatures, action),
         attacker: combatant(attackerToken, attackerSheet, [], attackerRaging),
         target: offer ? { ...target, standing: standing({ ...targetToken, position: offer.from }) } : target,
         action,
@@ -2004,7 +2040,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       // A concentration spell cast starts its concentration, ending any other.
       const concentrating = action.spell ? findSpell(action.name) : null;
       if (concentrating?.concentration) startConcentration(campaignId, attackerId, concentrating.name);
-      if (vexed || sapped || helped) useMarks(campaignId, [vexed, sapped, helped]);
+      if (vexed || sapped || helped || studied) useMarks(campaignId, [vexed, sapped, helped, studied]);
+      // Studied Attacks: a miss gives the Fighter Advantage on its next attack roll against this creature.
+      if (!result.outcome.hit && hasStudiedAttacks(attackerFeatures)) addMark(campaignId, { kind: 'studied', attackerId, targetId });
       if (result.halvedBy || result.reducedBy) await spendReaction(io, campaignId, targetId);
       if (reckless && !alreadyReckless) {
         const now = getCombatState(campaignId);
@@ -2294,7 +2332,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ? `${ABILITY_CHECK_NAMES[SKILL_CHECKS[skill].ability]} (${SKILL_CHECKS[skill].name})`
         : ABILITY_CHECK_NAMES[ability!];
       const used = skill ? SKILL_CHECKS[skill].ability : ability!;
-      let result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet) });
+      // A Champion's Remarkable Athlete: Advantage on Strength (Athletics) checks.
+      const athlete = skill === 'athletics' && used === 'str' && sheet !== null && hasRemarkableAthlete(readFeatures(sheet));
+      let result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet), ...(athlete ? { extraReasons: ['Advantage: Remarkable Athlete'] } : {}) });
       // Tactical Mind: a Fighter that failed the check, with a use of Second Wind left, is asked; it adds 1d10,
       // and the use is spent only if that turns the check into a success.
       const secondWind = sheet ? resourcesOf(sheet).find((entry) => entry.name === 'Second Wind') : undefined;
@@ -3348,7 +3388,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (!isDying(hp.current, saves)) {
           return { refusal: hp.current > 0 ? `${token.name} is not at 0 Hit Points` : `${token.name} has no more death saves to make` };
         }
-        const outcome = deathSavingThrow(saves, hasLuck(sheet) ? lucky(rollDie) : rollDie);
+        // A Champion's Survivor (Defy Death): Advantage, and an 18 or 19 counts as a 20.
+        const outcome = deathSavingThrow(saves, hasLuck(sheet) ? lucky(rollDie) : rollDie, hasSurvivor(readFeatures(sheet)) ? DEFY_DEATH : {});
         const revived = outcome.result === 'revived';
         const next = { ...sheet, deathSaves: outcome.saves, ...(revived ? { hp: { ...(sheet.hp as object), current: 1 } } : {}) };
         const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(next) } });
@@ -3364,23 +3405,23 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       const verdict =
         outcome.result === 'revived'
-          ? 'a 20: back up with 1 Hit Point'
+          ? `${outcome.natural === 20 ? 'a 20' : `${outcome.natural} (Survivor counts it as a 20)`}: back up with 1 Hit Point`
           : outcome.result === 'dead'
             ? `${outcome.natural === 1 ? 'a 1, two failures' : 'failure'}: dead`
             : outcome.result === 'stable'
               ? 'success: Stable'
               : `${outcome.natural >= 10 ? 'success' : outcome.natural === 1 ? 'a 1, two failures' : 'failure'} (${outcome.saves.successes} successes, ${outcome.saves.failures} failures)`;
-      const summary = `${token.name} death save: ${verdict}`;
+      const summary = `${token.name} death save${outcome.dice ? ` (Advantage: Survivor, ${outcome.dice.join(' and ')})` : ''}: ${verdict}`;
       await logRoll(
         io,
         socket,
         campaignId,
         {
-          expression: '1d20',
+          expression: outcome.dice ? '2d20kh1' : '1d20',
           total: outcome.natural,
           breakdown: {
-            expression: '1d20',
-            rolls: [{ type: 'dice' as const, notation: '1d20', count: 1, sides: 20, results: [outcome.natural], kept: [outcome.natural], total: outcome.natural }],
+            expression: outcome.dice ? '2d20kh1' : '1d20',
+            rolls: [{ type: 'dice' as const, notation: outcome.dice ? '2d20kh1' : '1d20', count: outcome.dice ? 2 : 1, sides: 20, results: outcome.dice ?? [outcome.natural], kept: [outcome.natural], total: outcome.natural }],
             total: outcome.natural,
             formula: `[${outcome.natural}] = ${outcome.natural}`,
           },

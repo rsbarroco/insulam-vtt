@@ -85,6 +85,7 @@ export function markLabels(marks: CombatState['marks'], tokenId: string): string
   if (marks.some((mark) => mark.kind === 'hamstring' && mark.targetId === tokenId)) labels.push('Hamstrung');
   if (marks.some((mark) => mark.kind === 'stunning' && mark.targetId === tokenId)) labels.push('Staggered (Stunning Strike)');
   if (marks.some((mark) => mark.kind === 'vex' && mark.targetId === tokenId)) labels.push('Vexed');
+  if (marks.some((mark) => mark.kind === 'studied' && mark.targetId === tokenId)) labels.push('Studied');
   if (marks.some((mark) => mark.kind === 'rage' && mark.targetId === tokenId)) labels.push('Raging');
   if (marks.some((mark) => mark.kind === 'help' && mark.targetId === tokenId)) labels.push('Distracted');
   if (marks.some((mark) => mark.kind === 'ready' && mark.targetId === tokenId)) labels.push('Readied against');
