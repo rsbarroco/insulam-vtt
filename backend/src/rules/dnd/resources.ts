@@ -28,6 +28,8 @@
 //     Long Rest.
 //   • Lay on Hands (Paladin 1): a pool of five times the Paladin level in
 //     Hit Points, spent a point at a time; all back on a Long Rest.
+//   • Paladin's Smite (Paladin 2): Divine Smite cast once without a spell
+//     slot; back on a Long Rest.
 //   • Favored Enemy (Ranger 1): Hunter's Mark cast without a spell slot, as
 //     many times as the column says; all back on a Long Rest.
 //   • Arcane Recovery (Wizard 1): once, slots recovered as a Short Rest ends;
@@ -59,6 +61,7 @@ export type ResourceName =
   | 'Sorcery Points'
   | 'Favored Enemy'
   | 'Lay on Hands'
+  | "Paladin's Smite"
   | 'Relentless Endurance'
   | 'Indomitable'
   | 'Arcane Recovery'
@@ -143,6 +146,7 @@ export function resourcesOf(sheet: Sheet): Resource[] {
   );
   add('Channel Divinity', divinity, 'one');
   if (has(classes, 'Paladin')) add('Lay on Hands', 5 * level, 'none');
+  if (has(classes, 'Paladin')) add("Paladin's Smite", level >= 2 ? 1 : 0, 'none');
   if (has(classes, 'Druid')) add('Wild Shape', count('Druid', 'Wild Shape', level), 'one');
   if (has(classes, 'Monk')) add('Focus Points', count('Monk', 'Focus Points', level), 'all');
   if (has(classes, 'Sorcerer')) add('Sorcery Points', count('Sorcerer', 'Sorcery Points', level), 'none');

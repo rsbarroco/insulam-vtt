@@ -1692,6 +1692,8 @@ export interface CombatActionSummary {
     damage: string;
     rangeFeet?: number;
     area?: { shape: 'sphere' | 'cone' | 'cube' | 'line' | 'cylinder' | 'emanation'; sizeFeet: number };
+    /** The most creatures it can choose, when it chooses them: Abjure Foes. */
+    maxTargets?: number;
   } | null;
   /** The extra attacks the weapon can be made as: Cleave after a hit, or the Light weapon's extra attack. */
   extras?: CombatExtraAttack[];
@@ -1743,6 +1745,10 @@ export type CombatActionsAck =
       cunningStrike?: CunningEffect[];
       /** How many of them one Sneak Attack takes: two with Improved Cunning Strike. */
       cunningStrikeLimit?: 1 | 2;
+      /** A Paladin's Sacred Weapon: null without the feature; the attack imbued now, by name, or null. */
+      sacredWeapon?: { imbued: string | null } | null;
+      /** The conditions its Lay on Hands can end, 5 points each. */
+      cures?: LayOnHandsCure[];
     }
   | { ok: false; error: string };
 
@@ -1774,6 +1780,10 @@ export interface CombatAttackEvent {
   cunning?: CunningEffect | CunningEffect[];
   /** A Sorcerer's Metamagic for a spell attack. */
   metamagic?: { option: 'distant' | 'quickened' };
+  /** A Paladin's Sacred Weapon, used with the Attack action: a use of Channel Divinity imbues this Melee weapon. */
+  sacredWeapon?: true;
+  /** With a Sacred Weapon: a hit deals Radiant damage instead of the weapon's own type. */
+  radiant?: true;
 }
 export type CombatAttackAck =
   | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
@@ -1811,6 +1821,9 @@ export type CombatCheckAck =
 
 /** `combat.rest`: what a rest gave the character back. */
 export type CombatRestAck = { ok: true; summary: string } | { ok: false; error: string };
+
+/** A condition Lay on Hands can end: Poisoned, and the others with Restoring Touch. */
+export type LayOnHandsCure = 'Poisoned' | 'Blinded' | 'Charmed' | 'Deafened' | 'Frightened' | 'Paralyzed' | 'Stunned';
 
 /** A class feature with a number of uses, as `combat.actions` gives it. */
 export interface CombatResource {

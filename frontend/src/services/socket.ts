@@ -24,6 +24,7 @@ import type {
   CombatFallAck,
   CombatFeatureAck,
   CombatFeatureName,
+  LayOnHandsCure,
   CombatRestAck,
   CombatStandAck, CombatHelpAck, CombatReadyAck, CombatConcentrateAck, CombatHealAck, CombatUndoAck,
   CombatSaveAck,
@@ -787,7 +788,7 @@ class SocketClient {
     tokenId: string,
     feature: CombatFeatureName,
     amount?: number,
-    touch?: { targetId: string; cure?: 'Poisoned' },
+    touch?: { targetId: string; cure?: LayOnHandsCure },
     turn?: { as?: 'Dash' | 'Disengage'; focus?: true; form?: string }
   ): Promise<CombatFeatureAck> {
     const payload = {

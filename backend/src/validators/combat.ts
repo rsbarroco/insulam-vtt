@@ -37,6 +37,10 @@ export const CombatAttackSchema = z
     cunning: z.union([z.enum(CUNNING_EFFECTS), z.array(z.enum(CUNNING_EFFECTS)).min(1).max(2)]).optional(),
     /** A Sorcerer's Metamagic for a spell attack, chosen as it is cast. */
     metamagic: z.object({ option: z.enum(['distant', 'quickened']) }).strict().optional(),
+    /** A Paladin's Sacred Weapon, used as it takes the Attack action: a use of Channel Divinity imbues this Melee weapon for 10 minutes. */
+    sacredWeapon: z.literal(true).optional(),
+    /** With a Sacred Weapon: a hit deals Radiant damage instead of the weapon's own type. */
+    radiant: z.literal(true).optional(),
   })
   .strict()
   .refine((attack) => attack.attackerId !== attack.targetId, { message: 'A creature cannot attack itself' });
@@ -104,6 +108,8 @@ export const CombatRestSchema = z
   .strict()
   .refine((rest) => rest.recover === undefined || rest.kind === 'shortFinish', { message: 'Arcane Recovery is used as a Short Rest ends' });
 
+const LAY_ON_HANDS_CURE = z.enum(['Poisoned', 'Blinded', 'Charmed', 'Deafened', 'Frightened', 'Paralyzed', 'Stunned']);
+
 /** `combat.feature`: a token's character uses a class feature with a number of uses. */
 export const CombatFeatureSchema = z
   .object({
@@ -138,8 +144,8 @@ export const CombatFeatureSchema = z
     targetId: tokenId.optional(),
     /** Wild Shape: the Beast whose form the Druid takes, by name. */
     form: z.string().trim().min(1).max(60).optional(),
-    /** Lay on Hands: spend 5 points to end the Poisoned condition instead of healing. */
-    cure: z.literal('Poisoned').optional(),
+    /** Lay on Hands: spend 5 points to end a condition, Poisoned or one of Restoring Touch's, or several at 5 points each; with `amount` it heals too. */
+    cure: z.union([LAY_ON_HANDS_CURE, z.array(LAY_ON_HANDS_CURE).min(1).max(7)]).optional(),
   })
   .strict();
 

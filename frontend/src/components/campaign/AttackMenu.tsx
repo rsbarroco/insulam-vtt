@@ -224,6 +224,12 @@ export default function AttackMenu({
   const [cunning, setCunning] = useState<'' | CunningEffect>('');
   const [cunningSecond, setCunningSecond] = useState<'' | CunningEffect>('');
   const [brutal, setBrutal] = useState<'' | 'forceful' | 'hamstring'>('');
+  // A Paladin's Sacred Weapon: the attack imbued now (null for none), whether to imbue with this attack, and Radiant damage.
+  const [sacred, setSacred] = useState<{ imbued: string | null } | null>(null);
+  const [imbue, setImbue] = useState(false);
+  const [radiant, setRadiant] = useState(false);
+  // The other creatures an action that chooses several (Abjure Foes) is also aimed at, by action index.
+  const [alsoAt, setAlsoAt] = useState<Record<number, string[]>>({});
 
   useEffect(() => {
     let current = true;
@@ -237,6 +243,7 @@ export default function AttackMenu({
         setHuntersMark((answer.concentrationSpells ?? []).find((spell) => /^hunter[’']?s mark$/i.test(spell)) ?? null);
         setCunningEffects(answer.cunningStrike ?? []);
         setCunningLimit(answer.cunningStrikeLimit ?? 1);
+        setSacred(answer.sacredWeapon ?? null);
       } else setProblem(answer.error);
     });
     return () => {
@@ -310,11 +317,24 @@ export default function AttackMenu({
     onResolved({ ok: true, summary: lines.join(' · '), landed });
   };
 
+  /** The other creatures within range of an action that chooses several: Abjure Foes takes as many as it says. */
+  const othersInRange = (action: CombatActionSummary) =>
+    (action.save?.maxTargets ?? 1) > 1 && action.save?.rangeFeet
+      ? caughtBy({ shape: 'emanation', sizeFeet: action.save.rangeFeet }).filter(
+          (creature) => creature.id !== attacker.id && creature.id !== target.id
+        )
+      : [];
+  /** Whether this attack is, or is being made, a Sacred Weapon: a Melee weapon attack of the sheet's. */
+  const sacredFor = (action: CombatActionSummary) =>
+    sacred !== null && action.attack?.kind === 'melee' && !action.spell && (imbue || sacred.imbued === action.name);
+
   /** Who a save effect is rolled for: everyone its area catches, or the creature aimed at. */
   const targetsOf = (action: CombatActionSummary): string[] => {
     const area = action.save?.area;
     const caught = area ? caughtBy(area).map((creature) => creature.id) : [];
-    return caught.length > 0 || point ? caught : [target.id];
+    if (caught.length > 0 || point) return caught;
+    const others = new Set(othersInRange(action).map((creature) => creature.id));
+    return [target.id, ...(alsoAt[action.index] ?? []).filter((id) => others.has(id))];
   };
 
   /** Make the attack or call for the save. `slotLevel` is the spell slot a levelled spell is cast with. */
@@ -344,6 +364,8 @@ export default function AttackMenu({
         ...(cunning && !action.spell
           ? { cunning: cunningSecond ? [cunning, cunningSecond] : cunning }
           : {}),
+        ...(imbue && sacred && !extra && action.attack.kind === 'melee' && !action.spell ? { sacredWeapon: true as const } : {}),
+        ...(radiant && sacredFor(action) ? { radiant: true as const } : {}),
         ...(action.spell && (meta === 'distant' || meta === 'quickened') ? { metamagic: { option: meta } } : {}),
       });
       setBusy(false);
@@ -497,6 +519,33 @@ export default function AttackMenu({
                     busy={busy}
                     onMake={(extra) => void make(action, undefined, extra)}
                   />
+                  {othersInRange(action).length > 0 && (
+                    <span className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 pb-1 text-xs text-ink-muted">
+                      Also, up to {action.save!.maxTargets! - 1} more:
+                      {othersInRange(action).map((creature) => {
+                        const picked = alsoAt[action.index] ?? [];
+                        const checked = picked.includes(creature.id);
+                        return (
+                          <label key={creature.id} className="flex items-center gap-1 text-ink">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!checked && picked.length >= action.save!.maxTargets! - 1}
+                              onChange={() =>
+                                setAlsoAt((all) => ({
+                                  ...all,
+                                  [action.index]: checked
+                                    ? picked.filter((id) => id !== creature.id)
+                                    : [...picked, creature.id],
+                                }))
+                              }
+                            />
+                            {creature.name}
+                          </label>
+                        );
+                      })}
+                    </span>
+                  )}
                   {action.beams && action.beams > 1 && (
                     <span className="flex px-2 pb-1">
                       <Button
@@ -555,6 +604,34 @@ export default function AttackMenu({
               />
               Attack recklessly
             </label>
+          )}
+          {anyAttackRoll && sacred && (
+            <span className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink">
+              <label
+                className="flex items-center gap-2"
+                title="Sacred Weapon, as you take the Attack action: a use of Channel Divinity imbues the Melee weapon you attack with for 10 minutes. Add your Charisma modifier (at least +1) to attack rolls with it."
+              >
+                <input
+                  type="checkbox"
+                  checked={imbue}
+                  onChange={(event) => setImbue(event.target.checked)}
+                />
+                Sacred Weapon{sacred.imbued ? ` (now: ${sacred.imbued})` : ''}
+              </label>
+              {(imbue || sacred.imbued) && (
+                <label
+                  className="flex items-center gap-2"
+                  title="A hit with the Sacred Weapon deals Radiant damage instead of the weapon's own type."
+                >
+                  <input
+                    type="checkbox"
+                    checked={radiant}
+                    onChange={(event) => setRadiant(event.target.checked)}
+                  />
+                  Radiant damage
+                </label>
+              )}
+            </span>
           )}
           {anyAttackRoll && cunningEffects.length > 0 && (
             <label
