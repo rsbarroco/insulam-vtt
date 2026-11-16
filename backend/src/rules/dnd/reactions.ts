@@ -3,12 +3,14 @@
 //
 // Uncanny Dodge (Rogue 5) halves the hit's damage; Deflect Attacks (Monk 3)
 // takes 1d10 + the Monk's Dexterity modifier + its Monk level off a hit whose
-// damage includes Bludgeoning, Piercing or Slashing damage. The creature holds
+// damage includes Bludgeoning, Piercing or Slashing damage (any damage type
+// with Deflect Energy, Monk 13). The creature holds
 // the reaction ready before the attack, and the server spends it on the first
 // hit it answers.
 // ============================================
 
-import type { DamageType } from './damage';
+import { DAMAGE_TYPES, type DamageType } from './damage';
+import { hasFeature, readFeatures } from './featureEffects';
 import { abilityModifier, classesOf } from './resources';
 
 type Sheet = Record<string, unknown>;
@@ -26,11 +28,11 @@ export function monkLevel(sheet: Sheet): number {
   return classes.some((name) => name.toLowerCase() === 'monk') ? level : 0;
 }
 
-/** Deflect Attacks: 1d10 + Dexterity modifier + Monk level off a Bludgeoning, Piercing or Slashing hit. */
+/** Deflect Attacks: 1d10 + Dexterity modifier + Monk level off a Bludgeoning, Piercing or Slashing hit; off a hit of any type with Deflect Energy. */
 export function deflectReduction(sheet: Sheet): DamageReduction {
   return {
     label: 'Deflect Attacks',
     roll: { count: 1, sides: 10, bonus: abilityModifier(sheet, 'dexterity') + monkLevel(sheet) },
-    types: ['bludgeoning', 'piercing', 'slashing'],
+    types: hasFeature(readFeatures(sheet), 'Deflect Energy') ? DAMAGE_TYPES : ['bludgeoning', 'piercing', 'slashing'],
   };
 }

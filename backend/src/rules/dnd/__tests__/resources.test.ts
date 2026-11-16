@@ -59,6 +59,27 @@ describe('resourcesOf', () => {
   });
 });
 
+describe('Wholeness of Body', () => {
+  const monk = (level: number, features: string[], wisdom = 3) => ({
+    class: 'Monk',
+    level,
+    stats: { wisdom: { score: 10 + 2 * wisdom, modifier: wisdom } },
+    featuresAndTraits: features,
+  });
+  const uses = (sheet: Record<string, unknown>) => resourcesOf(sheet).find((entry) => entry.name === 'Wholeness of Body');
+
+  it('has as many uses as the Wisdom modifier, at least one, back on a Long Rest only', () => {
+    expect(uses(monk(6, ['Wholeness of Body (Warrior of the Open Hand 6)']))).toEqual({ name: 'Wholeness of Body', max: 3, used: 0, shortRest: 'none' });
+    expect(uses(monk(6, ['Wholeness of Body'], -1))?.max).toBe(1);
+  });
+
+  it('is for a Monk of level 6 whose sheet lists it', () => {
+    expect(uses(monk(6, []))).toBeUndefined();
+    expect(uses(monk(5, ['Wholeness of Body']))).toBeUndefined();
+    expect(uses({ ...monk(6, ['Wholeness of Body']), class: 'Fighter' })).toBeUndefined();
+  });
+});
+
 describe('spendResource', () => {
   it('spends one use, and refuses when none are left', () => {
     const once = spendResource(fighter(1), 'Second Wind');
@@ -152,5 +173,14 @@ describe('the other classes’ features with uses', () => {
       regained: ['4 Focus Points'],
     });
     expect(restoreResources(sheet, 'long').sheet.featureUses).toEqual({});
+  });
+});
+
+describe('Stroke of Luck', () => {
+  it('is a level 20 Rogue\'s, once, back on a Short Rest', () => {
+    expect(resourcesOf({ class: 'Rogue', level: 19 })).toEqual([]);
+    expect(resourcesOf({ class: 'Rogue', level: 20 })).toEqual([{ name: 'Stroke of Luck', max: 1, used: 0, shortRest: 'all' }]);
+    const spent = { class: 'Rogue', level: 20, featureUses: { 'Stroke of Luck': 1 } };
+    expect(restoreResources(spent, 'short')).toEqual({ sheet: { ...spent, featureUses: {} }, regained: ['1 Stroke of Luck'] });
   });
 });

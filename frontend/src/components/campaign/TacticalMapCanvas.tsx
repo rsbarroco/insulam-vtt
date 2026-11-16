@@ -42,7 +42,7 @@ import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import Button from '@/components/ui/Button';
 import AttackMenu from './AttackMenu';
 import { areaCells, standsIn, type AreaOfEffect } from '@/utils/boardArea';
-import { formatFeet, movementLeft, slowedSpeed } from '@/utils/turn';
+import { formatFeet, movementLeft, slowedSpeed, steadiedSpeed } from '@/utils/turn';
 import { useTokenImages } from './map/useTokenImages';
 import { cachedTokenImage, placeholderColor, DOWNED_TOKEN_ALPHA } from './map/layers/drawTokens';
 import {
@@ -405,7 +405,9 @@ export default function TacticalMapCanvas() {
   const actingTurn =
     reachToken && combat.active && combat.currentTokenId === reachToken.id ? combat.turn : null;
   const reachSpeed =
-    fullSpeed !== null && actingTurn ? movementLeft(fullSpeed, actingTurn) : fullSpeed;
+    fullSpeed !== null && actingTurn
+      ? movementLeft(steadiedSpeed(fullSpeed, actingTurn), actingTurn)
+      : fullSpeed;
   const reach = useMemo(() => {
     if (!reachToken || reachSpeed === null || !currentMap) return null;
     const obstacles = reachObstacles(reachToken, visibleTokens, characterHpCache);

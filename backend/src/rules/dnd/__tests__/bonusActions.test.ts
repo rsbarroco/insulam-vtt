@@ -1,4 +1,4 @@
-import { hasTurnFeature, turnFeatureEffect } from '../bonusActions';
+import { hasSteadyAim, hasTurnFeature, steadyAimRefusal, turnFeatureEffect } from '../bonusActions';
 
 describe('hasTurnFeature', () => {
   it('gives Cunning Action to a Rogue from level 2, and the Focus features to a Monk from level 2', () => {
@@ -37,5 +37,19 @@ describe('turnFeatureEffect', () => {
       disengage: true,
       focus: 1,
     });
+  });
+});
+
+describe('Steady Aim', () => {
+  it('is a Rogue\'s from level 3', () => {
+    expect(hasSteadyAim({ class: 'Rogue', level: 3 })).toBe(true);
+    expect(hasSteadyAim({ class: 'Rogue', level: 2 })).toBe(false);
+    expect(hasSteadyAim({ class: 'Fighter', level: 5 })).toBe(false);
+  });
+
+  it('needs a turn without movement, once', () => {
+    expect(steadyAimRefusal({ movementSpent: 0 })).toBeNull();
+    expect(steadyAimRefusal({ movementSpent: 5 })).toBe('Steady Aim is used only on a turn the Rogue has not moved');
+    expect(steadyAimRefusal({ movementSpent: 0, steadyAim: 'used' })).toBe('Steady Aim has been used this turn');
   });
 });

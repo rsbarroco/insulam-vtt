@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { actionChange, formatFeet, markLabels, movementBudget, movementLeft, slowedSpeed, STANDARD_ACTIONS } from '../turn';
+import { actionChange, formatFeet, markLabels, movementBudget, movementLeft, slowedSpeed, STANDARD_ACTIONS, steadiedSpeed } from '../turn';
 
 describe('movement on a turn', () => {
   it('is the speed, once more for each Dash', () => {
@@ -82,6 +82,9 @@ describe('weapon marks', () => {
     const staggered = [...hamstrung, { kind: 'stunning' as const, attackerId: 'monk', targetId: 'ogre', turnEndsLeft: 1 }];
     expect(slowedSpeed(40, staggered, 'ogre')).toBe(7);
     expect(markLabels(staggered, 'ogre')).toContain('Staggered (Stunning Strike)');
+    // Open Hand Technique's Addle is on the creature itself.
+    const addled = [{ kind: 'addle' as const, attackerId: 'ogre', targetId: 'ogre', turnEndsLeft: 1 }];
+    expect(markLabels(addled, 'ogre')).toEqual(['Addled (no Opportunity Attacks)']);
   });
 
   it('names what a creature carries', () => {
@@ -91,5 +94,14 @@ describe('weapon marks', () => {
     expect(markLabels([{ kind: 'rage', attackerId: 'hero', targetId: 'hero', turnEndsLeft: 2 }], 'hero')).toEqual(['Raging']);
     expect(markLabels([{ kind: 'studied', attackerId: 'hero', targetId: 'ogre', turnEndsLeft: 2 }], 'ogre')).toEqual(['Studied']);
     expect(markLabels([{ kind: 'concentration', attackerId: 'hero', targetId: 'hero', action: 'Bless', turnEndsLeft: 1 }], 'hero')).toEqual(['Concentrating (Bless)']);
+  });
+});
+
+describe('steadiedSpeed', () => {
+  it('is 0 on a turn Steady Aim was taken, before and after the attack it helps', () => {
+    expect(steadiedSpeed(30, { steadyAim: 'ready' })).toBe(0);
+    expect(steadiedSpeed(30, { steadyAim: 'used' })).toBe(0);
+    expect(steadiedSpeed(30, {})).toBe(30);
+    expect(steadiedSpeed(30, null)).toBe(30);
   });
 });

@@ -27,11 +27,13 @@ import {
   movementBudget,
   movementLeft,
   slowedSpeed,
+  steadiedSpeed,
   STANDARD_ACTIONS,
 } from '@/utils/turn';
 import Button from '@/components/ui/Button';
 import CheckRoller from './CheckRoller';
 import LayOnHands from './LayOnHands';
+import PreserveLife from './PreserveLife';
 import ConcentrationControl from './ConcentrationControl';
 import WildShapeControl from './WildShapeControl';
 import BardicInspiration from './BardicInspiration';
@@ -75,6 +77,7 @@ export default function TurnBar() {
     concentrationSpells: string[];
     wildShapeForms: string[];
     wildShape: string | null;
+    preserveLife: { index: number; pool: number } | null;
   } | null>(null);
   // Asked again after a feature is used, so its uses left are the sheet's.
   const [listed, setListed] = useState(0);
@@ -106,6 +109,10 @@ export default function TurnBar() {
               concentrationSpells: answer.concentrationSpells ?? [],
               wildShapeForms: answer.wildShapeForms ?? [],
               wildShape: answer.wildShape ?? null,
+              preserveLife: (() => {
+                const found = answer.actions.find((action) => action.divide);
+                return found?.divide ? { index: found.index, pool: found.divide.pool } : null;
+              })(),
             }
           : null
       );
@@ -160,8 +167,11 @@ export default function TurnBar() {
     if (feature.name === 'Bardic Inspiration' && resource('Bardic Inspiration')) {
       return showToast('Choose the creature with the Bardic Inspiration button', 'info');
     }
+    // Steady Aim is the server's to apply: Advantage on the next attack roll, Speed 0.
+    if (feature.name === 'Steady Aim') return void applyOnServer('Steady Aim');
     const counted = COUNTED_FEATURES.find((name) => name === feature.name);
-    if ((feature.name === 'Second Wind' || counted) && resource(feature.name)) return void applyOnServer(feature.name as CombatFeatureName);
+    const healing = feature.name === 'Second Wind' || feature.name === 'Wholeness of Body';
+    if ((healing || counted) && resource(feature.name)) return void applyOnServer(feature.name as CombatFeatureName);
     if (feature.cost === 'bonusAction') socket.emitTurnUpdate({ bonusAction: true });
     else socket.emitTurnUpdate({ reaction: { tokenId: actingId, spent: true } });
     showToast(`${actingName} uses ${feature.name}`, 'info');
@@ -179,6 +189,7 @@ export default function TurnBar() {
   const rage = resource('Rage');
   const layOnHands = resource('Lay on Hands');
   const inspiration = resource('Bardic Inspiration');
+  const preserveLife = canAct ? (known?.preserveLife ?? null) : null;
   const touchTargets = [
     ...(acting ? [{ id: acting.id, name: actingName }] : []),
     ...combat.combatants
@@ -225,7 +236,7 @@ export default function TurnBar() {
   };
 
   const baseSpeed = acting ? movingSpeed(acting) : null;
-  const speed = baseSpeed === null ? null : slowedSpeed(baseSpeed, combat.marks, actingId);
+  const speed = baseSpeed === null ? null : steadiedSpeed(slowedSpeed(baseSpeed, combat.marks, actingId), turn);
   // Prone: it crawls, or gets up for half its Speed.
   const prone = acting !== null && isProne(acting);
   const standCost = speed === null ? 0 : standUpCost(speed);
@@ -396,6 +407,8 @@ export default function TurnBar() {
             return answer;
           }}
           hide={() => socket.resolveCheck({ tokenId: actingId, hide: true, bonusAction: true })}
+          sleight={() => socket.resolveCheck({ tokenId: actingId, skill: 'sleightOfHand', bonusAction: true })}
+          moved={turn.movementSpent > 0}
           onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
         />
       )}
@@ -463,6 +476,20 @@ export default function TurnBar() {
           bonusActionSpent={turn.bonusAction}
           touch={async (targetId, amount, cure) => {
             const answer = await socket.useFeature(actingId, 'Lay on Hands', amount, { targetId, ...(cure ? { cure: 'Poisoned' as const } : {}) });
+            if (answer.ok) setListed((count) => count + 1);
+            return answer;
+          }}
+          onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
+        />
+      )}
+
+      {preserveLife && (
+        <PreserveLife
+          pool={preserveLife.pool}
+          targets={touchTargets}
+          actionSpent={turn.action !== null}
+          divide={async (shares) => {
+            const answer = await socket.heal({ casterId: actingId, action: preserveLife.index, shares });
             if (answer.ok) setListed((count) => count + 1);
             return answer;
           }}

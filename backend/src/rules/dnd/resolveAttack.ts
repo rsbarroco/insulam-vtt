@@ -80,6 +80,16 @@ export interface AttackRequest {
   inspired?: { roll: AttackOutcome['roll']; added: number; label: string };
   /** The lowest d20 that makes a hit a Critical Hit: a Champion's Improved (19) or Superior (18) Critical. 20 when left out. */
   criticalFrom?: number;
+  /**
+   * A missed roll whose d20 a feature turned into a 20 afterwards (a Rogue's
+   * Stroke of Luck): the roll as first made, and the feature's name.
+   */
+  turned?: { roll: AttackOutcome['roll']; label: string };
+  /**
+   * A feature of the target that lets no attack roll against it have
+   * Advantage unless it is Incapacitated, by name: "Elusive".
+   */
+  noAdvantage?: string;
 }
 
 export interface AttackRefusal {
@@ -159,6 +169,14 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   reasons.push(...(request.extraReasons ?? []));
   if (request.mode === 'advantage') reasons.push('Advantage: granted by the table');
   if (request.mode === 'disadvantage') reasons.push('Disadvantage: imposed by the table');
+  // Elusive: no attack roll has Advantage against the target, unless it is Incapacitated.
+  if (request.noAdvantage && canAct(targetState)) {
+    const kept = reasons.filter((reason) => !reason.startsWith('Advantage'));
+    if (kept.length < reasons.length) {
+      kept.push(`No Advantage: ${request.noAdvantage} (${target.name})`);
+      reasons.splice(0, reasons.length, ...kept);
+    }
+  }
   // Brutal Strike: any Advantage is given up, and a roll with Disadvantage cannot be chosen.
   if (request.forgoAdvantage) {
     if (reasons.some((reason) => reason.startsWith('Disadvantage'))) {
@@ -173,7 +191,13 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
     reasons.some((reason) => reason.startsWith('Disadvantage'))
   );
 
-  const outcome = request.inspired
+  // A d20 turned into a 20 is a roll of 20: a hit, and a Critical Hit.
+  const turned = request.turned
+    ? { roll: { ...request.turned.roll, natural: 20, total: 20 + request.turned.roll.modifier }, added: 0, label: request.turned.label }
+    : null;
+  const outcome = turned
+    ? inspiredOutcome(turned, target.armorClass, cover, modifiers.criticalOnHit, request.criticalFrom)
+    : request.inspired
     ? inspiredOutcome(request.inspired, target.armorClass, cover, modifiers.criticalOnHit, request.criticalFrom)
     : attackRoll(
     {
@@ -190,6 +214,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   const damage: AttackResult['damage'] = [];
   const bonuses: string[] = [];
   if (request.inspired) bonuses.push(`${request.inspired.label} +${request.inspired.added}`);
+  if (turned) bonuses.push(`${turned.label}: the d20 becomes a 20`);
   let dealt = 0;
   let hp = target.hp;
   let dropped = false;

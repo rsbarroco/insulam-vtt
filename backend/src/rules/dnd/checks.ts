@@ -95,6 +95,8 @@ export interface CheckRequest {
   lucky?: boolean;
   /** Reasons the caller found, written as the engine writes its own: "Advantage: Remarkable Athlete". */
   extraReasons?: readonly string[];
+  /** A Rogue's Reliable Talent, on a check that uses a proficiency: a d20 of 9 or lower counts as 10. */
+  reliable?: boolean;
 }
 
 export interface CheckResult {
@@ -119,7 +121,9 @@ export function resolveCheck(request: CheckRequest, roll: RollDie = rollDie): Ch
     reasons.some((reason) => reason.startsWith('Advantage')),
     reasons.some((reason) => reason.startsWith('Disadvantage'))
   );
-  const rolled = rollD20(request.bonus + modifiers.penalty, mode, request.lucky ? lucky(roll) : roll);
+  const asRolled = rollD20(request.bonus + modifiers.penalty, mode, request.lucky ? lucky(roll) : roll);
+  const rolled = request.reliable ? withReliableTalent(asRolled) : asRolled;
+  if (rolled !== asRolled) reasons.push(`Reliable Talent: the ${asRolled.natural} on the d20 counts as 10`);
   const success = request.dc === undefined ? null : rolled.total >= request.dc;
   const verdict =
     success === null
@@ -131,6 +135,30 @@ export function resolveCheck(request: CheckRequest, roll: RollDie = rollDie): Ch
     success,
     reasons,
     summary: `${request.name} ${request.label} check: ${verdict}`,
+  };
+}
+
+/** Reliable Talent (Rogue 7): a d20 of 9 or lower is treated as a 10. */
+export function withReliableTalent(rolled: D20Roll): D20Roll {
+  if (rolled.natural >= 10) return rolled;
+  return { ...rolled, natural: 10, total: 10 + rolled.modifier };
+}
+
+/**
+ * A failed check with a Rogue's Stroke of Luck once its player chose it: the
+ * d20 becomes a 20, which may turn the check into a success.
+ */
+export function withStrokeOfLuck(result: CheckResult, dc: number): CheckResult {
+  if (result.success !== false) return result;
+  // Whatever was added after the roll (Tactical Mind, Bardic Inspiration) stays added.
+  const total = result.total - result.roll.natural + 20;
+  const success = total >= dc;
+  return {
+    ...result,
+    roll: { ...result.roll, natural: 20, total: 20 + result.roll.modifier },
+    total,
+    success,
+    summary: `${result.summary}; Stroke of Luck, the d20 becomes a 20: ${total}, ${success ? 'success' : 'still a failure'}`,
   };
 }
 

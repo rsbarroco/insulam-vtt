@@ -77,6 +77,11 @@ export function slowedSpeed(speed: number, marks: CombatState['marks'], tokenId:
   return marks.some((mark) => mark.kind === 'stunning' && mark.targetId === tokenId) ? Math.floor(reduced / 2) : reduced;
 }
 
+/** A Speed on a turn the creature took Steady Aim: 0 until the turn ends. */
+export function steadiedSpeed(speed: number, turn: Pick<TurnState, 'steadyAim'> | null): number {
+  return turn?.steadyAim ? 0 : speed;
+}
+
 /** The marks a creature carries, as the tracker names them. */
 export function markLabels(marks: CombatState['marks'], tokenId: string): string[] {
   const labels: string[] = [];
@@ -84,6 +89,7 @@ export function markLabels(marks: CombatState['marks'], tokenId: string): string
   if (marks.some((mark) => mark.kind === 'slow' && mark.targetId === tokenId)) labels.push('Slowed');
   if (marks.some((mark) => mark.kind === 'hamstring' && mark.targetId === tokenId)) labels.push('Hamstrung');
   if (marks.some((mark) => mark.kind === 'stunning' && mark.targetId === tokenId)) labels.push('Staggered (Stunning Strike)');
+  if (marks.some((mark) => mark.kind === 'addle' && mark.targetId === tokenId)) labels.push('Addled (no Opportunity Attacks)');
   if (marks.some((mark) => mark.kind === 'vex' && mark.targetId === tokenId)) labels.push('Vexed');
   if (marks.some((mark) => mark.kind === 'studied' && mark.targetId === tokenId)) labels.push('Studied');
   if (marks.some((mark) => mark.kind === 'rage' && mark.targetId === tokenId)) labels.push('Raging');

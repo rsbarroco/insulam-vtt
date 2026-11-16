@@ -72,3 +72,31 @@ export function resolveFall(faller: Faller, feet: number, roll: RollDie = rollDi
     summary: `${faller.name} falls ${feet} ft: ${landing}`,
   };
 }
+
+/**
+ * A fall as Slow Fall leaves it: `amount` taken off the damage, to no less
+ * than 0. The creature's hit points are worked out again from what they were
+ * before the fall, and it lands on its feet when no damage is left.
+ */
+export function withSlowFall(result: FallResult, faller: Faller, amount: number): FallResult {
+  if (result.dealt <= 0 || amount <= 0) return result;
+  const dealt = Math.max(0, result.dealt - amount);
+  // Already through the creature's defences, so applied as it stands.
+  const applied = applyDamage(faller.hp ?? { current: 1, max: 1, temp: 0 }, [{ amount: dealt, type: 'force' }]);
+  const dropped = faller.hp !== null && dealt > 0 && applied.dropped;
+  const instantDeath = faller.hp !== null && dealt > 0 && applied.instantDeath;
+  const taken = result.dealt - dealt;
+  const landing =
+    dealt === 0
+      ? `no damage (${taken} taken off by Slow Fall)`
+      : `${dealt} bludgeoning damage (${taken} taken off by Slow Fall), Prone${instantDeath ? ', killed outright' : dropped ? ', drops to 0 Hit Points' : ''}`;
+  return {
+    ...result,
+    dealt,
+    hp: faller.hp ? (dealt > 0 ? applied.hp : faller.hp) : null,
+    prone: dealt > 0,
+    dropped,
+    instantDeath,
+    summary: `${faller.name} falls ${result.feet} ft: ${landing}`,
+  };
+}
