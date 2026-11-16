@@ -11,6 +11,9 @@ interface BardicInspirationProps {
   bonusActionSpent: boolean;
   inspire: (targetId: string) => Promise<CombatFeatureAck>;
   onResult: (message: string, ok: boolean) => void;
+  /** Font of Inspiration: the spell slot levels that could be expended now to regain a use; empty when it cannot be used. */
+  fontSlots?: number[];
+  regain?: (slotLevel: number) => Promise<CombatFeatureAck>;
 }
 
 /**
@@ -24,6 +27,8 @@ export default function BardicInspiration({
   bonusActionSpent,
   inspire,
   onResult,
+  fontSlots = [],
+  regain,
 }: BardicInspirationProps) {
   const left = uses.max - uses.used;
   const [open, setOpen] = useState(false);
@@ -33,6 +38,14 @@ export default function BardicInspiration({
     const answer = await inspire(targetId);
     onResult(answer.ok ? answer.summary : answer.error, answer.ok);
     if (answer.ok) setOpen(false);
+  };
+
+  const [slotLevel, setSlotLevel] = useState(0);
+  const expended = fontSlots.includes(slotLevel) ? slotLevel : (fontSlots[0] ?? 0);
+  const fill = async () => {
+    if (!regain || !expended) return;
+    const answer = await regain(expended);
+    onResult(answer.ok ? answer.summary : answer.error, answer.ok);
   };
 
   return (
@@ -48,6 +61,30 @@ export default function BardicInspiration({
       >
         Bardic Inspiration ({left}/{uses.max})
       </Button>
+      {regain && fontSlots.length > 0 && (
+        <span className="ml-2 inline-flex items-center gap-1">
+          <select
+            aria-label="Spell slot for Font of Inspiration"
+            className="input-cozy text-sm py-1"
+            value={expended}
+            onChange={(event) => setSlotLevel(Number(event.target.value))}
+          >
+            {fontSlots.map((level) => (
+              <option key={level} value={level}>
+                Level {level} slot
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="secondary"
+            size="sm"
+            title="Font of Inspiration: expend a spell slot (no action) to regain one expended use of Bardic Inspiration."
+            onClick={() => void fill()}
+          >
+            Font of Inspiration
+          </Button>
+        </span>
+      )}
       {open && (
         <div
           role="dialog"

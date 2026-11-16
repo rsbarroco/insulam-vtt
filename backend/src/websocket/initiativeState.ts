@@ -108,9 +108,11 @@ export interface CombatState {
  * Fighter's next turn.
  * Addle: Open Hand Technique keeps the creature (both ids) from Opportunity
  * Attacks until the start of its next turn.
+ * Innate: the Sorcerer (both ids) has its Innate Sorcery active for a minute,
+ * counted as ten of its own turns ending.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle' | 'innate';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -154,7 +156,7 @@ export function freshTurn(): TurnState {
 export function advanceTurn(state: CombatState): void {
   // The turn that ends counts down a Vex its combatant made.
   const ending = state.currentTokenId;
-  const countsEnds = (mark: WeaponMark) => mark.kind === 'vex' || mark.kind === 'rage' || mark.kind === 'studied' || (mark.kind === 'condition' && mark.ends === 'end');
+  const countsEnds = (mark: WeaponMark) => mark.kind === 'vex' || mark.kind === 'rage' || mark.kind === 'studied' || mark.kind === 'innate' || (mark.kind === 'condition' && mark.ends === 'end');
   state.marks = state.marks
     .map((mark) => (countsEnds(mark) && mark.attackerId === ending ? { ...mark, turnEndsLeft: mark.turnEndsLeft - 1 } : mark))
     .filter((mark) => mark.turnEndsLeft > 0);

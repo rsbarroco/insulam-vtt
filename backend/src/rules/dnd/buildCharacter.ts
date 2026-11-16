@@ -12,11 +12,13 @@
 // numbers a species trait or a feature changes, and which spells are known.
 // Some are worked out: Alert adds the Proficiency Bonus to Initiative, a
 // Dwarf's Dwarven Toughness adds 1 Hit Point a level, and a Barbarian's or
-// Monk's Unarmored Defense sets the Armor Class.
+// Monk's Unarmored Defense sets the Armor Class, as a Draconic Sorcerer's
+// Draconic Resilience does, which also adds a Hit Point a Sorcerer level.
 // ============================================
 
 import { abilityScoreCap, type CharacterRules } from '../../utils/characterRules';
 import { armorClassOf } from '../../utils/srdArmor';
+import { draconicResilienceHitPoints } from './sorcery';
 import type { Ability } from './conditions';
 import {
   casterLevel, CLASSES, fixedHitPoints, hitDie, improvements, MAX_LEVEL, pactMagic, proficiencyBonus, savingThrowProficiencies,
@@ -237,7 +239,10 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
   const saves = savingThrowProficiencies(tracks);
   const proficient = new Set<Skill>([...fromBackground, ...picks]);
   const toughness = species.traits.some((trait) => trait.name === 'Dwarven Toughness') ? level : 0;
-  const hitPoints = fixedHitPoints(tracks, level, mods.con) + toughness;
+  const built = buildFeatures(tracks, level);
+  // Draconic Resilience: 3 more Hit Points at Sorcerer level 3, and 1 more each level after.
+  const draconic = built.some((feature) => feature.name === 'Draconic Resilience') ? draconicResilienceHitPoints(level) : 0;
+  const hitPoints = fixedHitPoints(tracks, level, mods.con) + toughness + draconic;
   const alert = taken.some((feat) => feat.name === 'Alert') ? bonus : 0;
   const slots = spellSlots(tracks, level);
   const pact = pactMagic(tracks, level);
@@ -267,7 +272,7 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
     ),
     passivePerception: 10 + mods.wis + (proficient.has('perception') ? bonus : 0),
     // No armor yet: 10 + Dexterity, or a Barbarian's or Monk's Unarmored Defense.
-    armorClass: Math.max(1, armorClassOf({ dex: mods.dex, con: mods.con, wis: mods.wis, classes: tracks, features: [], equipped: [] }).armorClass),
+    armorClass: Math.max(1, armorClassOf({ dex: mods.dex, con: mods.con, wis: mods.wis, cha: mods.cha, classes: tracks, features: built.map((feature) => feature.name), equipped: [] }).armorClass),
     initiative: mods.dex + alert,
     initiativeBonus: alert,
     speed: species.speedFeet,
@@ -294,7 +299,7 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
           .filter(Boolean)
           .join('\n\n'),
       })),
-      ...buildFeatures(tracks, level).map((feature) => ({
+      ...built.map((feature) => ({
         name: `${feature.name} (${feature.from} ${feature.level})`,
         description: feature.text.join('\n\n'),
       })),

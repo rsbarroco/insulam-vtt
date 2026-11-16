@@ -15,6 +15,7 @@ import {
   DEFAULT_INITIATIVE_EXPRESSION,
 } from '../../utils/rules/initiative';
 import logger from '../../utils/logger';
+import { withSuperiorInspiration } from '../../rules/dnd/bard';
 import { readTokens, toJson } from '../../utils/prisma-json';
 import { withMapsLocked } from '../../utils/mapTokens';
 import { filterTokensByRole, getSpiritVisibilityBatch } from '../../utils/spirit-layer';
@@ -39,7 +40,7 @@ import {
   type CombatantEntry,
   type CombatantSource,
 } from '../initiativeState';
-import { bestEffort, campaignSockets, getSocketInstance, stillInCampaign } from '../utils';
+import { bestEffort, campaignSockets, emitCharacterUpdated, getSocketInstance, stillInCampaign } from '../utils';
 import { broadcastMapData, stateRequestAllowed, withinCeiling } from '../shared';
 import { runTurnEnd, runTurnStart } from '../turnHooks';
 import { TurnEndSchema, TurnUpdateSchema } from '../../validators/turn';
@@ -76,6 +77,18 @@ async function recipientsSentToken(
   });
 }
 
+/** Superior Inspiration: the D&D character's sheet with Bardic Inspiration back up to two uses, when it has the feature and fewer. */
+async function regainOnInitiative(campaignId: string, characterId: string): Promise<void> {
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+    const fresh = await tx.character.findFirst({ where: { id: characterId, campaignId } });
+    if (!fresh || fresh.gameSystem !== 'DND_5E') return null;
+    const regained = withSuperiorInspiration((fresh.data ?? {}) as Record<string, unknown>);
+    return regained ? tx.character.update({ where: { id: characterId }, data: { data: toJson(regained.sheet) } }) : null;
+  });
+  if (updated) await emitCharacterUpdated(campaignId, updated, { characterId, userId: updated.userId, tokensChanged: false });
+}
+
 /**
  * Send the order to the given sockets, or to every socket in the campaign,
  * each as they may see it. The combatants' tokens are read as they are now,
@@ -84,6 +97,7 @@ async function recipientsSentToken(
  * token's entry, one on a map the campaign is not showing, and hit points
  * behind a bar the DM keeps off, never reach them. The stored state is the DM's view and is not changed.
  */
+
 export async function sendInitiativeState(io: Server, campaignId: string, only?: Recipient[]): Promise<void> {
   const state = getCombatState(campaignId);
   const version = getVersion(campaignId);
@@ -538,6 +552,11 @@ export function registerInitiativeHandlers(io: Server, socket: AuthenticatedSock
         socket.emit('error', { message: 'Token not found' });
         return;
       }
+
+      // Superior Inspiration: a Bard of level 18 or more that rolls Initiative
+      // regains uses of Bardic Inspiration until it has two.
+      const bardId = token.characterId;
+      if (bardId && rollResult) await bestEffort('Superior Inspiration', () => regainOnInitiative(socket.campaignId!, bardId));
 
       // Update in-memory state — add to combatants if not already present.
       // Only for a DM, and only a token that was not in the order when the

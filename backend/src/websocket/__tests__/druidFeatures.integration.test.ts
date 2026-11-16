@@ -419,7 +419,7 @@ describe('Wild Resurgence and Wild Companion', () => {
     expect(after.featureUses).toEqual({ 'Wild Shape': 1, 'Wild Resurgence': 1 });
     expect((await feature('Wild Resurgence')).error).toBe('Hero: Wild Resurgence has given its spell slot until a Long Rest');
     expect((await feature('Wild Resurgence', { slotLevel: 3 })).error).toBe('Hero: Wild Resurgence gives a use of Wild Shape when none is left');
-    expect((await feature('Wild Shape', { form: 'Wolf', slotLevel: 1 })).error).toBe('Only Wild Resurgence and Wild Companion take a spell slot');
+    expect((await feature('Wild Shape', { form: 'Wolf', slotLevel: 1 })).error).toBe('Only Wild Resurgence, Wild Companion and Font of Inspiration take a spell slot');
   });
 
   it('casts Find Familiar with Wild Companion: a Magic action and a use of Wild Shape, or a spell slot', async () => {

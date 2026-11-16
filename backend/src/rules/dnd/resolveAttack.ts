@@ -74,7 +74,7 @@ export interface AttackRequest {
   forgoAdvantage?: string;
   /**
    * The d20 already rolled, with a die added once it missed: Bardic
-   * Inspiration. The roll is kept, the die added to its total, and the hit
+   * Inspiration (or taken off once it hit, as a negative number: Cutting Words). The roll is kept, the die added to its total, and the hit
    * or miss decided again; a 1 still misses.
    */
   inspired?: { roll: AttackOutcome['roll']; added: number; label: string };
@@ -213,7 +213,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
 
   const damage: AttackResult['damage'] = [];
   const bonuses: string[] = [];
-  if (request.inspired) bonuses.push(`${request.inspired.label} +${request.inspired.added}`);
+  if (request.inspired) bonuses.push(`${request.inspired.label} ${request.inspired.added < 0 ? '-' : '+'}${Math.abs(request.inspired.added)}`);
   if (turned) bonuses.push(`${turned.label}: the d20 becomes a 20`);
   let dealt = 0;
   let hp = target.hp;
@@ -362,7 +362,11 @@ export function withRerolledDamage(
 }
 
 /** A reaction the target takes once a hit is known: halving its damage, or taking a roll off it. */
-export type HitReaction = { kind: 'halve'; label: string } | { kind: 'reduce'; reduction: DamageReduction };
+export type HitReaction =
+  | { kind: 'halve'; label: string }
+  | { kind: 'reduce'; reduction: DamageReduction }
+  /** Resistance to one of the hit's damage types, gained as it lands: Superior Hunter's Defense. */
+  | { kind: 'resist'; type: DamageType; label: string };
 
 /**
  * A hit as the target's reaction leaves it: Uncanny Dodge halves the damage
@@ -372,7 +376,7 @@ export type HitReaction = { kind: 'halve'; label: string } | { kind: 'reduce'; r
  */
 export function withReaction(
   result: AttackResult,
-  target: Pick<Combatant, 'name' | 'hp'>,
+  target: Pick<Combatant, 'name' | 'hp'> & Pick<Partial<Combatant>, 'defences'>,
   actionName: string,
   reaction: HitReaction,
   roll: RollDie = rollDie
@@ -385,6 +389,16 @@ export function withReaction(
     dealt = Math.floor(dealt / 2);
     note = `halved by ${reaction.label}`;
     changed = { halvedBy: reaction.label };
+  } else if (reaction.kind === 'resist') {
+    // Each line meets the target's defences again, now with the Resistance.
+    const defences = { ...(target.defences ?? {}), resistances: [...(target.defences?.resistances ?? []), reaction.type] };
+    const resisted = result.damage.reduce(
+      (sum, entry) => sum + (entry.type === null ? entry.rolled.total : adjustedDamage({ amount: entry.rolled.total, type: entry.type }, defences)),
+      0
+    );
+    note = `Resistance to ${reaction.type} damage from ${reaction.label}`;
+    changed = { reducedBy: { label: reaction.label, amount: dealt - resisted } };
+    dealt = resisted;
   } else {
     const { reduction } = reaction;
     if (!result.damage.some((entry) => entry.type !== null && reduction.types.includes(entry.type))) return result;
@@ -410,6 +424,50 @@ export function withReaction(
     dropped,
     instantDeath,
     summary: summarize(target.name, actionName, result.outcome, result.damage, dealt, dropped, instantDeath, note),
+  };
+}
+
+/**
+ * A hit with a number taken off its damage roll before the target's defences
+ * meet it: Cutting Words. It comes off the damage as rolled, a line at a
+ * time, to no less than 0; the target's hit points are worked out again from
+ * what they were before the hit. A miss is left as it is.
+ */
+export function withDamageRollReduced(
+  result: AttackResult,
+  target: Pick<Combatant, 'name' | 'hp' | 'defences'>,
+  actionName: string,
+  cut: { label: string; amount: number }
+): AttackResult {
+  if (!result.outcome.hit || cut.amount <= 0) return result;
+  let left = cut.amount;
+  const damage = result.damage.map((line) => {
+    const taken = Math.min(left, Math.max(0, line.rolled.total));
+    left -= taken;
+    return taken > 0 ? { ...line, rolled: { ...line.rolled, total: line.rolled.total - taken } } : line;
+  });
+  const dealt = damage.reduce(
+    (sum, entry) => sum + (entry.type === null ? entry.rolled.total : adjustedDamage({ amount: entry.rolled.total, type: entry.type }, target.defences ?? {})),
+    0
+  );
+  let hp = target.hp;
+  let dropped = false;
+  let instantDeath = false;
+  if (target.hp && dealt > 0) {
+    const applied = applyDamage(target.hp, [{ amount: dealt, type: 'force' }]);
+    hp = applied.hp;
+    dropped = applied.dropped;
+    instantDeath = applied.instantDeath;
+  }
+  return {
+    ...result,
+    damage,
+    dealt,
+    hp,
+    dropped,
+    instantDeath,
+    bonuses: [...result.bonuses, `${cut.label} -${cut.amount} damage`],
+    summary: summarize(target.name, actionName, result.outcome, damage, dealt, dropped, instantDeath),
   };
 }
 

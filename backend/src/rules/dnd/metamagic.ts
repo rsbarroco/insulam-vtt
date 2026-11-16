@@ -8,6 +8,8 @@
 //   • Heightened Spell (2): one target has Disadvantage on its save.
 //   • Quickened Spell (2): a spell with a casting time of an action is cast
 //     as a Bonus Action.
+//   • Transmuted Spell (1): a spell's Acid, Cold, Fire, Lightning, Poison or
+//     Thunder damage becomes another of those types.
 //
 // Chosen once a roll is known, and asked of the Sorcerer's player then:
 //
@@ -18,20 +20,26 @@
 // Both can join another Metamagic option on the same casting.
 // ============================================
 
-import type { CombatAction } from './actions';
+import type { CombatAction, DamageComponent } from './actions';
+import type { DamageType } from './damage';
 import { hasFeature, readFeatures } from './featureEffects';
 import { abilityModifier } from './resources';
 
 type Sheet = Record<string, unknown>;
 
-export type CastingMetamagic = 'careful' | 'distant' | 'heightened' | 'quickened';
+export type CastingMetamagic = 'careful' | 'distant' | 'heightened' | 'quickened' | 'transmuted';
 
 export const METAMAGIC: Readonly<Record<CastingMetamagic, { name: string; cost: number }>> = {
   careful: { name: 'Careful Spell', cost: 1 },
   distant: { name: 'Distant Spell', cost: 1 },
   heightened: { name: 'Heightened Spell', cost: 2 },
   quickened: { name: 'Quickened Spell', cost: 2 },
+  transmuted: { name: 'Transmuted Spell', cost: 1 },
 };
+
+/** The damage types Transmuted Spell changes between. */
+export const TRANSMUTED_TYPES = ['acid', 'cold', 'fire', 'lightning', 'poison', 'thunder'] as const satisfies readonly DamageType[];
+export type TransmutedType = (typeof TRANSMUTED_TYPES)[number];
 
 /** The Metamagic options chosen once a roll is known, each for 1 Sorcery Point. */
 export type AfterRollMetamagic = 'empowered' | 'seeking';
@@ -69,4 +77,17 @@ export function distantAction(action: CombatAction): CombatAction | null {
       ? { ...action.attack, reachFeet: Math.max(30, action.attack.reachFeet) }
       : action.attack;
   return { ...action, ...(doubled !== undefined ? { rangeFeet: doubled } : {}), ...(attack ? { attack } : {}) };
+}
+
+/** A spell with Transmuted Spell: its damage of the listed types dealt as `to`. Null for a spell that deals none of them, or only `to`. */
+export function transmutedAction(action: CombatAction, to: TransmutedType): CombatAction | null {
+  const listed = (type: DamageType | null) => type !== null && type !== to && (TRANSMUTED_TYPES as readonly DamageType[]).includes(type);
+  const change = (damage: readonly DamageComponent[]) => damage.map((part) => (listed(part.type) ? { ...part, type: to } : part));
+  const dealt = [...(action.attack?.damage ?? []), ...(action.save?.damage ?? [])];
+  if (!dealt.some((part) => listed(part.type))) return null;
+  return {
+    ...action,
+    ...(action.attack ? { attack: { ...action.attack, damage: change(action.attack.damage) } } : {}),
+    ...(action.save ? { save: { ...action.save, damage: change(action.save.damage) } } : {}),
+  };
 }

@@ -12,6 +12,7 @@
 // ============================================
 
 import { rollDie, type RollDie } from './d20';
+import { withoutCreatedSlots } from './sorcery';
 
 type Sheet = Record<string, unknown>;
 
@@ -112,7 +113,9 @@ export interface LongRested {
 }
 
 /** A sheet after a Long Rest. */
-export function longRest(sheet: Sheet): LongRested {
+export function longRest(resting: Sheet): LongRested {
+  // A slot created with Font of Magic vanishes.
+  const sheet = withoutCreatedSlots(resting);
   const next: Sheet = { ...sheet };
   const regained: string[] = [];
   const hp = hitPoints(sheet);

@@ -209,11 +209,11 @@ export default function CampaignRoster() {
    * same as the creature library, because a menu click has no cursor position.
    */
   /** A rest for the character the menu is open on: the server rolls and restores, and says what came back. */
-  const handleRest = async (kind: 'short' | 'shortFinish' | 'long') => {
+  const handleRest = async (kind: 'short' | 'shortFinish' | 'long', restore?: true) => {
     if (!contextMenu || !socket) return;
     const { characterId } = contextMenu;
     handleCloseContextMenu();
-    const answer = await socket.rest(characterId, kind);
+    const answer = restore ? await socket.rest(characterId, kind, undefined, true) : await socket.rest(characterId, kind);
     showToast(answer.ok ? answer.summary : answer.error, answer.ok ? 'success' : 'error');
   };
   // Rests are resolved by the D&D rules, for D&D 5e characters.
@@ -457,6 +457,13 @@ export default function CampaignRoster() {
                 setRecoveryPicker({ x: contextMenu.x, y: contextMenu.y, characterId: contextMenu.characterId });
                 handleCloseContextMenu();
               },
+              visible:
+                menuCharacterIsDnd && canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
+            },
+            {
+              icon: Coffee,
+              label: 'Finish short rest, with Sorcerous Restoration',
+              onClick: () => void handleRest('shortFinish', true),
               visible:
                 menuCharacterIsDnd && canRollAsCharacter(user, { userId: contextMenu.characterUserId }, userMembership),
             },

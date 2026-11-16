@@ -148,6 +148,8 @@ export interface ArmorClassInput {
   dex: number;
   con?: number;
   wis?: number;
+  /** The Charisma modifier, for a Draconic Sorcerer's Draconic Resilience. */
+  cha?: number;
   /** The character's classes, by name. */
   classes: readonly string[];
   /** The names of its features and feats, however the sheet writes them. */
@@ -200,6 +202,12 @@ export function armorClassOf(input: ArmorClassInput): ArmorClassResult {
       options.push({
         armorClass: 10 + input.dex + (input.wis ?? 0),
         from: `Unarmored Defense 10 ${sign(input.dex)} Dexterity ${sign(input.wis ?? 0)} Wisdom`,
+      });
+    }
+    if (has(input.features, 'Draconic Resilience')) {
+      options.push({
+        armorClass: 10 + input.dex + (input.cha ?? 0),
+        from: `Draconic Resilience 10 ${sign(input.dex)} Dexterity ${sign(input.cha ?? 0)} Charisma`,
       });
     }
     const best = options.reduce((a, b) => (b.armorClass > a.armorClass ? b : a));
