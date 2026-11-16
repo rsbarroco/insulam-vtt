@@ -518,6 +518,34 @@ describe('a barbarian', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'End Rage' }));
     await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'End Rage'));
   });
+
+  it('extends a Rage with a Bonus Action, and regains its Rages with Persistent Rage', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [],
+      resources: [
+        { name: 'Rage', max: 5, used: 2 },
+        { name: 'Persistent Rage', max: 1, used: 0 },
+      ],
+    });
+    fight({ marks: [{ kind: 'rage', attackerId: 'hero', targetId: 'hero', turnEndsLeft: 1 }] });
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Extend Rage' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Extend Rage'));
+    fireEvent.click(screen.getByRole('button', { name: 'Regain Rages' }));
+    await waitFor(() => expect(h.useFeature).toHaveBeenCalledWith('hero', 'Persistent Rage'));
+  });
+
+  it('names a Retaliation offered against the creature that damaged it', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({ ok: true, actions: [], attacksPerAction: 1, features: [], resources: [] });
+    fight({ opportunities: [{ attackerId: 'hero', targetId: 'ogre', reason: 'Retaliation' }] });
+    render(<TurnBar />);
+    expect(await screen.findByRole('button', { name: 'Retaliation: Hero on Ogre' })).toBeInTheDocument();
+  });
 });
 
 describe('the features the server counts', () => {

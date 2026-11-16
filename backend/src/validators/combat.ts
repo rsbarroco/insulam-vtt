@@ -61,6 +61,8 @@ export const CombatSaveSchema = z
       .object({ option: z.enum(['careful', 'distant', 'heightened', 'quickened']), targetIds: z.array(tokenId).min(1).max(30).optional() })
       .strict()
       .optional(),
+    /** Land's Aid: the creature in the area that regains Hit Points. */
+    healId: tokenId.optional(),
   })
   .strict()
   .refine((save) => new Set(save.targetIds).size === save.targetIds.length, { message: 'A target is named twice' });
@@ -102,7 +104,7 @@ export const CombatRestSchema = z
   .object({
     characterId: z.string().uuid('A character is named by its id'),
     kind: z.enum(['short', 'shortFinish', 'long']),
-    /** With `shortFinish`: a Wizard's Arcane Recovery, the levels of the slots it recovers (one entry per slot). */
+    /** With `shortFinish`: a Wizard's Arcane Recovery or a Land Druid's Natural Recovery, the levels of the slots it recovers (one entry per slot). */
     recover: z.array(z.number().int().min(1).max(9)).min(1).max(20).optional(),
   })
   .strict()
@@ -119,6 +121,8 @@ export const CombatFeatureSchema = z
       'Action Surge',
       'Rage',
       'End Rage',
+      'Extend Rage',
+      'Persistent Rage',
       'Bardic Inspiration',
       'Channel Divinity',
       'Wild Shape',
@@ -133,6 +137,8 @@ export const CombatFeatureSchema = z
       'End Wild Shape',
       'Wholeness of Body',
       'Steady Aim',
+      'Wild Resurgence',
+      'Wild Companion',
     ]),
     /** Cunning Action: the action it takes as a Bonus Action (Hide is `combat.check` with `bonusAction`). */
     as: z.enum(['Dash', 'Disengage']).optional(),
@@ -142,6 +148,8 @@ export const CombatFeatureSchema = z
     amount: z.number().int().min(1).max(100).optional(),
     /** Lay on Hands: the creature touched, the user itself when left out. Bardic Inspiration: the creature inspired. */
     targetId: tokenId.optional(),
+    /** Wild Resurgence: the level of the spell slot expended for a use of Wild Shape (left out: a use for a level 1 slot). Wild Companion: the slot Find Familiar is cast with (left out: a use of Wild Shape). */
+    slotLevel: z.number().int().min(1).max(9).optional(),
     /** Wild Shape: the Beast whose form the Druid takes, by name. */
     form: z.string().trim().min(1).max(60).optional(),
     /** Lay on Hands: spend 5 points to end a condition, Poisoned or one of Restoring Touch's, or several at 5 points each; with `amount` it heals too. */

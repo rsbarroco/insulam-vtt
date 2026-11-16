@@ -1663,6 +1663,8 @@ export interface WeaponMark {
 export interface OpportunityOffer {
   attackerId: string;
   targetId: string;
+  /** Set when it is not an Opportunity Attack: a Berserker's Retaliation against the creature that damaged it. */
+  reason?: 'Retaliation';
 }
 
 /** `turn.update`: any of the turn fields, and optionally one combatant's reaction. */
@@ -1709,6 +1711,8 @@ export interface CombatActionSummary {
   heal?: { dice: string; rangeFeet: number };
   /** Preserve Life, made with `combat.heal` and `shares`: the Hit Points to divide and how far it reaches. */
   divide?: { pool: number; rangeFeet: number };
+  /** Land's Aid: the dice ("2d6") one creature in its area regains, named with `healId` in `combat.save`. */
+  areaHeal?: string;
 }
 export type CombatExtraAttack = 'cleave' | 'light' | 'flurry';
 /** A feature the turn can offer, with its rule. */
@@ -1799,9 +1803,19 @@ export interface CombatSaveEvent {
   point?: { x: number; y: number   /** A Sorcerer's Metamagic, with the creatures Careful or Heightened Spell picks. */
   metamagic?: { option: CastingMetamagic; targetIds?: string[] };
 };
+  /** Land's Aid: the creature in the area that regains Hit Points. */
+  healId?: string;
 }
 export type CombatSaveAck =
-  | { ok: true; summary: string; dc: number; ability: string; targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }> }
+  | {
+      ok: true;
+      summary: string;
+      dc: number;
+      ability: string;
+      targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }>;
+      /** Land's Aid: the creature that regained Hit Points, and how many. */
+      healed?: { tokenId: string; amount: number };
+    }
   | { ok: false; error: string };
 
 /** `combat.check`: an ability check a token makes: one of a skill, a bare ability, or the Hide action. */
@@ -1838,6 +1852,8 @@ export type CombatFeatureName =
   | 'Action Surge'
   | 'Rage'
   | 'End Rage'
+  | 'Extend Rage'
+  | 'Persistent Rage'
   | 'Bardic Inspiration'
   | 'Channel Divinity'
   | 'Wild Shape'
@@ -1851,7 +1867,9 @@ export type CombatFeatureName =
   | 'Step of the Wind'
   | 'End Wild Shape'
   | 'Wholeness of Body'
-  | 'Steady Aim';
+  | 'Steady Aim'
+  | 'Wild Resurgence'
+  | 'Wild Companion';
 /** `combat.prompt`: the server asks whether a creature takes a reaction, once a roll is known. */
 export interface CombatPrompt {
   promptId: string;

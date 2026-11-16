@@ -16,6 +16,7 @@ import type {
 } from '@/types';
 import type socketService from '@/services/socket';
 import Button from '@/components/ui/Button';
+import LandsAidPicker from './LandsAidPicker';
 
 interface AttackMenuProps {
   socket: typeof socketService;
@@ -401,6 +402,30 @@ export default function AttackMenu({
     );
   };
 
+  /** The creatures Land's Aid can choose among: those its Sphere catches, or the creature aimed at. */
+  const aidCreatures = (action: CombatActionSummary): Array<{ id: string; name: string }> => {
+    const caught = action.save?.area ? caughtBy(action.save.area) : [];
+    return caught.length > 0 || point ? caught : [{ id: target.id, name: target.name }];
+  };
+
+  /** Land's Aid: the saves of the creatures chosen, and the one that regains Hit Points. */
+  const makeAid = async (
+    action: CombatActionSummary,
+    targetIds: string[],
+    healId: string | undefined
+  ) => {
+    setBusy(true);
+    const answer = await socket.resolveSave({
+      sourceId: attacker.id,
+      targetIds,
+      action: action.index,
+      ...(point ? { point } : {}),
+      ...(healId ? { healId } : {}),
+    });
+    setBusy(false);
+    onResolved(answer.ok ? { ok: true, summary: answer.summary, landed: true } : answer);
+  };
+
   /** The Ready action: hold this attack for the trigger, to make it later with the reaction. */
   const readyAttack = async (action: CombatActionSummary) => {
     setBusy(true);
@@ -506,14 +531,26 @@ export default function AttackMenu({
                   onFocus={() => onAim(action.save?.area ?? null)}
                   onBlur={() => onAim(null)}
                 >
-                  <ActionRow
-                    action={action}
-                    busy={busy}
-                    catches={
-                      action.save?.area ? caughtBy(action.save.area).map((c) => c.name) : null
-                    }
-                    onMake={(slot) => void make(action, slot)}
-                  />
+                  {action.areaHeal && action.save ? (
+                    <LandsAidPicker
+                      name={action.name}
+                      detail={saveText(action.save)}
+                      dice={action.areaHeal}
+                      creatures={aidCreatures(action)}
+                      userId={attacker.id}
+                      busy={busy}
+                      onUse={(targetIds, healId) => void makeAid(action, targetIds, healId)}
+                    />
+                  ) : (
+                    <ActionRow
+                      action={action}
+                      busy={busy}
+                      catches={
+                        action.save?.area ? caughtBy(action.save.area).map((c) => c.name) : null
+                      }
+                      onMake={(slot) => void make(action, slot)}
+                    />
+                  )}
                   <ExtraAttacks
                     action={action}
                     busy={busy}
