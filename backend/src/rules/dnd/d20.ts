@@ -65,18 +65,21 @@ export interface AttackInput {
   mode?: RollMode;
   /** The hit is a Critical Hit whatever is rolled, as against a Paralyzed target within 5 feet. */
   criticalOnHit?: boolean;
+  /** The lowest d20 that makes a hit a Critical Hit: 20 when left out, 19 or 18 for a Champion. Only a 20 hits whatever the Armor Class. */
+  criticalFrom?: number;
 }
 
 /**
  * An attack roll. A 20 on the d20 hits whatever the Armor Class and is a
- * Critical Hit; a 1 misses whatever the bonus. A target with total cover
+ * Critical Hit; a 1 misses whatever the bonus. A wider critical range
+ * (`criticalFrom`) makes a hit a Critical Hit, but does not make a miss hit. A target with total cover
  * cannot be attacked, which is the caller's to refuse before rolling.
  */
 export function attackRoll(input: AttackInput, roll: RollDie = rollDie): AttackOutcome {
   const rolled = rollD20(input.bonus, input.mode ?? 'normal', roll);
   const armorClass = input.armorClass + coverBonus(input.cover ?? 'none');
   const hit = rolled.natural === 20 || (rolled.natural !== 1 && rolled.total >= armorClass);
-  return { roll: rolled, armorClass, hit, critical: hit && (rolled.natural === 20 || input.criticalOnHit === true) };
+  return { roll: rolled, armorClass, hit, critical: hit && (rolled.natural >= (input.criticalFrom ?? 20) || input.criticalOnHit === true) };
 }
 
 export interface SaveOutcome {

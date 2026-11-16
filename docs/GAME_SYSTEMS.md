@@ -251,7 +251,7 @@ Two consequences worth understanding before changing this code:
   to *display* what will happen.
 
 D&D 5e's `initiativeBonus` is a single manual field covering everything that is
-not Dexterity — the Alert feat, Jack of All Trades, Remarkable Athlete,
+not Dexterity — the Alert feat, Jack of All Trades,
 subclasses that swap the ability. Those are too open-ended to enumerate, and
 inventing a toggle per feature would be the same mistake as inventing CoC's dice.
 

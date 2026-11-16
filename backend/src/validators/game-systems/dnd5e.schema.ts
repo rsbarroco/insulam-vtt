@@ -381,7 +381,7 @@ export const dnd5eCharacterDataSchema = z.object({
   armorClass: z.number().int().min(1).optional(),
   initiative: z.number().int().optional(),
   // Bonuses to initiative that are not Dexterity: the Alert feat's flat +5,
-  // Jack of All Trades / Remarkable Athlete, subclasses that add another
+  // Jack of All Trades, subclasses that add another
   // ability. Too varied to derive, so the sheet keeps one manual number and
   // adds it to the Dexterity modifier. `initiative` above is the resulting
   // total, kept for exports and anything else reading the blob.

@@ -84,6 +84,12 @@ describe('D&D 5e initiative', () => {
     expect(resolveCharacterInitiative('DND_5E', dnd5e(14, 5))).toMatchObject({ expression: '1d20+7' });
   });
 
+  it('rolls with Advantage for a Champion with Remarkable Athlete', () => {
+    const champion = { ...dnd5e(14), featuresAndTraits: [{ name: 'Remarkable Athlete (Fighter 3)', description: '' }] };
+    expect(resolveCharacterInitiative('DND_5E', champion)).toEqual({ kind: 'roll', expression: '2d20kh1+2', label: '2d20kh1+2' });
+    expect(resolveCharacterInitiative('DND_5E', { ...dnd5e(14), featuresAndTraits: ['Second Wind'] })).toMatchObject({ expression: '1d20+2' });
+  });
+
   it('formats a negative total correctly', () => {
     expect(resolveCharacterInitiative('DND_5E', dnd5e(8))).toMatchObject({ expression: '1d20-1' });
   });

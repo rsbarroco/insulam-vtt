@@ -89,6 +89,7 @@ describe('weapon marks', () => {
     expect(markLabels(marks, 'wolf')).toEqual(['Vexed', 'Readied against']);
     expect(markLabels(marks, 'hero')).toEqual([]);
     expect(markLabels([{ kind: 'rage', attackerId: 'hero', targetId: 'hero', turnEndsLeft: 2 }], 'hero')).toEqual(['Raging']);
+    expect(markLabels([{ kind: 'studied', attackerId: 'hero', targetId: 'ogre', turnEndsLeft: 2 }], 'ogre')).toEqual(['Studied']);
     expect(markLabels([{ kind: 'concentration', attackerId: 'hero', targetId: 'hero', action: 'Bless', turnEndsLeft: 1 }], 'hero')).toEqual(['Concentrating (Bless)']);
   });
 });

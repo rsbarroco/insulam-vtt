@@ -93,6 +93,8 @@ export interface CheckRequest {
   ability?: Ability;
   /** A Halfling's Luck: a 1 on the d20 is rolled again. */
   lucky?: boolean;
+  /** Reasons the caller found, written as the engine writes its own: "Advantage: Remarkable Athlete". */
+  extraReasons?: readonly string[];
 }
 
 export interface CheckResult {
@@ -110,11 +112,12 @@ export interface CheckResult {
 export function resolveCheck(request: CheckRequest, roll: RollDie = rollDie): CheckResult {
   const modifiers = checkModifiers(request.conditions, request.ability);
   const reasons = [...modifiers.reasons];
+  reasons.push(...(request.extraReasons ?? []));
   if (request.mode === 'advantage') reasons.push('Advantage: granted by the table');
   if (request.mode === 'disadvantage') reasons.push('Disadvantage: imposed by the table');
   const mode = rollMode(
-    request.mode === 'advantage' || modifiers.advantage,
-    modifiers.disadvantage || request.mode === 'disadvantage'
+    reasons.some((reason) => reason.startsWith('Advantage')),
+    reasons.some((reason) => reason.startsWith('Disadvantage'))
   );
   const rolled = rollD20(request.bonus + modifiers.penalty, mode, request.lucky ? lucky(roll) : roll);
   const success = request.dc === undefined ? null : rolled.total >= request.dc;

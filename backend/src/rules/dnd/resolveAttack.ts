@@ -78,6 +78,8 @@ export interface AttackRequest {
    * or miss decided again; a 1 still misses.
    */
   inspired?: { roll: AttackOutcome['roll']; added: number; label: string };
+  /** The lowest d20 that makes a hit a Critical Hit: a Champion's Improved (19) or Superior (18) Critical. 20 when left out. */
+  criticalFrom?: number;
 }
 
 export interface AttackRefusal {
@@ -172,7 +174,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   );
 
   const outcome = request.inspired
-    ? inspiredOutcome(request.inspired, target.armorClass, cover, modifiers.criticalOnHit)
+    ? inspiredOutcome(request.inspired, target.armorClass, cover, modifiers.criticalOnHit, request.criticalFrom)
     : attackRoll(
     {
       bonus: profile.bonus + modifiers.penalty,
@@ -180,6 +182,7 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
       cover,
       mode,
       criticalOnHit: modifiers.criticalOnHit,
+      criticalFrom: request.criticalFrom,
     },
     attacker.lucky ? lucky(roll) : roll
   );
@@ -408,10 +411,11 @@ function inspiredOutcome(
   inspired: NonNullable<AttackRequest['inspired']>,
   armorClass: number,
   cover: Cover,
-  criticalOnHit: boolean | undefined
+  criticalOnHit: boolean | undefined,
+  criticalFrom = 20
 ): AttackOutcome {
   const rolled = { ...inspired.roll, total: inspired.roll.total + inspired.added };
   const needed = armorClass + coverBonus(cover);
   const hit = rolled.natural === 20 || (rolled.natural !== 1 && rolled.total >= needed);
-  return { roll: rolled, armorClass: needed, hit, critical: hit && (rolled.natural === 20 || criticalOnHit === true) };
+  return { roll: rolled, armorClass: needed, hit, critical: hit && (rolled.natural >= criticalFrom || criticalOnHit === true) };
 }

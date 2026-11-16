@@ -19,7 +19,10 @@ export interface DeathSaves {
 export type DeathSaveResult = 'continues' | 'stable' | 'dead' | 'revived';
 
 export interface DeathSaveOutcome {
+  /** The d20 that counts. */
   natural: number;
+  /** Both d20s, when the save was rolled with Advantage. */
+  dice?: number[];
   saves: DeathSaves;
   result: DeathSaveResult;
 }
@@ -32,16 +35,25 @@ const capped = (saves: DeathSaves): DeathSaves => ({
   failures: Math.min(3, saves.failures),
 });
 
+/** How a feature changes the roll: a Champion's Survivor rolls with Advantage, and an 18 or 19 counts as a 20. */
+export interface DeathSaveOptions {
+  advantage?: boolean;
+  /** The lowest d20 that has the benefit of a 20; 20 when left out. */
+  reviveFrom?: number;
+}
+
 /** Roll one death saving throw. A 20 clears the saves and revives the character with 1 Hit Point. */
-export function deathSavingThrow(saves: DeathSaves, roll: RollDie = rollDie): DeathSaveOutcome {
-  const natural = roll(20);
-  if (natural === 20) return { natural, saves: { successes: 0, failures: 0 }, result: 'revived' };
+export function deathSavingThrow(saves: DeathSaves, roll: RollDie = rollDie, options: DeathSaveOptions = {}): DeathSaveOutcome {
+  const dice = options.advantage ? [roll(20), roll(20)] : [roll(20)];
+  const natural = Math.max(...dice);
+  const rolled = options.advantage ? { natural, dice } : { natural };
+  if (natural >= (options.reviveFrom ?? 20)) return { ...rolled, saves: { successes: 0, failures: 0 }, result: 'revived' };
   const next = capped(
     natural >= 10
       ? { ...saves, successes: saves.successes + 1 }
       : { ...saves, failures: saves.failures + (natural === 1 ? 2 : 1) }
   );
-  return { natural, saves: next, result: settle(next) };
+  return { ...rolled, saves: next, result: settle(next) };
 }
 
 /** Damage taken at 0 Hit Points: one failure, or two from a Critical Hit. */
