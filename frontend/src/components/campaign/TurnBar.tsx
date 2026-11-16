@@ -39,6 +39,7 @@ import WildShapeControl from './WildShapeControl';
 import WildShapeExtras from './WildShapeExtras';
 import BardicInspiration from './BardicInspiration';
 import SorceryControl from './SorceryControl';
+import HeroicInspiration from './HeroicInspiration';
 import TurnFeatures from './TurnFeatures';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
 
@@ -88,6 +89,7 @@ export default function TurnBar() {
     cures: LayOnHandsCure[];
     fontOfMagic: { create: Array<{ level: number; cost: number }>; convert: number[] } | null;
     fiendishVigor: boolean;
+    heroicInspiration: boolean | null;
   } | null>(null);
   // Asked again after a feature is used, so its uses left are the sheet's.
   const [listed, setListed] = useState(0);
@@ -127,6 +129,7 @@ export default function TurnBar() {
               })(),
               cures: answer.cures ?? ['Poisoned'],
               fontOfMagic: answer.fontOfMagic ?? null,
+              heroicInspiration: answer.heroicInspiration ?? null,
             }
           : null
       );
@@ -135,6 +138,19 @@ export default function TurnBar() {
       current = false;
     };
   }, [socket, watching, listed]);
+
+  // The acting character's sheet changed (Heroic Inspiration gained or expended, a use spent): ask again.
+  const watchedCharacterId = tokens.find((token) => token.id === watching)?.characterId ?? null;
+  useEffect(() => {
+    if (!watchedCharacterId) return;
+    const relist = (data: { characterId?: string }) => {
+      if (data?.characterId === watchedCharacterId) setListed((count) => count + 1);
+    };
+    socket.on('character.updated', relist);
+    return () => {
+      socket.off('character.updated', relist);
+    };
+  }, [socket, watchedCharacterId]);
 
   if (!combat.active || !combat.turn || !combat.currentTokenId) return null;
   const turn = combat.turn;
@@ -592,6 +608,16 @@ export default function TurnBar() {
             return answer;
           }}
           onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
+        />
+      )}
+
+      {canAct && known && known.heroicInspiration !== null && (
+        <HeroicInspiration
+          name={actingName}
+          held={known.heroicInspiration}
+          isDM={isDM}
+          give={() => void applyOnServer('Heroic Inspiration')}
+          spend={() => void applyOnServer('Spend Heroic Inspiration')}
         />
       )}
 

@@ -100,3 +100,19 @@ export function withSlowFall(result: FallResult, faller: Faller, amount: number)
     summary: `${faller.name} falls ${result.feet} ft: ${landing}`,
   };
 }
+
+/**
+ * A fall as the Feather Fall spell leaves it: the creature takes no damage
+ * from the fall and lands on its feet. `caster` is who cast it.
+ */
+export function withFeatherFall(result: FallResult, faller: Faller, caster: string): FallResult {
+  return {
+    ...result,
+    dealt: 0,
+    hp: faller.hp,
+    prone: false,
+    dropped: false,
+    instantDeath: false,
+    summary: `${faller.name} falls ${result.feet} ft: no damage (Feather Fall${caster === faller.name ? '' : `, cast by ${caster}`})`,
+  };
+}

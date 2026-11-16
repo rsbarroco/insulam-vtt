@@ -39,6 +39,8 @@ const socket = {
   concentrate: (...args: unknown[]) => h.concentrate(...args),
   undoCombat: (...args: unknown[]) => h.undoCombat(...args),
   listCombatActions: (...args: unknown[]) => h.listCombatActions(...args),
+  on: () => undefined,
+  off: () => undefined,
 };
 vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({ socket }) }));
 vi.mock('@/contexts/ToastContext', () => ({ useToast: () => ({ showToast: h.showToast }) }));

@@ -1646,7 +1646,7 @@ export interface CombatState {
 
 /** A lasting weapon mastery on a creature, as the server keeps it. */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle' | 'innate';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle' | 'innate' | 'shield';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;
@@ -1739,6 +1739,8 @@ export type CombatActionsAck =
       passivePerception?: number | null;
       /** Class features with a number of uses: Second Wind, Action Surge, Rage. */
       resources?: CombatResource[];
+      /** Whether its character holds Heroic Inspiration; null for a token with no character sheet. */
+      heroicInspiration?: boolean | null;
       /** The spell it concentrates on, and the concentration spells its sheet has ready. */
       concentration?: string | null;
       concentrationSpells?: string[];
@@ -1810,7 +1812,7 @@ export interface CombatAttackEvent {
 /** The damage types a Warlock's pact weapon can deal by choice. */
 export type PactDamageType = 'necrotic' | 'psychic' | 'radiant';
 export type CombatAttackAck =
-  | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[] }
+  | { ok: true; summary: string; hit: boolean; critical: boolean; dealt: number; distanceFeet: number; cover: string; reasons: string[]; /** A Counterspell made the spell dissipate. */ countered?: boolean }
   | { ok: false; error: string };
 
 /** `combat.save`: an action that calls for a saving throw, against one or more tokens. */
@@ -1842,6 +1844,8 @@ export type CombatSaveAck =
       targets: Array<{ tokenId: string; saved: boolean; total: number | null; dealt: number }>;
       /** Land's Aid: the creature that regained Hit Points, and how many. */
       healed?: { tokenId: string; amount: number };
+      /** A Counterspell made the spell dissipate: nobody saved. */
+      countered?: boolean;
     }
   | { ok: false; error: string };
 
@@ -1902,7 +1906,9 @@ export type CombatFeatureName =
   | 'Font of Magic'
   | 'Innate Sorcery'
   | 'Font of Inspiration'
-  | 'Fiendish Vigor';
+  | 'Fiendish Vigor'
+  | 'Heroic Inspiration'
+  | 'Spend Heroic Inspiration';
 /** `combat.prompt`: the server asks whether a creature takes a reaction, once a roll is known. */
 export interface CombatPrompt {
   promptId: string;
@@ -1935,6 +1941,8 @@ export type CombatHealAck =
       healed: number;
       /** Preserve Life: what each creature chosen regained. */
       restored?: Array<{ tokenId: string; healed: number }>;
+      /** A Counterspell made the spell dissipate. */
+      countered?: boolean;
     }
   | { ok: false; error: string };
 
