@@ -1,5 +1,6 @@
 // ============================================
 // ArcaneRecoveryPicker — a Wizard chooses the slots Arcane Recovery brings back
+// (and a Circle of the Land Druid those of Natural Recovery, by the same rule)
 //
 // Opened from the roster as a Short Rest ends: how many slots of each level
 // (1st to 5th) to recover. The server holds the rules — a combined level of no
@@ -38,8 +39,9 @@ export default function ArcaneRecoveryPicker({
       style={{ left: anchorX, top: anchorY }}
     >
       <p className="text-sm text-ink">
-        Arcane Recovery: the expended slots to recover as the Short Rest ends, of a combined level
-        up to half your Wizard level (rounded up), none of level 6 or higher.
+        Arcane Recovery, or a Land Druid&apos;s Natural Recovery: the expended slots to recover as
+        the Short Rest ends, of a combined level up to half your Wizard or Druid level (rounded up),
+        none of level 6 or higher.
       </p>
       {LEVELS.map((level) => (
         <label key={level} className="flex items-center justify-between gap-2 text-sm text-ink">

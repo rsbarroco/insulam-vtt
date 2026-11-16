@@ -36,6 +36,7 @@ import LayOnHands from './LayOnHands';
 import PreserveLife from './PreserveLife';
 import ConcentrationControl from './ConcentrationControl';
 import WildShapeControl from './WildShapeControl';
+import WildShapeExtras from './WildShapeExtras';
 import BardicInspiration from './BardicInspiration';
 import TurnFeatures from './TurnFeatures';
 import { isProne, movingSpeed, standUpCost } from './map/iso/tacticalStats';
@@ -189,6 +190,7 @@ export default function TurnBar() {
     return found ? [{ ...found, name }] : [];
   });
   const rage = resource('Rage');
+  const persistentRage = resource('Persistent Rage');
   const layOnHands = resource('Lay on Hands');
   const inspiration = resource('Bardic Inspiration');
   const preserveLife = canAct ? (known?.preserveLife ?? null) : null;
@@ -207,7 +209,7 @@ export default function TurnBar() {
   const offers = combat.opportunities.flatMap((offer) => {
     const attacker = tokens.find((token) => token.id === offer.attackerId);
     const target = tokens.find((token) => token.id === offer.targetId);
-    return attacker && target && mine(attacker) ? [{ attacker, target }] : [];
+    return attacker && target && mine(attacker) ? [{ attacker, target, reason: offer.reason }] : [];
   });
   // The attacks this viewer's creatures have readied: made with the reaction when the trigger comes.
   const readied = combat.marks.flatMap((mark) => {
@@ -360,15 +362,16 @@ export default function TurnBar() {
         </Button>
       ))}
 
-      {offers.map(({ attacker, target }) => {
+      {offers.map(({ attacker, target, reason }) => {
         const choosing = weapons?.attackerId === attacker.id && weapons.targetId === target.id ? weapons.actions : null;
         const names = `${tokenDisplayName(attacker)} on ${tokenDisplayName(target)}`;
+        const offered = reason ?? 'Opportunity Attack';
         return (
           <span
             key={`${attacker.id}:${target.id}`}
             className="flex items-center gap-1"
             role="group"
-            aria-label={`Opportunity Attack: ${names}`}
+            aria-label={`${offered}: ${names}`}
           >
             {choosing ? (
               <>
@@ -389,10 +392,14 @@ export default function TurnBar() {
                 variant="secondary"
                 size="sm"
                 icon={Swords}
-                title="It left the attacker's reach: one melee attack, with the attacker's reaction"
+                title={
+                  reason === 'Retaliation'
+                    ? "It damaged the attacker from within 5 feet: one melee attack, with the attacker's reaction"
+                    : "It left the attacker's reach: one melee attack, with the attacker's reaction"
+                }
                 onClick={() => void takeOpportunity(attacker.id, target.id)}
               >
-                Opportunity Attack: {names}
+                {offered}: {names}
               </Button>
             )}
           </span>
@@ -434,6 +441,24 @@ export default function TurnBar() {
         />
       )}
 
+      {canAct && resource('Wild Shape') && (
+        <WildShapeExtras
+          resurgence={resource('Wild Resurgence')}
+          spend={async (feature, slotLevel) => {
+            const answer = await socket.useFeature(
+              actingId,
+              feature,
+              undefined,
+              undefined,
+              slotLevel === undefined ? undefined : { slotLevel }
+            );
+            if (answer.ok) setListed((count) => count + 1);
+            return answer;
+          }}
+          onResult={(message, ok) => showToast(message, ok ? 'success' : 'error')}
+        />
+      )}
+
       {canAct && (
         <ConcentrationControl
           key={actingId}
@@ -456,9 +481,20 @@ export default function TurnBar() {
 
       {rage &&
         (raging ? (
-          <Button variant="secondary" size="sm" onClick={() => void applyOnServer('End Rage')}>
-            End Rage
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={turn.bonusAction}
+              title="A Bonus Action: the Rage lasts to the end of your next turn. An attack roll against an enemy, or a save you force on one, extends it too."
+              onClick={() => void applyOnServer('Extend Rage')}
+            >
+              Extend Rage
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => void applyOnServer('End Rage')}>
+              End Rage
+            </Button>
+          </>
         ) : (
           <Button
             variant="secondary"
@@ -470,6 +506,17 @@ export default function TurnBar() {
             Rage ({rage.max - rage.used}/{rage.max})
           </Button>
         ))}
+
+      {rage && persistentRage && persistentRage.used < persistentRage.max && rage.used > 0 && (
+        <Button
+          variant="secondary"
+          size="sm"
+          title="Persistent Rage: when you roll Initiative, regain every use of Rage. Once until a Long Rest."
+          onClick={() => void applyOnServer('Persistent Rage')}
+        >
+          Regain Rages
+        </Button>
+      )}
 
       {layOnHands && (
         <LayOnHands

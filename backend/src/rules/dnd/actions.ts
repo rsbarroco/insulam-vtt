@@ -80,10 +80,14 @@ export interface CombatAction {
   heal?: { roll: { count: number; sides: number }; bonus: number };
   /** Hit Points it divides among the creatures chosen, with no roll: Preserve Life. */
   divide?: { pool: number };
-  /** A class feature with uses it spends, when one is resolved: Divine Spark spends Channel Divinity. */
-  channel?: 'Channel Divinity';
+  /** A class feature with uses it spends, when one is resolved: Divine Spark spends Channel Divinity, Land's Aid a use of Wild Shape. */
+  channel?: 'Channel Divinity' | 'Wild Shape';
+  /** Land's Aid: with its saves, one creature in the area that its user names regains these dice of Hit Points. */
+  areaHeal?: { count: number; sides: number };
   /** How many attack rolls one casting makes (Eldritch Blast's beams), when more than one. */
   beams?: number;
+  /** A Berserker's Intimidating Presence, and the use it spends: its own, or one of Rage. */
+  presence?: 'Intimidating Presence' | 'Rage';
   /** The only creature type it can target, as stat blocks write it: Turn Undead affects Undead. */
   onlyCreatureType?: 'undead';
   /** The most creatures it can choose, when it chooses them: Abjure Foes takes as many as the Charisma modifier. */

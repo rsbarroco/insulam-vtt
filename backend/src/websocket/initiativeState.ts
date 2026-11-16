@@ -125,13 +125,15 @@ export interface WeaponMark {
 
 /** The combat state as a member is sent it: an offered attack without where its target stood. */
 export type SentCombatState = Omit<CombatState, 'opportunities'> & {
-  opportunities: Array<Pick<OpportunityOffer, 'attackerId' | 'targetId'>>;
+  opportunities: Array<Pick<OpportunityOffer, 'attackerId' | 'targetId' | 'reason'>>;
 };
 
 export interface OpportunityOffer {
   attackerId: string;
   targetId: string;
   from: { x: number; y: number };
+  /** Set when it is not an Opportunity Attack: a Berserker's Retaliation against the creature that damaged it, whoever's turn it is. */
+  reason?: 'Retaliation';
 }
 
 /** Whether a fight is under way with a combatant acting. */
@@ -291,7 +293,7 @@ export function setState(campaignId: string, input: CombatStateInput): void {
       input.active && input.currentTokenId
         ? (input.opportunities ?? []).filter(
             (offer) =>
-              offer.targetId === input.currentTokenId &&
+              (offer.targetId === input.currentTokenId || offer.reason === 'Retaliation') &&
               listed.has(offer.attackerId) &&
               !(input.reactionsSpent ?? []).includes(offer.attackerId)
           )
@@ -484,7 +486,7 @@ export function projectCombatState(
     // Where the target stood is the server's to keep.
     opportunities: state.opportunities
       .filter((offer) => listed.has(offer.attackerId) && listed.has(offer.targetId))
-      .map(({ attackerId, targetId }) => ({ attackerId, targetId })),
+      .map(({ attackerId, targetId, reason }) => ({ attackerId, targetId, ...(reason ? { reason } : {}) })),
     marks: state.marks.filter((mark) => listed.has(mark.attackerId) && listed.has(mark.targetId)),
   };
 }

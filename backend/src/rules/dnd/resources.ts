@@ -39,6 +39,13 @@
 //     feature; all back on a Long Rest.
 //   • Stroke of Luck (Rogue 20): once, a failed D20 Test's d20 becomes a 20;
 //     back on a Short or Long Rest.
+//   • Intimidating Presence (Berserker 14) and Persistent Rage's regained
+//     Rages (Barbarian 15): once each, for a sheet that lists the feature;
+//     back on a Long Rest.
+//   • Wild Resurgence (Druid 5): once, a use of Wild Shape turned into a
+//     level 1 spell slot; back on a Long Rest.
+//   • Natural Recovery (Circle of the Land 6, when the sheet lists it): once,
+//     slots recovered as a Short Rest ends; back on a Long Rest.
 //
 // A sheet keeps what it has spent in `featureUses`: { "Second Wind": 1 }.
 // A gestalt character is both of its classes at its full level.
@@ -66,7 +73,11 @@ export type ResourceName =
   | 'Indomitable'
   | 'Arcane Recovery'
   | 'Wholeness of Body'
-  | 'Stroke of Luck';
+  | 'Stroke of Luck'
+  | 'Intimidating Presence'
+  | 'Persistent Rage'
+  | 'Wild Resurgence'
+  | 'Natural Recovery';
 
 /** The features spent a point at a time, several at once: the rest are spent one use at a time. */
 export const POINT_RESOURCES: readonly ResourceName[] = ['Focus Points', 'Sorcery Points', 'Lay on Hands'];
@@ -161,6 +172,19 @@ export function resourcesOf(sheet: Sheet): Resource[] {
   }
   // Once, until a Short or Long Rest: a failed D20 Test's roll becomes a 20.
   if (has(classes, 'Rogue')) add('Stroke of Luck', level >= 20 ? 1 : 0, 'all');
+  // A Barbarian's once-until-a-Long-Rest features, read off the sheet's features.
+  if (has(classes, 'Barbarian')) {
+    const features = readFeatures(sheet);
+    if (hasFeature(features, 'Intimidating Presence')) add('Intimidating Presence', 1, 'none');
+    if (hasFeature(features, 'Persistent Rage')) add('Persistent Rage', 1, 'none');
+  }
+  if (has(classes, 'Druid')) {
+    // Once, until a Long Rest: a use of Wild Shape turned into a level 1 spell slot.
+    add('Wild Resurgence', level >= 5 ? 1 : 0, 'none');
+    // A Circle of the Land feature, so only for a sheet that lists it.
+    const land = readFeatures(sheet).some((feature) => /\bnatural recovery\b/i.test(feature.name));
+    add('Natural Recovery', level >= 6 && land ? 1 : 0, 'none');
+  }
   return out;
 }
 

@@ -69,11 +69,25 @@ import {
 import { channelDivinityActions, TURN_UNDEAD_TURNS } from '../../rules/dnd/channelDivinity';
 import { blessedHealerHealing, discipleOfLifeBonus, divineStrikeDamage, divineStrikeDice, DIVINE_STRIKE_OPTIONS, hasSupremeHealing, preserveLife, rollHealing, withPotentSpellcasting } from '../../rules/dnd/cleric';
 import { wildShapeForms, wildShapeOf, wildShapeTemporaryHitPoints } from '../../rules/dnd/wildShape';
-import { arcaneRecovery } from '../../rules/dnd/arcaneRecovery';
+import {
+  naturesWard,
+  PRIMAL_STRIKE_OPTIONS,
+  primalStrikeChoice,
+  primalStrikeDice,
+  shortRestRecovery,
+  wildCompanion,
+  wildResurgence,
+  withDruidFeatures,
+} from '../../rules/dnd/druid';
 import { carefulCount, distantAction, empoweredCount, knowsMetamagic, METAMAGIC, type CastingMetamagic } from '../../rules/dnd/metamagic';
 import { repels, withInvocations } from '../../rules/dnd/invocations';
 import { chooseCunningStrike, cunningEffectsOf, CUNNING_LABELS, cunningStrikeDC, hasPoisonersKit, type CunningEffect } from '../../rules/dnd/cunningStrike';
 import { BRUTAL_LABELS, brutalStrikeDamage, FORCEFUL_FEET, HAMSTRING_FEET } from '../../rules/dnd/brutalStrike';
+import {
+  frenzyDamage, hasMindlessRage, hasPersistentRage, hasRetaliation, indomitableMight, intimidatingPresenceActions, mindlessRageBlocks,
+  MINDLESS_RAGE_CONDITIONS, PERSISTENT_RAGE_TURNS, primalKnowledgeApplies, relentlessRageApplies, relentlessRageDC, relentlessRageHitPoints,
+  withRagesRegained, withRelentlessRageUsed,
+} from '../../rules/dnd/barbarian';
 import { endure, hasLuck, lucky, speciesResistances } from '../../rules/dnd/species';
 import { archeryBonus, greatWeaponFighting, savageAttackerApplies } from '../../rules/dnd/feats';
 import { onTurnEnd, onTurnStart } from '../turnHooks';
@@ -109,6 +123,8 @@ interface ActionSummary {
   heal?: { dice: string; rangeFeet: number };
   /** Preserve Life, made with `combat.heal` and `shares`: the Hit Points to divide and how far it reaches. */
   divide?: { pool: number; rangeFeet: number };
+  /** Land's Aid: the dice one creature in its area regains, named with `healId` in `combat.save`. */
+  areaHeal?: string;
 }
 
 const standing = (token: Token): Standing => ({
@@ -164,6 +180,7 @@ function summarizeAction(action: CombatAction, index: number, slots: Record<numb
     ...(extrasOf(action).length > 0 ? { extras: extrasOf(action) } : {}),
     ...(action.beams && action.beams > 1 ? { beams: action.beams } : {}),
     ...(action.divide ? { divide: { pool: action.divide.pool, rangeFeet: action.rangeFeet ?? 30 } } : {}),
+    ...(action.areaHeal ? { areaHeal: `${action.areaHeal.count}d${action.areaHeal.sides}` } : {}),
   };
 }
 
@@ -182,13 +199,15 @@ async function sheetOf(token: Token, campaignId: string): Promise<Record<string,
 function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatAction[] {
   // In a Wild Shape form the Beast's actions are the creature's, and it casts no spells.
   const form = wildShapeOf(token);
-  const own = form
+  const base = form
     ? actionsFromStatBlock(form.statBlock as unknown as Parameters<typeof actionsFromStatBlock>[0])
     : sheet
-    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...withPotentSpellcasting(sheet, withInvocations(sheet, spellActionsFromSheet(sheet as SheetSpellcasting))), ...channelDivinityActions(sheet), ...paladinChannelActions(sheet)]
+    ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...withPotentSpellcasting(sheet, withInvocations(sheet, spellActionsFromSheet(sheet as SheetSpellcasting))), ...channelDivinityActions(sheet), ...paladinChannelActions(sheet), ...intimidatingPresenceActions(sheet)]
     : token.statBlock
       ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0])
       : [];
+  // A Druid's features: Potent Spellcasting on its cantrips, Land's Aid, and its spells in a form with Beast Spells.
+  const own = sheet ? withDruidFeatures(sheet, base, form !== null) : base;
   // Every creature has an Unarmed Strike. They come last, so its own actions keep their places.
   const strength = abilityModifierOf(token, sheet, 'str');
   if (strength === null) return own;
@@ -230,7 +249,8 @@ function combatant(token: Token, sheet: Record<string, unknown> | null, dodging:
   const exhaustion = sheet && typeof sheet.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined;
   const features = sheet ? readFeatures(sheet) : [];
   // A character's species gives its resistances; a stat block writes its own.
-  const resisted = sheet ? speciesResistances(sheet) : [];
+  const ward = naturesWard(sheet)?.resistance;
+  const resisted = sheet ? [...speciesResistances(sheet), ...(ward ? [ward] : [])] : [];
   const own = sheet
     ? resisted.length > 0
       ? { resistances: resisted }
@@ -283,6 +303,7 @@ const hiddenFromPlayers = (token: Token) => token.visible === false || token.obs
  * Take damage from each target's hit points, on its sheet or on its token, and
  * tell the table. A character whose species has Relentless Endurance left drops
  * to 1 instead of 0 when not killed outright; the lines that say so come back.
+ * A raging Barbarian with Relentless Rage is asked first, and may save to stay up.
  */
 async function applyDealt(
   io: Server,
@@ -298,6 +319,8 @@ async function applyDealt(
     if (hit.dealt <= 0) continue;
     const characterId = hit.token.characterId;
     if (characterId && hit.sheet) {
+      // Relentless Rage: a raging Barbarian this damage would drop to 0 is asked, and makes its Constitution save.
+      const relentlessRage = await relentlessRageSave(io, campaignId, mapId, hit.token, hit.sheet, hit.dealt);
       const applied = await prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
         const fresh = await tx.character.findUnique({ where: { id: characterId }, select: { data: true } });
@@ -317,12 +340,23 @@ async function applyDealt(
           const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(kept) } });
           return { hp: { ...change.hp, current: endured }, sheetChanged: updated, endured: true };
         }
+        // Relentless Rage: the save counts as a use; a success leaves twice the Barbarian level in Hit Points.
+        const counted = relentlessRage ? withRelentlessRageUsed(change.data as Record<string, unknown>) : change.data;
+        if (relentlessRage?.success && held && endure(held, hit.dealt, change.hp.current) !== null) {
+          const current = relentlessRageHitPoints(sheet, change.hp.max);
+          const kept = { ...counted, hp: { ...(change.data.hp as object), current } };
+          const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(kept) } });
+          return { hp: { ...change.hp, current }, sheetChanged: updated, endured: false, raged: current };
+        }
         // Damage at 0 Hit Points is a failed death save; dropping to 0 starts them afresh.
         const saves = deathSavesAfterDamage(readDeathSaves(sheet.deathSaves), before, change.hp.current, hit.critical === true);
-        const data = saves ? { ...change.data, deathSaves: saves } : change.data;
+        const data = saves ? { ...counted, deathSaves: saves } : counted;
         const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(data) } });
-        return { hp: change.hp, sheetChanged: saves ? updated : null, endured: false };
+        return { hp: change.hp, sheetChanged: saves || relentlessRage ? updated : null, endured: false };
       });
+      if (relentlessRage) {
+        notes.push(`${relentlessRage.line}${applied && 'raged' in applied && applied.raged !== undefined ? `, ${applied.raged} Hit Points` : ''}`);
+      }
       if (applied) io.to(campaignId).emit('character.hp.updated', { characterId, hp: applied.hp });
       if (applied?.endured) notes.push(`${hit.token.name} endures (Relentless Endurance): 1 Hit Point`);
       if (applied) after.push({ token: hit.token, sheet: hit.sheet, dealt: hit.dealt, current: applied.hp.current });
@@ -360,6 +394,91 @@ async function applyDealt(
     await bestEffort('map after damage', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
   }
   return notes;
+}
+
+/**
+ * Relentless Rage (Barbarian 11): a raging Barbarian that this damage would
+ * drop to 0 Hit Points without killing it outright is asked whether it makes
+ * the Constitution save (DC 10, 5 more for each use since its last rest).
+ * Null when the feature does not answer the damage or is not taken.
+ */
+async function relentlessRageSave(
+  io: Server,
+  campaignId: string,
+  mapId: string,
+  token: Token,
+  sheet: Record<string, unknown>,
+  dealt: number
+): Promise<{ success: boolean; line: string } | null> {
+  if (!relentlessRageApplies(sheet, isRaging(campaignId, token.id), extractCharacterHp(DND, sheet), dealt)) return null;
+  // An Orc's Relentless Endurance, while it has it, keeps the creature up without a save.
+  const endurance = resourcesOf(sheet).find((entry) => entry.name === 'Relentless Endurance');
+  if (endurance && endurance.used < endurance.max) return null;
+  const dc = relentlessRageDC(sheet);
+  const choice = await askReaction(io, campaignId, {
+    token,
+    text: `${token.name} drops to 0 Hit Points while raging (${dealt} damage). Relentless Rage is a DC ${dc} Constitution save.`,
+    options: ['Relentless Rage'],
+  });
+  if (choice !== 'Relentless Rage') return null;
+  const exhaustion = typeof sheet.exhaustionLevel === 'number' ? sheet.exhaustionLevel : undefined;
+  const modifiers = saveModifiers(readConditions(token.conditions ?? [], exhaustion), 'con');
+  const aura = await auraFor(campaignId, mapId, token);
+  const save = savingThrow(
+    { bonus: (saveBonusOf(token, sheet, 'con') ?? 0) + aura.bonus + modifiers.penalty, dc, mode: modifiers.mode, autoFail: modifiers.autoFail },
+    hasLuck(sheet) ? lucky(rollDie) : rollDie
+  );
+  const rolled = save.roll ? `${save.roll.total}` : 'no roll';
+  return { success: save.success, line: `${token.name}'s Relentless Rage: Constitution ${rolled} vs DC ${dc}, ${save.success ? 'success' : 'failure'}` };
+}
+
+/** Whether a raging Berserker's Mindless Rage keeps a condition off the token. */
+async function immuneWhileRaging(campaignId: string, token: Token, condition: string): Promise<boolean> {
+  if (!isRaging(campaignId, token.id) || !MINDLESS_RAGE_CONDITIONS.some((name) => name.toLowerCase() === condition.toLowerCase())) return false;
+  return mindlessRageBlocks(await sheetOf(token, campaignId), true, condition);
+}
+
+/**
+ * Retaliation (Berserker 10): a creature with the feature that took damage
+ * from one within 5 feet of it is asked, with its reaction left, whether it
+ * retaliates; a yes offers it one melee attack against that creature, made
+ * with `combat.attack` and `opportunity: true` like an Opportunity Attack.
+ */
+async function offerRetaliation(
+  io: Server,
+  campaignId: string,
+  map: { id: string; tileHeights: unknown; feetPerSquare: number; diagonalRule: string },
+  source: Token,
+  damaged: Token,
+  dealt: number
+): Promise<void> {
+  const before = getCombatState(campaignId);
+  if (dealt <= 0 || !damaged.characterId || source.id === damaged.id || !before.active || before.reactionsSpent.includes(damaged.id)) return;
+  if (!before.combatants.some((c) => c.tokenId === damaged.id) || !before.combatants.some((c) => c.tokenId === source.id)) return;
+  if (!canAct(readConditions(damaged.conditions ?? []))) return;
+  // The sheet as the damage left it: a creature at 0 Hit Points retaliates against nothing.
+  const sheet = await sheetOf(damaged, campaignId);
+  if (!hasRetaliation(sheet) || (extractCharacterHp(DND, sheet!)?.current ?? 0) <= 0) return;
+  const board = {
+    heights: readTileHeights(map.tileHeights),
+    feetPerSquare: map.feetPerSquare,
+    diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+  };
+  if (distanceFeet(standing(damaged), standing(source), board) > 5) return;
+  const choice = await askReaction(io, campaignId, {
+    token: damaged,
+    text: `${source.name} deals ${dealt} damage to ${damaged.name} from within 5 feet.`,
+    options: ['Retaliation'],
+  });
+  if (choice !== 'Retaliation') return;
+  const combat = getCombatState(campaignId);
+  if (!combat.active || combat.reactionsSpent.includes(damaged.id)) return;
+  combat.opportunities = [
+    ...combat.opportunities.filter((offer) => !(offer.attackerId === damaged.id && offer.targetId === source.id)),
+    { attackerId: damaged.id, targetId: source.id, from: source.position, reason: 'Retaliation' },
+  ];
+  setCombatState(campaignId, combat);
+  await resendInitiativeState(io, campaignId);
 }
 
 /** Put a condition on a token of the map, if it does not carry it already, and tell the table. */
@@ -492,7 +611,10 @@ function addMark(campaignId: string, mark: { kind: WeaponMark['kind']; attackerI
 /** An attack on the barbarian's own turn keeps its Rage going to the end of its next turn. */
 function keepRaging(campaignId: string, tokenId: string): void {
   const combat = getCombatState(campaignId);
-  combat.marks = combat.marks.map((mark) => (mark.kind === 'rage' && mark.attackerId === tokenId ? { ...mark, turnEndsLeft: 2 } : mark));
+  // A Persistent Rage has longer left than an extension gives.
+  combat.marks = combat.marks.map((mark) =>
+    mark.kind === 'rage' && mark.attackerId === tokenId ? { ...mark, turnEndsLeft: Math.max(mark.turnEndsLeft, 2) } : mark
+  );
   setCombatState(campaignId, combat);
 }
 
@@ -858,6 +980,16 @@ async function applyRiders(
       lines.push(`${target.name} is immune to the ${rider.condition} condition (${warded})`);
       continue;
     }
+    // Mindless Rage: a raging Berserker is immune to the Charmed and Frightened conditions.
+    if (await immuneWhileRaging(campaignId, target, rider.condition)) {
+      lines.push(`${target.name} is immune to the ${rider.condition} condition (Mindless Rage)`);
+      continue;
+    }
+    // Nature's Ward: a Land Druid of level 10 is immune to the Poisoned condition.
+    if (rider.condition.toLowerCase() === 'poisoned' && target.characterId && naturesWard(await sheetOf(target, campaignId))) {
+      lines.push(`${target.name} is immune to the Poisoned condition (Nature's Ward)`);
+      continue;
+    }
     await giveCondition(io, campaignId, mapId, target.id, rider.condition);
     // A condition tied to a turn is kept as a mark, and taken off when that turn starts or ends.
     const limit = turnLimit(rider);
@@ -919,6 +1051,41 @@ function useStun(campaignId: string, tokenId: string): void {
   const used = stunningStrikes.get(campaignId);
   if (used?.turn === turn) used.tokens.add(tokenId);
   else stunningStrikes.set(campaignId, { turn, tokens: new Set([tokenId]) });
+}
+
+/** Who has dealt its Frenzy damage on the current turn of each campaign's combat. */
+const frenzies = new Map<string, { turn: string; tokens: Set<string> }>();
+
+function frenzyUsed(campaignId: string, tokenId: string): boolean {
+  const turn = sneakTurnOf(campaignId);
+  const used = frenzies.get(campaignId);
+  return turn !== null && used?.turn === turn && used.tokens.has(tokenId);
+}
+
+function useFrenzy(campaignId: string, tokenId: string): void {
+  const turn = sneakTurnOf(campaignId);
+  if (turn === null) return;
+  const used = frenzies.get(campaignId);
+  if (used?.turn === turn) used.tokens.add(tokenId);
+  else frenzies.set(campaignId, { turn, tokens: new Set([tokenId]) });
+}
+
+/** Who has used Primal Strike, and who Wild Resurgence's spell slot for a use, on the current turn of each campaign's combat. */
+const primalStrikes = new Map<string, { turn: string; tokens: Set<string> }>();
+const resurgences = new Map<string, { turn: string; tokens: Set<string> }>();
+
+function usedThisTurn(kept: Map<string, { turn: string; tokens: Set<string> }>, campaignId: string, tokenId: string): boolean {
+  const turn = sneakTurnOf(campaignId);
+  const used = kept.get(campaignId);
+  return turn !== null && used?.turn === turn && used.tokens.has(tokenId);
+}
+
+function useThisTurn(kept: Map<string, { turn: string; tokens: Set<string> }>, campaignId: string, tokenId: string): void {
+  const turn = sneakTurnOf(campaignId);
+  if (turn === null) return;
+  const used = kept.get(campaignId);
+  if (used?.turn === turn) used.tokens.add(tokenId);
+  else kept.set(campaignId, { turn, tokens: new Set([tokenId]) });
 }
 
 /** Who has used Brutal Strike on the current turn of each campaign's combat. */
@@ -1922,7 +2089,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. After a Melee weapon or Unarmed Strike hit, a Paladin with Divine Smite prepared and its Bonus Action left is asked (`combat.prompt`) which slot to smite with: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit, spending the slot and the Bonus Action; a Paladin of level 2 or higher is also offered `Divine Smite (no slot)` once until a Long Rest (Paladin's Smite), cast as with a level 1 slot. A Paladin with Radiant Strikes adds 1d8 Radiant to a Melee weapon or Unarmed Strike hit. With `sacredWeapon: true` a Paladin with Sacred Weapon, as it takes the Attack action with a Melee weapon, spends a use of Channel Divinity: for 10 minutes that weapon adds the Charisma modifier (at least +1) to its attack rolls, and with `radiant: true` a hit with it deals Radiant damage instead of the weapon's own type. An attacker standing in an Aura of Courage is not affected by its Frightened condition. After a hit with a Monk weapon or an Unarmed Strike, a Monk with Stunning Strike and a Focus Point left is asked, once a turn: the point is spent and the target makes a Constitution save (DC 8 + Wisdom modifier + Proficiency Bonus), Stunned until the start of the Monk's next turn on a failure, its Speed halved and the next attack roll against it with Advantage on a success. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. `cunning` may be two different effects in an array with Improved Cunning Strike, paying the dice of each, and Devious Strikes adds `daze` (2d6: a Constitution save or a note that on its next turn the target only moves, or takes an action, or a Bonus Action), `knockOut` (6d6: a Constitution save or Unconscious, repeating the save at the end of each of its turns and ending when it takes damage) and `obscure` (3d6: a Dexterity save or Blinded until the end of its next turn); a Thief's Supreme Sneak adds `stealth` (1d6, while it has the Invisible condition: a note that the attack does not end it). A Rogue that took Steady Aim this turn makes its next attack roll with Advantage. No attack roll against a creature with Elusive has Advantage unless it is Incapacitated. A level 20 Rogue that misses, with Stroke of Luck unspent, is asked (`combat.prompt`) whether to turn the d20 into a 20, a Critical Hit. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. A hit on a creature with Uncanny Dodge or Deflect Attacks and its reaction unspent waits while its controller is asked (`combat.prompt`, answered with `combat.react`), and the ack comes once that is settled. A Monk whose Deflect Attacks brings the damage to 0, with a Focus Point left and the attacker in sight within 5 feet (60 for a ranged attack), is then asked whether to redirect it: the point is spent and the attacker makes a Dexterity save (DC 8 + the Monk's Wisdom modifier + Proficiency Bonus) or takes two Martial Arts dice + the Monk's Dexterity modifier of the attack's damage type. After a hit with a Flurry of Blows strike (`extra: 'flurry'`), a Monk with Open Hand Technique is asked for Addle (no Opportunity Attacks for the target until its next turn starts), Push (a Strength save or pushed 15 ft) or Topple (a Dexterity save or Prone). With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. The DM, or the player who controls the attacker; a player may not target a hidden token.
+   * COMBAT.ATTACK — Make one attack from a token against another on the current map: the server checks reach, range and cover, rolls against Armor Class with the conditions of both and, on a lit map, whether each can see the other (darkness it cannot see into gives the attacker Disadvantage, or the target's unseen attacker Advantage), with `extra` makes a weapon's Cleave or Light extra attack on the attacker's turn (no positive ability modifier to the damage, once a turn each), adds a Rogue's Sneak Attack dice once on each turn to a Finesse or Ranged weapon hit with Advantage or with an ally beside the target, applies the damage to the target's hit points and records the roll in the dice log. With `readied: true` it is the attack the attacker readied against this target with `combat.ready`, made with its reaction. After a Melee weapon or Unarmed Strike hit, a Paladin with Divine Smite prepared and its Bonus Action left is asked (`combat.prompt`) which slot to smite with: 2d8 Radiant, 1d8 more a slot level above 1 and against a Fiend or Undead, doubled on a Critical Hit, spending the slot and the Bonus Action; a Paladin of level 2 or higher is also offered `Divine Smite (no slot)` once until a Long Rest (Paladin's Smite), cast as with a level 1 slot. A Paladin with Radiant Strikes adds 1d8 Radiant to a Melee weapon or Unarmed Strike hit. With `sacredWeapon: true` a Paladin with Sacred Weapon, as it takes the Attack action with a Melee weapon, spends a use of Channel Divinity: for 10 minutes that weapon adds the Charisma modifier (at least +1) to its attack rolls, and with `radiant: true` a hit with it deals Radiant damage instead of the weapon's own type. An attacker standing in an Aura of Courage is not affected by its Frightened condition. After a hit with a Monk weapon or an Unarmed Strike, a Monk with Stunning Strike and a Focus Point left is asked, once a turn: the point is spent and the target makes a Constitution save (DC 8 + Wisdom modifier + Proficiency Bonus), Stunned until the start of the Monk's next turn on a failure, its Speed halved and the next attack roll against it with Advantage on a success. With `cunning: 'poison' | 'trip' | 'withdraw'` a Rogue with Cunning Strike forgoes a Sneak Attack die for the effect, applied when Sneak Attack is dealt: a Constitution save (DC 8 + Dexterity modifier + Proficiency Bonus) or Poisoned, repeating the save at the end of each of its turns (with a Poisoner's Kit); a Large or smaller target's Dexterity save or Prone; or a note that the Rogue may withdraw half its Speed. `cunning` may be two different effects in an array with Improved Cunning Strike, paying the dice of each, and Devious Strikes adds `daze` (2d6: a Constitution save or a note that on its next turn the target only moves, or takes an action, or a Bonus Action), `knockOut` (6d6: a Constitution save or Unconscious, repeating the save at the end of each of its turns and ending when it takes damage) and `obscure` (3d6: a Dexterity save or Blinded until the end of its next turn); a Thief's Supreme Sneak adds `stealth` (1d6, while it has the Invisible condition: a note that the attack does not end it). A Rogue that took Steady Aim this turn makes its next attack roll with Advantage. No attack roll against a creature with Elusive has Advantage unless it is Incapacitated. A level 20 Rogue that misses, with Stroke of Luck unspent, is asked (`combat.prompt`) whether to turn the d20 into a 20, a Critical Hit. With `brutal: 'forceful' | 'hamstring'` a Barbarian with Brutal Strike, on a turn it attacks recklessly, once a turn, gives up Advantage on a Strength attack without Disadvantage: a hit adds 1d10 (2d10 from level 17) of the weapon's type and pushes the target 15 ft or takes 15 ft off its Speed until the Barbarian's next turn. With `reckless: true` (a Barbarian's Reckless Attack, with the first attack roll of its own turn) its attacks using Strength, and attacks against it, have Advantage until its next turn starts. A hit on a creature with Uncanny Dodge or Deflect Attacks and its reaction unspent waits while its controller is asked (`combat.prompt`, answered with `combat.react`), and the ack comes once that is settled. A Monk whose Deflect Attacks brings the damage to 0, with a Focus Point left and the attacker in sight within 5 feet (60 for a ranged attack), is then asked whether to redirect it: the point is spent and the attacker makes a Dexterity save (DC 8 + the Monk's Wisdom modifier + Proficiency Bonus) or takes two Martial Arts dice + the Monk's Dexterity modifier of the attack's damage type. After a hit with a Flurry of Blows strike (`extra: 'flurry'`), a Monk with Open Hand Technique is asked for Addle (no Opportunity Attacks for the target until its next turn starts), Push (a Strength save or pushed 15 ft) or Topple (a Dexterity save or Prone). With `opportunity: true` it is the Opportunity Attack the target's movement offered the attacker: one melee attack, with the attacker's reaction, against the target where it stood before it left reach. A Berserker's Frenzy adds as many d6s as its Rage Damage bonus to its first Strength-based hit on a turn it attacks recklessly while raging. A raging Barbarian with Relentless Rage that the damage would drop to 0 Hit Points without killing it outright is asked (`combat.prompt`, option `Relentless Rage`): a Constitution save of DC 10, 5 more for each use since its last rest, and on a success its Hit Points become twice its Barbarian level. Once the attack is answered, a damaged creature with Retaliation, within 5 feet of the attacker and with its reaction left, is asked (option `Retaliation`): a yes adds an offer with `reason: 'Retaliation'` to the combat state's `opportunities`, taken with `opportunity: true` like an Opportunity Attack. The DM, or the player who controls the attacker; a player may not target a hidden token.
    */
   socket.on('combat.attack', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2125,6 +2292,11 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const attackingRecklessly =
         (reckless || alreadyReckless) && attackerSheet !== null && usesStrength(action, attackerToken, attackerSheet);
       const targetReckless = turnNow.marks.some((mark) => mark.kind === 'reckless' && mark.attackerId === targetId);
+      // Frenzy: on its own turn, raging and reckless, a Berserker's first Strength hit deals as many extra d6s as its Rage Damage.
+      const frenzy =
+        acting && attackerRaging && attackingRecklessly && !frenzyUsed(campaignId, attackerId)
+          ? frenzyDamage(attackerSheet, action.attack?.damage[0]?.type ?? null)
+          : null;
       // A target that saved against a Stunning Strike: the next attack roll against it has Advantage.
       const staggered = turnNow.marks.find((mark) => mark.kind === 'stunning' && mark.targetId === targetId && mark.action !== 'used');
       // Steady Aim: the Rogue's next attack roll this turn has Advantage.
@@ -2213,6 +2385,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             : []),
           // Radiant Strikes: a Paladin's hit with a Melee weapon or an Unarmed Strike adds 1d8 Radiant.
           ...[radiantStrikes(attackerSheet, action)].flatMap((damage) => (damage ? [{ label: 'Radiant Strikes', damage }] : [])),
+          ...(frenzy ? [{ label: `Frenzy (${frenzy.roll.count}d6)`, damage: frenzy }] : []),
         ],
         bonusDamage: sneakDice > 0 ? sneakAttack : undefined,
         savage,
@@ -2331,6 +2504,28 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (choice && type) {
           divineStrike = true;
           result = withExtraDamage(result, target, action.name, { label: choice, damage: divineStrikeDamage(strikeDice, type) });
+        }
+      }
+      // Primal Strike: once on each of the Druid's turns, a hit with a weapon or a Beast form's attack adds
+      // 1d8 (2d8 from Druid 15) of the type its player chooses then.
+      const primal =
+        result.outcome.hit && attackerSheet && !(turnNow.active && !acting) && !usedThisTurn(primalStrikes, campaignId, attackerId)
+          ? primalStrikeDice(attackerSheet, action, wildShapeOf(attackerToken) !== null)
+          : null;
+      if (primal) {
+        const chosen = primalStrikeChoice(
+          await askReaction(io, campaignId, {
+            token: attackerToken,
+            text: `${attackerToken.name} ${result.outcome.critical ? 'lands a Critical Hit on' : 'hits'} ${targetToken.name} with ${action.name} for ${result.dealt} damage.`,
+            options: [...PRIMAL_STRIKE_OPTIONS],
+          })
+        );
+        if (chosen) {
+          useThisTurn(primalStrikes, campaignId, attackerId);
+          result = withExtraDamage(result, target, action.name, {
+            label: `Primal Strike (${chosen.charAt(0).toUpperCase()}${chosen.slice(1)})`,
+            damage: { roll: primal, type: chosen },
+          });
         }
       }
       // Uncanny Dodge, Deflect Attacks: once the hit and its damage are known, the target's player is asked.
@@ -2456,6 +2651,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (result.bonuses.some((bonus) => bonus.startsWith('Sneak Attack'))) useSneakAttack(campaignId, attackerId);
       if (result.bonuses.includes('Savage Attacker')) useSavage(campaignId, attackerId);
       if (divineStrike) useDivineStrike(campaignId, attackerId);
+      if (frenzy && result.outcome.hit) useFrenzy(campaignId, attackerId);
       if (attackerRaging && turnNow.currentTokenId === attackerId) keepRaging(campaignId, attackerId);
       const mastered = await applyMastery(io, campaignId, map, action, attackerToken, attackerSheet, targetToken, targetSheet, result, target.defences);
       // A stat block's hit can leave a condition: a grapple, a poison, a fall.
@@ -2671,7 +2867,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       } else if (!extra) await spendAction(io, campaignId, attackerId, weapon ? 'Attack' : 'Magic', weapon);
       // An attack by or on a token the players are not shown goes to the DM alone.
       const secret = hiddenFromPlayers(attackerToken) || hiddenFromPlayers(targetToken);
-      const extraLabel = legendaryTaken
+      const extraLabel = offer?.reason
+        ? offer.reason
+        : legendaryTaken
         ? `Legendary Action: ${legendaryTaken.name}`
         : extra === 'flurry'
         ? 'Flurry of Blows'
@@ -2689,6 +2887,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
 
       commitUndo(campaignId, undo, summary);
       answer(ack, { ...result, summary });
+      // Retaliation: a Berserker damaged from within 5 feet is asked, once the attack is settled.
+      await offerRetaliation(io, campaignId, map, attackerToken, targetToken, result.dealt);
       logger.debug('combat.attack', { campaignId, attackerId, targetId, hit: result.outcome.hit, dealt: result.dealt });
     } catch (error) {
       logger.error('combat.attack failed', { err: error });
@@ -2775,7 +2975,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.CHECK — A token on the current map makes an ability check: a skill, a bare ability, or the Hide action. A failed check with a DC by a Fighter with Tactical Mind waits while its controller is asked whether to add 1d10 (`combat.prompt`), and one by a level 20 Rogue with Stroke of Luck unspent while it is asked whether to turn the d20 into a 20. A Rogue with Reliable Talent treats a d20 of 9 or lower as a 10 on a check with a skill its sheet marks proficient. With `skill: 'sleightOfHand'` and `bonusAction: true` a Thief with Fast Hands makes the check as a Bonus Action on its own turn. The server reads the bonus from the character's sheet or the stat block, rolls the d20 with the token's conditions (Disadvantage while Poisoned or Frightened, the Exhaustion penalty), compares the total with the DC when one is given, and records the roll in the dice log. The Hide action is a Dexterity (Stealth) check against DC 15 that gives the token the Invisible condition on a success and is its action on its own turn. The DM, or the player who controls the token.
+   * COMBAT.CHECK — A token on the current map makes an ability check: a skill, a bare ability, or the Hide action. A failed check with a DC by a Fighter with Tactical Mind waits while its controller is asked whether to add 1d10 (`combat.prompt`), and one by a level 20 Rogue with Stroke of Luck unspent while it is asked whether to turn the d20 into a 20. A Rogue with Reliable Talent treats a d20 of 9 or lower as a 10 on a check with a skill its sheet marks proficient. With `skill: 'sleightOfHand'` and `bonusAction: true` a Thief with Fast Hands makes the check as a Bonus Action on its own turn. The server reads the bonus from the character's sheet or the stat block, rolls the d20 with the token's conditions (Disadvantage while Poisoned or Frightened, the Exhaustion penalty), compares the total with the DC when one is given, and records the roll in the dice log. The Hide action is a Dexterity (Stealth) check against DC 15 that gives the token the Invisible condition on a success and is its action on its own turn. A raging Barbarian with Primal Knowledge makes an Acrobatics, Intimidation, Perception, Stealth or Survival check with Strength when that is no worse than the skill's own ability, and one with Indomitable Might uses its Strength score for a Strength check that totals less. The DM, or the player who controls the token.
    */
   socket.on('combat.check', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2814,18 +3014,35 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (turnNow.turn.bonusAction) return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
       }
 
-      const bonus = skill ? skillBonusOf(token, sheet, skill) : abilityModifierOf(token, sheet, ability!);
-      if (bonus === null) return refuseRequest(socket, ack, `${token.name} has no sheet or stat block to make the check with`);
-      const label = skill
-        ? `${ABILITY_CHECK_NAMES[SKILL_CHECKS[skill].ability]} (${SKILL_CHECKS[skill].name})`
-        : ABILITY_CHECK_NAMES[ability!];
-      const used = skill ? SKILL_CHECKS[skill].ability : ability!;
+      const listedBonus = skill ? skillBonusOf(token, sheet, skill) : abilityModifierOf(token, sheet, ability!);
+      if (listedBonus === null) return refuseRequest(socket, ack, `${token.name} has no sheet or stat block to make the check with`);
+      // Primal Knowledge: a raging Barbarian makes the check with Strength when that is no worse than the skill's own ability.
+      const strengthBonus =
+        skill && SKILL_CHECKS[skill].ability !== 'str' && primalKnowledgeApplies(sheet, isRaging(campaignId, tokenId), skill)
+          ? listedBonus - (abilityModifierOf(token, sheet, SKILL_CHECKS[skill].ability) ?? 0) + (abilityModifierOf(token, sheet, 'str') ?? 0)
+          : null;
+      const primal = strengthBonus !== null && strengthBonus >= listedBonus;
+      const bonus = primal ? strengthBonus : listedBonus;
+      const used = primal ? 'str' : skill ? SKILL_CHECKS[skill].ability : ability!;
+      const label = skill ? `${ABILITY_CHECK_NAMES[used]} (${SKILL_CHECKS[skill].name})` : ABILITY_CHECK_NAMES[ability!];
       // A Champion's Remarkable Athlete: Advantage on Strength (Athletics) checks.
       const athlete = skill === 'athletics' && used === 'str' && sheet !== null && hasRemarkableAthlete(readFeatures(sheet));
       // Reliable Talent (Rogue 7): on a check with a skill the sheet marks proficient, a d20 of 9 or lower counts as 10.
       const trained = skill ? (sheet?.skills as Record<string, { proficient?: unknown; expertise?: unknown } | undefined> | undefined)?.[skill] : undefined;
       const reliable = sheet !== null && hasFeature(readFeatures(sheet), 'Reliable Talent') && (trained?.proficient === true || trained?.expertise === true);
       let result = resolveCheck({ name: token.name, label, bonus, dc, mode, conditions: state, ability: used, lucky: hasLuck(sheet), reliable, ...(athlete ? { extraReasons: ['Advantage: Remarkable Athlete'] } : {}) });
+      if (primal) result = { ...result, reasons: [...result.reasons, 'Primal Knowledge: made with Strength'] };
+      // Indomitable Might: a Strength check's total is never less than the Strength score.
+      const mighty = used === 'str' ? indomitableMight(sheet, result.total) : null;
+      if (mighty !== null) {
+        const success = dc === undefined ? null : mighty >= dc;
+        result = {
+          ...result,
+          total: mighty,
+          success,
+          summary: `${token.name} ${label} check: ${success === null ? `${mighty}` : `${mighty} vs DC ${dc}: ${success ? 'success' : 'failure'}`} (Indomitable Might, rolled ${result.total})`,
+        };
+      }
       // Tactical Mind: a Fighter that failed the check, with a use of Second Wind left, is asked; it adds 1d10,
       // and the use is spent only if that turns the check into a success.
       const secondWind = sheet ? resourcesOf(sheet).find((entry) => entry.name === 'Second Wind') : undefined;
@@ -2919,8 +3136,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         const sheet = (fresh.data ?? {}) as Record<string, unknown>;
         if (kind === 'shortFinish') {
           const back = restoreResources(sheet, 'short');
-          // Arcane Recovery, chosen as the rest ends.
-          const recovered = recover ? arcaneRecovery(back.sheet, recover) : null;
+          // Arcane Recovery or Natural Recovery, chosen as the rest ends.
+          const recovered = recover ? shortRestRecovery(back.sheet, recover) : null;
           if (recovered && !recovered.ok) return { refusal: `${fresh.name}: ${recovered.reason}` };
           const after = recovered?.ok ? recovered.sheet : back.sheet;
           const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(after) } });
@@ -2989,7 +3206,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll), `Wholeness of Body` (a Bonus Action of a Monk whose sheet lists it: the Martial Arts die + Wisdom modifier Hit Points, at least 1, Wisdom-modifier uses until a Long Rest) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). `Bardic Inspiration` (a Bonus Action) takes the `targetId` of another creature within 60 feet: the die is kept on its token for an hour, and its controller is asked after a failed attack roll, save or check whether to add it. Also `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Wild Shape` (a Bonus Action) takes the `form` of a Beast the Druid's level allows: the form is kept on the token, the character gains Temporary Hit Points equal to its Druid level, and the Beast's actions, Armor Class and physical scores become its own until `End Wild Shape`. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition; with Restoring Touch `cure` may also be `Blinded`, `Charmed`, `Deafened`, `Frightened`, `Paralyzed` or `Stunned`, or a list of several at 5 points each, and an `amount` given with `cure` is restored as well. `Steady Aim` (a Rogue of level 3, a Bonus Action on its own turn, only if it has not moved this turn) gives Advantage on its next attack roll this turn and sets its Speed to 0 until the turn ends (`turn.steadyAim`). The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. The DM, or the player who controls the token.
+   * COMBAT.FEATURE — A token's D&D 5e character uses a class feature with a number of uses: `Second Wind` (a Bonus Action: the server rolls 1d10 + the character's level, restores those Hit Points and logs the roll), `Wholeness of Body` (a Bonus Action of a Monk whose sheet lists it: the Martial Arts die + Wisdom modifier Hit Points, at least 1, Wisdom-modifier uses until a Long Rest) or `Action Surge` (one more action this turn, once a turn: the turn's action is given back). `Bardic Inspiration` (a Bonus Action) takes the `targetId` of another creature within 60 feet: the die is kept on its token for an hour, and its controller is asked after a failed attack roll, save or check whether to add it. Also `Channel Divinity`, `Favored Enemy` (Hunter's Mark without a slot) and `Focus Points` or `Sorcery Points` (`amount` points at once): the server counts the use and the table applies what it does. `Wild Shape` (a Bonus Action) takes the `form` of a Beast the Druid's level allows: the form is kept on the token, the character gains Temporary Hit Points equal to its Druid level, and the Beast's actions, Armor Class and physical scores become its own until `End Wild Shape`. `Lay on Hands` (a Bonus Action) takes a `targetId` within 5 feet, the paladin itself when left out, and restores `amount` Hit Points from the pool, no more than the creature is missing, or with `cure: 'Poisoned'` spends 5 points to end that condition; with Restoring Touch `cure` may also be `Blinded`, `Charmed`, `Deafened`, `Frightened`, `Paralyzed` or `Stunned`, or a list of several at 5 points each, and an `amount` given with `cure` is restored as well. `Steady Aim` (a Rogue of level 3, a Bonus Action on its own turn, only if it has not moved this turn) gives Advantage on its next attack roll this turn and sets its Speed to 0 until the turn ends (`turn.steadyAim`). The use comes off the sheet's `featureUses`. On the character's own turn in combat, the Bonus Action must still be there for a feature that spends it. `Extend Rage` (a Bonus Action on the Barbarian's own turn) keeps a Rage going to the end of its next turn, and `Persistent Rage` gives back every use of Rage, once until a Long Rest. Entering a `Rage` with Persistent Rage keeps it for 10 minutes, and with Mindless Rage ends the Charmed and Frightened conditions on the token. The DM, or the player who controls the token. `Wild Resurgence` (Druid 5, no action) with a `slotLevel` expends that spell slot for a use of Wild Shape when none is left, once on each of the Druid's turns; without one it expends a use of Wild Shape for a level 1 spell slot, once until a Long Rest. `Wild Companion` (Druid 2, a Magic action) spends a use of Wild Shape, or the slot of `slotLevel`, to cast Find Familiar; the familiar is the table's.
    */
   socket.on('combat.feature', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2999,9 +3216,12 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.feature', ack)) return;
       const parsed = CombatFeatureSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { tokenId, feature, amount, targetId, cure, as, focus, form } = parsed.data;
+      const { tokenId, feature, amount, targetId, cure, as, focus, form, slotLevel } = parsed.data;
       if ((targetId !== undefined && feature !== 'Lay on Hands' && feature !== 'Bardic Inspiration') || (cure !== undefined && feature !== 'Lay on Hands')) {
         return refuseRequest(socket, ack, 'Only Lay on Hands and Bardic Inspiration take a target');
+      }
+      if (slotLevel !== undefined && feature !== 'Wild Resurgence' && feature !== 'Wild Companion') {
+        return refuseRequest(socket, ack, 'Only Wild Resurgence and Wild Companion take a spell slot');
       }
       if (amount !== undefined && amount > 1 && !POINT_RESOURCES.includes(feature as ResourceName)) {
         return refuseRequest(socket, ack, `${feature} is spent one use at a time`);
@@ -3048,6 +3268,41 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ack?.({ ok: true, summary, left });
         return;
       }
+      // Wild Resurgence (no action): a spell slot for a use of Wild Shape, once on each of the Druid's turns with none
+      // left; or a use for a level 1 slot, once until a Long Rest. Wild Companion: Find Familiar as a Magic action.
+      if (feature === 'Wild Resurgence' || feature === 'Wild Companion') {
+        const forUse = feature === 'Wild Resurgence' && slotLevel !== undefined;
+        if (forUse && combat.active && !ownTurn) return refuseRequest(socket, ack, 'Wild Resurgence gives a use of Wild Shape on the Druid’s own turn');
+        if (forUse && usedThisTurn(resurgences, campaignId, tokenId)) {
+          return refuseRequest(socket, ack, `${token.name} has expended a spell slot with Wild Resurgence this turn`);
+        }
+        if (feature === 'Wild Companion' && ownTurn && combat.turn!.action && socket.role !== 'DM') {
+          return refuseRequest(socket, ack, `${token.name} has taken its action this turn`);
+        }
+        const undo = await prepareUndo(campaignId, map.id, [characterId]);
+        const changed = await prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "Character" WHERE id = ${characterId} FOR UPDATE`;
+          const fresh = await tx.character.findUnique({ where: { id: characterId } });
+          if (!fresh) return { refusal: 'has no D&D character sheet' };
+          const sheet = (fresh.data ?? {}) as Record<string, unknown>;
+          const change = feature === 'Wild Resurgence' ? wildResurgence(sheet, slotLevel) : wildCompanion(sheet, slotLevel);
+          if (!change.ok) return { refusal: change.reason };
+          const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(change.sheet) } });
+          return { updated, summary: change.summary };
+        });
+        if ('refusal' in changed) return refuseRequest(socket, ack, `${token.name}: ${changed.refusal}`);
+        await bestEffort('sheet after a Druid feature', () =>
+          emitCharacterUpdated(campaignId, changed.updated, { characterId, userId: changed.updated.userId, tokensChanged: false })
+        );
+        if (forUse) useThisTurn(resurgences, campaignId, tokenId);
+        if (feature === 'Wild Companion') await spendAction(io, campaignId, tokenId, 'Magic');
+        const shape = resourcesOf(changed.updated.data as Record<string, unknown>).find((entry) => entry.name === 'Wild Shape');
+        const summary = `${token.name}: ${changed.summary}${feature === 'Wild Companion' ? '; the familiar is the table’s to place' : ''}`;
+        await resendInitiativeState(io, campaignId);
+        commitUndo(campaignId, undo, summary);
+        ack?.({ ok: true, summary, left: shape ? shape.max - shape.used : 0 });
+        return;
+      }
       if (feature === 'End Rage') {
         if (!isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is not raging`);
         const now = getCombatState(campaignId);
@@ -3057,6 +3312,22 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         const summary = `${token.name}'s Rage ends`;
         ack?.({ ok: true, summary, left: 0 });
         return;
+      }
+      // A Bonus Action extends a Rage to the end of the Barbarian's next turn.
+      if (feature === 'Extend Rage') {
+        if (!isRaging(campaignId, tokenId)) return refuseRequest(socket, ack, `${token.name} is not raging`);
+        if (!ownTurn) return refuseRequest(socket, ack, 'A Rage is extended with a Bonus Action on the Barbarian’s own turn');
+        if (combat.turn!.bonusAction) return refuseRequest(socket, ack, `${token.name} has used its Bonus Action this turn`);
+        keepRaging(campaignId, tokenId);
+        spendBonusAction(campaignId, tokenId);
+        await resendInitiativeState(io, campaignId);
+        const summary = `${token.name} extends its Rage to the end of its next turn`;
+        ack?.({ ok: true, summary, left: 0 });
+        return;
+      }
+      if (feature === 'Persistent Rage') {
+        const rages = resourcesOf(ownSheet).find((entry) => entry.name === 'Rage');
+        if (!rages || rages.used === 0) return refuseRequest(socket, ack, `${token.name} has every use of Rage`);
       }
       if (feature === 'Rage') {
         if (!combat.active) return refuseRequest(socket, ack, 'A Rage is kept during combat');
@@ -3151,6 +3422,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           next = change.data as Record<string, unknown>;
           healed = { rolled, bonus: total - rolled, sides, hp: change.hp };
         }
+        // Persistent Rage: every use of Rage comes back, once until a Long Rest.
+        if (feature === 'Persistent Rage') next = withRagesRegained(next);
         const updated = await tx.character.update({ where: { id: characterId }, data: { data: toJson(next) } });
         return { updated, healed, left: spent.left };
       });
@@ -3190,8 +3463,30 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         );
       } else if (feature === 'Rage') {
         addMark(campaignId, { kind: 'rage', attackerId: tokenId, targetId: tokenId });
+        const entered = updated.data as Record<string, unknown>;
+        // Persistent Rage: it lasts 10 minutes without being extended.
+        if (hasPersistentRage(entered)) {
+          const now = getCombatState(campaignId);
+          now.marks = now.marks.map((mark) => (mark.kind === 'rage' && mark.attackerId === tokenId ? { ...mark, turnEndsLeft: PERSISTENT_RAGE_TURNS } : mark));
+          setCombatState(campaignId, now);
+        }
+        // Mindless Rage: the Charmed and Frightened conditions end as the Rage begins.
+        const ended: string[] = [];
+        if (hasMindlessRage(entered)) {
+          for (const condition of MINDLESS_RAGE_CONDITIONS) {
+            if (!(token.conditions ?? []).some((name) => name.toLowerCase() === condition.toLowerCase())) continue;
+            const now = getCombatState(campaignId);
+            now.marks = now.marks.filter((mark) => !(mark.kind === 'condition' && mark.targetId === tokenId && mark.condition?.toLowerCase() === condition.toLowerCase()));
+            setCombatState(campaignId, now);
+            await takeCondition(io, campaignId, map.id, tokenId, condition);
+            ended.push(condition);
+          }
+        }
         if (ownTurn) spendBonusAction(campaignId, tokenId);
-        summary = `${token.name} enters a Rage: Resistance to Bludgeoning, Piercing and Slashing damage, +${rageDamage(updated.data as Record<string, unknown>)} damage on Strength attacks, Advantage on Strength checks and saves (${usesLeft})`;
+        summary = `${token.name} enters a Rage: Resistance to Bludgeoning, Piercing and Slashing damage, +${rageDamage(entered)} damage on Strength attacks, Advantage on Strength checks and saves (${usesLeft})${ended.length > 0 ? `; no longer ${ended.join(' or ')} (Mindless Rage)` : ''}`;
+      } else if (feature === 'Persistent Rage') {
+        const rages = resourcesOf(updated.data as Record<string, unknown>).find((entry) => entry.name === 'Rage');
+        summary = `${token.name} regains every use of Rage (Persistent Rage): ${rages?.max ?? 0} uses, once until a Long Rest`;
       } else if (inspired) {
         if (ownTurn) spendBonusAction(campaignId, tokenId);
         const die = bardicDie(updated.data as Record<string, unknown>) ?? 'd6';
@@ -3475,7 +3770,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       };
       const reach = action.rangeFeet ?? 5;
       // Divine Spark is aimed at another creature.
-      if (action.channel && target.id === caster.id) return refuseRequest(socket, ack, `${action.name} is aimed at another creature`);
+      if (action.channel === 'Channel Divinity' && target.id === caster.id) return refuseRequest(socket, ack, `${action.name} is aimed at another creature`);
       if (target.id !== caster.id && distanceFeet(standing(caster), standing(target), board) > reach) {
         return refuseRequest(socket, ack, `${target.name} is beyond the ${reach} ft range of ${action.name}`);
       }
@@ -3597,7 +3892,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions, cover and the best Aura of Protection it stands in, asks a Fighter that failed whether to roll again with Indomitable (and a Monk with Disciplined Survivor whether to roll again for a Focus Point) and a level 20 Rogue that failed whether to turn the d20 into a 20 with Stroke of Luck, refuses more targets than an action that chooses them allows (a Paladin's Abjure Foes: its Charisma modifier, at least one; a failed Wisdom save leaves the creature Frightened for 1 minute or until it takes damage, and spends a use of Channel Divinity), leaves a condition a stat block's effect gives off a creature that an Aura of Courage (Frightened) or Aura of Devotion (Charmed) keeps immune, applies full, half or no damage to each one's hit points and records the roll in the dice log. The DM, or the player who controls the acting token; a player may not target a hidden token.
+   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions, cover and the best Aura of Protection it stands in, asks a Fighter that failed whether to roll again with Indomitable (and a Monk with Disciplined Survivor whether to roll again for a Focus Point) and a level 20 Rogue that failed whether to turn the d20 into a 20 with Stroke of Luck, refuses more targets than an action that chooses them allows (a Paladin's Abjure Foes: its Charisma modifier, at least one; a failed Wisdom save leaves the creature Frightened for 1 minute or until it takes damage, and spends a use of Channel Divinity), leaves a condition a stat block's effect gives off a creature that an Aura of Courage (Frightened) or Aura of Devotion (Charmed) keeps immune, applies full, half or no damage to each one's hit points and records the roll in the dice log. A Berserker's `Intimidating Presence` is one of its actions, a Bonus Action against creatures of its choice within 30 feet: a Wisdom save (DC 8 + Strength modifier + Proficiency Bonus) or the Frightened condition, saved against again at the end of each of the creature's turns; it spends its one use, and once that is gone it is listed as `Intimidating Presence (a use of Rage)` and spends a use of Rage. A raging creature with Mindless Rage takes neither the Charmed nor the Frightened condition from a failed save. A failed Strength save of a Barbarian with Indomitable Might uses its Strength score when that meets the DC. Relentless Rage and Retaliation are asked as for `combat.attack`. The DM, or the player who controls the acting token; a player may not target a hidden token. A Land Druid's `Land's Aid` also takes `healId`, the creature in its area that regains Hit Points: the server rolls them after the damage, spends a use of Wild Shape, and answers with `healed`.
    */
   socket.on('combat.save', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -3607,7 +3902,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!withinCeiling(socket, 'combat.save', ack)) return;
       const parsed = CombatSaveSchema.safeParse(data);
       if (!parsed.success) return refuseRequest(socket, ack, parsed.error.issues[0]?.message ?? 'Invalid request');
-      const { sourceId, targetIds, action: actionIndex, slotLevel, point, metamagic } = parsed.data;
+      const { sourceId, targetIds, action: actionIndex, slotLevel, point, metamagic, healId } = parsed.data;
 
       const map = await currentMap(campaignId);
       if (!map) return refuseRequest(socket, ack, 'Combat is resolved for D&D campaigns, on the map on screen');
@@ -3643,9 +3938,38 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const meta = metamagic ? castingMetamagic(campaignId, sourceToken, sourceSheet, action, metamagic, targetIds) : null;
       if (meta && 'error' in meta) return refuseRequest(socket, ack, meta.error);
       if (meta) action = meta.action;
-      if (action.channel && targetIds.includes(sourceId)) return refuseRequest(socket, ack, `${action.name} is aimed at another creature`);
+      if (action.channel === 'Channel Divinity' && targetIds.includes(sourceId)) return refuseRequest(socket, ack, `${action.name} is aimed at another creature`);
       if (action.maxTargets !== undefined && targetIds.length > action.maxTargets) {
         return refuseRequest(socket, ack, `${action.name} chooses ${action.maxTargets} ${action.maxTargets === 1 ? 'creature' : 'creatures'} at most`);
+      }
+      // Intimidating Presence: a Bonus Action, against other creatures of the Berserker's choice.
+      if (action.presence) {
+        const now = getCombatState(campaignId);
+        if (targetIds.includes(sourceId)) return refuseRequest(socket, ack, `${action.name} frightens other creatures`);
+        if (someoneActing(now) && now.currentTokenId === sourceId && now.turn?.bonusAction) {
+          return refuseRequest(socket, ack, `${sourceToken.name} has used its Bonus Action this turn`);
+        }
+      }
+      // Land's Aid: the creature in the area that regains Hit Points, named with the saves.
+      const healed = healId === undefined ? null : tokens.find((t) => t.id === healId);
+      if (healId !== undefined) {
+        if (!action.areaHeal) return refuseRequest(socket, ack, `${action.name} restores no Hit Points to a creature in its area`);
+        if (!healed || healed.layer !== sourceToken.layer || (socket.role !== 'DM' && hiddenFromPlayers(healed))) {
+          return refuseRequest(socket, ack, 'That creature is not on the map');
+        }
+        const board = {
+          heights: readTileHeights(map.tileHeights),
+          feetPerSquare: map.feetPerSquare,
+          diagonalRule: map.diagonalRule === 'alternating' ? ('alternating' as const) : ('flat' as const),
+        };
+        const radius = action.area?.sizeFeet ?? 0;
+        // In the same Sphere as the creatures that save: within its radius of the square aimed at, or its width of each of them.
+        const outside =
+          distanceFeet(standing(sourceToken), standing(healed), board) > (action.rangeFeet ?? 0) + radius ||
+          (point
+            ? distanceFeet(standing(healed), { cell: point, size: { width: 1, height: 1 } }, board) > radius
+            : targetTokens.some((token) => distanceFeet(standing(healed), standing(token), board) > 2 * radius));
+        if (outside) return refuseRequest(socket, ack, `${healed.name} is not in the area of ${action.name}`);
       }
       // Turn Undead chooses Undead only.
       if (action.onlyCreatureType) {
@@ -3732,6 +4056,32 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           });
           if (!again.ok) return refuseRequest(socket, ack, again.reason);
           result = { ...again, summary: `${again.summary}; Empowered Spell` };
+        }
+      }
+      // Indomitable Might: a Barbarian's failed Strength save uses its Strength score when that is higher than the total.
+      const mightLines: string[] = [];
+      if (ability === 'str') {
+        const raised = new Map<number, number>();
+        for (const [index, target] of result.targets.entries()) {
+          if (target.outcome.success || target.outcome.roll === null) continue;
+          const total = indomitableMight(targetSheets[index], target.outcome.roll.total);
+          if (total !== null && total >= target.outcome.dc) raised.set(index, total);
+        }
+        if (raised.size > 0) {
+          const first = result;
+          result = resolveSave({
+            ...saveRequest,
+            fixed: {
+              damage: first.damage,
+              saves: first.targets.map((target, index) => {
+                const total = raised.get(index);
+                if (total === undefined || !target.outcome.roll) return { outcome: target.outcome };
+                mightLines.push(`${targetTokens[index].name} uses its Strength score, ${total} (Indomitable Might, rolled ${target.outcome.roll.total})`);
+                return { outcome: { ...target.outcome, roll: { ...target.outcome.roll, total }, success: true } };
+              }),
+            },
+          });
+          if (!result.ok) return refuseRequest(socket, ack, result.reason);
         }
       }
       // Indomitable: a Fighter that failed a save it rolled is asked, and may roll it again with its Fighter level added.
@@ -3835,13 +4185,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (!result.ok) return refuseRequest(socket, ack, result.reason);
         for (const index of luckySaves) await spendSheetUse(campaignId, targetTokens[index], 'Stroke of Luck');
       }
-      const undo = await prepareUndo(campaignId, map.id, [sourceToken.characterId, ...targetTokens.map((t) => t.characterId)]);
+      const undo = await prepareUndo(campaignId, map.id, [sourceToken.characterId, ...targetTokens.map((t) => t.characterId), ...(healed ? [healed.characterId] : [])]);
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, sourceToken.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
 
       spendRecharge(campaignId, sourceId, action);
       if (action.channel) await spendSheetUse(campaignId, sourceToken, action.channel);
+      if (action.presence) await spendSheetUse(campaignId, sourceToken, action.presence);
+      // Forcing a saving throw on its own turn keeps a Barbarian's Rage going.
+      if (isRaging(campaignId, sourceId) && getCombatState(campaignId).currentTokenId === sourceId) keepRaging(campaignId, sourceId);
       if (meta || empowered) await spendSheetUse(campaignId, sourceToken, 'Sorcery Points', (meta?.cost ?? 0) + (empowered ? 1 : 0));
       // A target that rolled again with Indomitable spends the use.
       for (const [index, target] of result.targets.entries()) {
@@ -3857,6 +4210,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       );
       // A stat block's effect can leave a condition on each creature that fails.
       const riders: string[] = [];
+      // Land's Aid: the creature named regains its dice of Hit Points, after the damage.
+      let restored: number | null = null;
+      if (healed && action.areaHeal) {
+        restored = rollDamage({ ...action.areaHeal, bonus: 0 }).total;
+        await healToken(io, campaignId, map.id, healed, restored);
+        riders.push(`${healed.name} regains ${restored} Hit Points (${action.areaHeal.count}d${action.areaHeal.sides})`);
+      }
       if (action.source === 'statBlock') {
         const written = conditionsOnFailure(action.text ?? '');
         for (const [index, target] of result.targets.entries()) {
@@ -3911,6 +4271,16 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           }
         }
       }
+      // Intimidating Presence: a creature that fails is Frightened, and saves again at the end of each of its turns.
+      if (action.presence) {
+        for (const [index, target] of result.targets.entries()) {
+          if (target.outcome.success) continue;
+          riders.push(
+            ...(await applyRiders(io, campaignId, map.id, sourceToken, targetTokens[index], [{ condition: 'Frightened', repeats: true }], { ability: 'wis', dc: result.dc }))
+          );
+        }
+      }
+      riders.push(...mightLines);
       // What a failed save against an Unarmed Strike leaves the target with.
       const auraLines = auras.flatMap((aura, index) =>
         aura.bonus > 0 && aura.from ? [`${targetTokens[index].name} adds +${aura.bonus} (${aura.from}'s Aura of Protection)`] : []
@@ -3937,6 +4307,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       else if (meta?.quickened) {
         spendBonusAction(campaignId, sourceId);
         await resendInitiativeState(io, campaignId);
+      } else if (action.presence) {
+        spendBonusAction(campaignId, sourceId);
+        await resendInitiativeState(io, campaignId);
       } else await spendAction(io, campaignId, sourceId, action.source === 'spell' || action.channel ? 'Magic' : action.name);
       const secret = hiddenFromPlayers(sourceToken) || targetTokens.some(hiddenFromPlayers);
       await logRoll(io, socket, campaignId, saveBreakdown(result, action), sourceToken.name, summary, secret);
@@ -3954,7 +4327,12 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             total: target.outcome.roll?.total ?? null,
             dealt: target.dealt,
           })),
+          ...(healed && restored !== null ? { healed: { tokenId: healed.id, amount: restored } } : {}),
         });
+      }
+      // Retaliation: a Berserker damaged from within 5 feet is asked, once the action is settled.
+      for (const [index, target] of result.targets.entries()) {
+        await offerRetaliation(io, campaignId, map, sourceToken, targetTokens[index], target.dealt);
       }
       logger.debug('combat.save', { campaignId, sourceId, targets: targetIds.length });
     } catch (error) {

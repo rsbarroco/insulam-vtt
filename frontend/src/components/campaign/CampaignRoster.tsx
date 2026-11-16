@@ -452,7 +452,7 @@ export default function CampaignRoster() {
             },
             {
               icon: Coffee,
-              label: 'Finish short rest, with Arcane Recovery…',
+              label: 'Finish short rest, with Arcane or Natural Recovery…',
               onClick: () => {
                 setRecoveryPicker({ x: contextMenu.x, y: contextMenu.y, characterId: contextMenu.characterId });
                 handleCloseContextMenu();
