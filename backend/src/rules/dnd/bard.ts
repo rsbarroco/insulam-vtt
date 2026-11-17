@@ -123,6 +123,19 @@ export function charmsOrFrightens(action: Pick<CombatAction, 'source' | 'text' |
   return false;
 }
 
+/**
+ * Whether Countercharm would change nothing for a creature: a stat block's
+ * effect that deals no damage and whose every condition the creature is kept
+ * from by an aura it stands in (`immune`, by condition in lower case: an Aura
+ * of Courage, an Aura of Devotion). A spell's other effects are not read, so
+ * it is never one.
+ */
+export function countercharmIdle(action: Pick<CombatAction, 'source' | 'text'>, dealsDamage: boolean, immune: Readonly<Record<string, string>>): boolean {
+  if (dealsDamage || action.source !== 'statBlock') return false;
+  const riders = conditionsOnFailure(action.text ?? '');
+  return riders.length > 0 && riders.every((rider) => immune[rider.condition.toLowerCase()] !== undefined);
+}
+
 /** How a save is rolled again with Countercharm: with Advantage, which a Disadvantage on the first roll cancels. */
 export function countercharmMode(first: RollMode | undefined): RollMode {
   return first === 'disadvantage' ? 'normal' : 'advantage';

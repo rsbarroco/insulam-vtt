@@ -62,7 +62,7 @@ import {
   slotOption,
 } from '../../rules/dnd/reactionSpells';
 import { answerPrompt, askReaction } from '../reactionPrompts';
-import { bardicSides, canCutWords, canUsePeerlessSkill, charmsOrFrightens, COUNTERCHARM_FEET, countercharmMode, CUT_ATTACK, CUT_DAMAGE, cutAttackOutcome, cutTurnsToMiss, CUTTING_WORDS_FEET, hasCountercharm, withCuttingWords, withInspirationRegained, withPeerlessSkill } from '../../rules/dnd/bard';
+import { bardicSides, canCutWords, canUsePeerlessSkill, charmsOrFrightens, COUNTERCHARM_FEET, countercharmIdle, countercharmMode, CUT_ATTACK, CUT_DAMAGE, cutAttackOutcome, cutTurnsToMiss, CUTTING_WORDS_FEET, hasCountercharm, withCuttingWords, withInspirationRegained, withPeerlessSkill } from '../../rules/dnd/bard';
 import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
 import {
   flurryStrikes,
@@ -3385,6 +3385,10 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       // shown, and only when +5 to its Armor Class would make the hit a miss. The same roll is decided again.
       let shieldSlot = null as number | null;
       let shieldAsked = false;
+      // What a re-decided roll keeps from the one before: what changed the roll, not what a cancelled hit added.
+      const rollNote = /^(Seeking Spell$|Bardic Inspiration |Peerless Skill |Heroic Inspiration: |Shield \()/;
+      // A target that cast Shield has spent its reaction on this attack: it is asked for no other.
+      const mayReact = (tokenId: string) => !(shieldSlot !== null && tokenId === targetId);
       const answeredByShield = async (hit: AttackResult): Promise<AttackResult> => {
         if (shieldAsked || !shieldTurnsHit(hit.outcome)) return hit;
         shieldAsked = true;
@@ -3395,7 +3399,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (!again.ok) return hit;
         shieldSlot = slot;
         // What changed the roll stays in the line; what the cancelled hit would have added does not.
-        const rollNotes = hit.bonuses.filter((bonus) => /^(Seeking Spell$|Bardic Inspiration |Peerless Skill |Heroic Inspiration: )/.test(bonus));
+        const rollNotes = hit.bonuses.filter((bonus) => rollNote.test(bonus));
         return { ...again, bonuses: [...rollNotes, ...again.bonuses, `${slotOption(SHIELD, slot)}: +${SHIELD_BONUS} AC until the start of ${targetToken.name}'s next turn`] };
       };
       result = await answeredByShield(result);
@@ -3414,7 +3418,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         if (choice === 'Seeking Spell') {
           afterRollPoints += 1;
           const again = resolveAttack(attackRequest);
-          if (again.ok) result = { ...again, bonuses: [...again.bonuses, 'Seeking Spell'] };
+          if (again.ok) result = { ...again, bonuses: [...result.bonuses.filter((bonus) => rollNote.test(bonus)), ...again.bonuses, 'Seeking Spell'] };
         }
       }
       // Heroic Inspiration: an attacker that missed while it has it is asked; one d20 is rolled again and the new roll stands.
@@ -3477,7 +3481,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           io,
           campaignId,
           map,
-          tokens,
+          tokens.filter((t) => mayReact(t.id)),
           attackerToken,
           `${attackerToken.name} ${result.outcome.critical ? 'lands a Critical Hit on' : 'hits'} ${targetToken.name} with ${action.name} (${result.outcome.roll.total} against AC ${result.outcome.armorClass}).`,
           [CUT_ATTACK]
@@ -3487,12 +3491,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           if (cutTurnsToMiss(result.outcome, cutting.rolled)) {
             const again = resolveAttack({ ...attackRequest, inspired: { roll: result.outcome.roll, added: -cutting.rolled, label } });
             // A miss keeps what was said of the roll, and none of what the hit added.
-            if (again.ok) result = { ...again, bonuses: [...result.bonuses.filter((bonus) => /^(Seeking Spell$|Bardic Inspiration |Peerless Skill )/.test(bonus)), ...again.bonuses] };
+            if (again.ok) result = { ...again, bonuses: [...result.bonuses.filter((bonus) => rollNote.test(bonus)), ...again.bonuses] };
           } else {
             result = { ...result, outcome: cutAttackOutcome(result.outcome, cutting.rolled), bonuses: [...result.bonuses, `${label} -${cutting.rolled} (still a hit)`] };
           }
         }
       }
+      // Peerless Skill's use is spent only on a hit: not when Shield or Cutting Words turned that hit back into a miss.
+      if (!result.outcome.hit) peerless = false;
       // Boon of Combat Prowess (Peerless Aim): a roll that still misses (or that Cutting Words turned into a miss) can hit instead, once until the start of the attacker's next turn.
       let peerlessAim = false;
       if (!result.outcome.hit && hasFeat(attackerFeatures, COMBAT_PROWESS) && !peerlessAimUsed(campaignId, attackerId)) {
@@ -3647,7 +3653,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           io,
           campaignId,
           map,
-          tokens,
+          tokens.filter((t) => mayReact(t.id)),
           attackerToken,
           `${attackerToken.name} ${result.outcome.critical ? 'lands a Critical Hit on' : 'hits'} ${targetToken.name} with ${action.name} for ${result.dealt} damage.`,
           [CUT_DAMAGE]
@@ -3656,7 +3662,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       }
       // Uncanny Dodge, Deflect Attacks: once the hit and its damage are known, the target's player is asked.
       let redirect: { dealt: number; hp: HitPoints | null; line: string } | null = null;
-      if (result.outcome.hit && result.dealt > 0 && targetSheet && !getCombatState(campaignId).reactionsSpent.includes(targetId)) {
+      // Not a target whose reaction this attack already took: Shield, or its own Cutting Words.
+      if (result.outcome.hit && result.dealt > 0 && targetSheet && mayReact(targetId) && cutting?.bard.id !== targetId && !getCombatState(campaignId).reactionsSpent.includes(targetId)) {
         const targetState = readConditions(targetToken.conditions ?? []);
         const own = readFeatures(targetSheet);
         const options: string[] = [];
@@ -4342,10 +4349,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           text: `${token.name} fails the ${label} check (${result.total} vs DC ${dc}).`,
           options: ['Tactical Mind'],
         });
-        if (choice === 'Tactical Mind') {
-          result = withTacticalMind(result, dc, rollDie(10));
-          if (result.success) await spendSheetUse(campaignId, token, 'Second Wind');
-        }
+        if (choice === 'Tactical Mind') result = withTacticalMind(result, dc, rollDie(10));
       }
       // Bardic Inspiration: a creature that failed the check while it holds the die is asked; the die is added.
       if (result.success === false && dc !== undefined) {
@@ -4358,6 +4362,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         await spendSheetUse(campaignId, token, 'Stroke of Luck');
       }
       // Peerless Skill: a Lore Bard that failed the check is asked; its own die is added, and the use is spent only on a success.
+      let peerlessCheck = false;
       if (result.success === false && dc !== undefined && canUsePeerlessSkill(sheet)) {
         const choice = await askReaction(io, campaignId, {
           token,
@@ -4366,7 +4371,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         });
         if (choice === 'Peerless Skill') {
           result = withPeerlessSkill(result, dc, rollDie(bardicSides(sheet)));
-          if (result.success) await spendSheetUse(campaignId, token, 'Bardic Inspiration');
+          peerlessCheck = result.success === true;
         }
       }
       // Cutting Words: a Lore Bard that sees the creature within 60 feet is asked once the check succeeds; the die comes off it.
@@ -4378,6 +4383,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           await spendReaction(io, campaignId, cut.bard.id);
         }
       }
+      // Tactical Mind and Peerless Skill spend their use on a success only: not when Cutting Words turned it back into a failure.
+      if (result.success === true && result.tacticalMind?.success === true) await spendSheetUse(campaignId, token, 'Second Wind');
+      if (peerlessCheck && result.success === true) await spendSheetUse(campaignId, token, 'Bardic Inspiration');
       // Dark One's Own Luck: once the roll is seen, a Fiend Patron Warlock with a use left is asked whether to add 1d10.
       // With no DC the table reads the total, so it is asked each time.
       if (sheet && result.success !== true && hasOwnLuckLeft(sheet)) {
@@ -5529,7 +5537,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             fixed: { damage: first.damage.map((line, index) => ({ ...line, rolled: rerolled[index] })), saves: first.targets.map((target) => ({ outcome: target.outcome })) },
           });
           if (!again.ok) return refuseRequest(socket, ack, again.reason);
-          result = { ...again, summary: `${again.summary}; Empowered Spell` };
+          result = again;
         }
       }
       // Indomitable Might: a Barbarian's failed Strength save uses its Strength score when that is higher than the total.
@@ -5616,6 +5624,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (charmsOrFrightens(action)) {
         for (const [index, target] of result.targets.entries()) {
           if (target.outcome.success || target.outcome.roll === null) continue;
+          // An aura that keeps every condition of the effect off the creature leaves Countercharm nothing to change.
+          if (countercharmIdle(action, target.dealt > 0, auras[index].immune)) continue;
           const bards = (await bardsNear(campaignId, map, tokens, targetTokens[index], COUNTERCHARM_FEET, false)).filter(
             (bard) => ![...countercharmed.values()].some((used) => used.id === bard.token.id)
           );
@@ -5741,7 +5751,6 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           },
         });
         if (!result.ok) return refuseRequest(socket, ack, result.reason);
-        for (const index of luckySaves) await spendSheetUse(campaignId, targetTokens[index], 'Stroke of Luck');
       }
       // Superior Hunter's Defense: a Hunter that takes damage is asked, and resists one of its types until the turn ends.
       const defenseLines: string[] = [];
@@ -5749,7 +5758,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       for (const [index, target] of result.targets.entries()) {
         const hunter = targetTokens[index];
         if (target.dealt <= 0 || !hasHunterFeature(targetSheets[index], SUPERIOR_DEFENSE)) continue;
-        if (getCombatState(campaignId).reactionsSpent.includes(hunter.id) || !canAct(readConditions(hunter.conditions ?? []))) continue;
+        // A Bard that took Countercharm for itself has used its reaction on this save.
+        const countered = [...countercharmed.values()].some((bard) => bard.id === hunter.id);
+        if (countered || getCombatState(campaignId).reactionsSpent.includes(hunter.id) || !canAct(readConditions(hunter.conditions ?? []))) continue;
         const choice = await askReaction(io, campaignId, {
           token: hunter,
           text: `${hunter.name} takes ${target.dealt} damage from ${action.name}.`,
@@ -5776,7 +5787,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           },
         });
         if (!again.ok) return refuseRequest(socket, ack, again.reason);
-        result = first.summary.endsWith('; Empowered Spell') ? { ...again, summary: `${again.summary}; Empowered Spell` } : again;
+        result = again;
         for (const [index, type] of resistedBy) defenseLines.push(`${targetTokens[index].name} resists ${type} damage until the turn ends (${SUPERIOR_DEFENSE})`);
       }
       const undo = await prepareUndo(campaignId, map.id, [sourceToken.characterId, ...targetTokens.map((t) => t.characterId), ...(healed ? [healed.characterId] : [])]);
@@ -5791,6 +5802,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         await spendReaction(io, campaignId, hunter.id);
       }
       for (const index of ownLuckSaves.keys()) await spendSheetUse(campaignId, targetTokens[index], DARK_ONES_OWN_LUCK);
+      // Stroke of Luck, spent once the undo is kept, so that undoing the save gives it back.
+      for (const index of luckySaves) await spendSheetUse(campaignId, targetTokens[index], 'Stroke of Luck');
 
       spendRecharge(campaignId, sourceId, action);
       if (action.channel) await spendSheetUse(campaignId, sourceToken, action.channel);
@@ -5906,7 +5919,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         ...(evoker.potent && result.targets.some((target) => target.outcome.success && target.dealt > 0) ? ['Potent Cantrip'] : []),
         ...(await settleEvoker(io, campaignId, map.id, sourceToken, sourceSheet, evoker, result.targets.some((target) => target.dealt > 0))),
       ];
-      let summary = [result.summary, ...defenseLines, ...auraLines, ...riders, ...evokerLines, ...endured.filter((note) => !turnedAgain.includes(note))].join('; ');
+      // Empowered Spell is said once every later step has worked the summary out again.
+      let summary = [result.summary, ...(empowered ? ['Empowered Spell'] : []), ...defenseLines, ...auraLines, ...riders, ...evokerLines, ...endured.filter((note) => !turnedAgain.includes(note))].join('; ');
       if (action.unarmed && !result.targets[0].outcome.success) {
         const [only] = targetTokens;
         if (action.unarmed === 'grapple') {
