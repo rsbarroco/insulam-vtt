@@ -214,8 +214,10 @@ function ActionRow({
   // A spent "(Recharge 5–6)" waits for its d6 at the start of the creature's turn.
   const spent = action.recharge !== undefined && !action.recharge.ready;
   const legendary = action.legendary ? ` · Legendary, ${action.legendary.max - action.legendary.used}/${action.legendary.max} left` : '';
-  const detail = `${spent ? `${caught} · not recharged` : caught}${legendary}`;
-  const levelled = action.spell !== null && action.spell.level > 0;
+  const perDay = action.perDay ? ` · ${action.perDay.left}/${action.perDay.max} a day left` : '';
+  const detail = `${spent ? `${caught} · not recharged` : caught}${legendary}${perDay}`;
+  // A stat block's spell is cast with no slot, at the level its stat block writes.
+  const levelled = action.spell !== null && action.spell.level > 0 && !action.spell.noSlot;
   if (!levelled) {
     return (
       <button type="button" disabled={busy || spent} onClick={() => onMake()} className={ROW}>

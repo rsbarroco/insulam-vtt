@@ -1685,7 +1685,7 @@ export interface CombatActionSummary {
     damage: string;
   } | null;
   /** For a spell: its level (0 for a cantrip) and the slot levels the caster can cast it with now. */
-  spell: { level: number; slotLevels: number[] } | null;
+  spell: { level: number; slotLevels: number[]; noSlot?: true } | null;
   /** The saving throw the server can roll for its targets, or null. */
   save: {
     ability: 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
@@ -1707,6 +1707,8 @@ export interface CombatActionSummary {
   multiattack?: Array<{ count: number; choices: number[] }>;
   /** A Legendary Action: the uses the creature has a round, and how many it has taken. */
   legendary?: { max: number; used: number };
+  /** A stat block's action or Spellcasting spell with uses a day ("2/Day Each"): how many, and how many are left today. */
+  perDay?: { max: number; left: number };
   /** A healing spell, made with `combat.heal`: what it restores at its own level ("2d8+3") and its range. */
   heal?: { dice: string; rangeFeet: number };
   /** Preserve Life, made with `combat.heal` and `shares`: the Hit Points to divide and how far it reaches. */

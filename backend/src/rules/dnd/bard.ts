@@ -10,7 +10,8 @@
 //   • Countercharm (Bard 7): when the Bard or a creature within 30 feet fails
 //     a save against an effect that applies the Charmed or Frightened
 //     condition, the Bard can take a Reaction to have the save rolled again,
-//     with Advantage.
+//     with Advantage. Asked for a stat block's riders, a spell that says so,
+//     Turn Undead, Abjure Foes and Intimidating Presence.
 //   • Peerless Skill (Lore 14): when the Bard fails an ability check or attack
 //     roll, it can expend a use of Bardic Inspiration, roll the die and add
 //     it; on a failure the use isn't expended.
@@ -105,17 +106,33 @@ export function withPeerlessSkill(result: CheckResult, dc: number, rolled: numbe
   };
 }
 
+type CharmingAction = Pick<CombatAction, 'source' | 'text' | 'name' | 'spell' | 'channel' | 'onlyCreatureType' | 'untilDamaged' | 'presence'>;
+
+/**
+ * The conditions a failed save against an action applies, when the server
+ * reads them all: a stat block's "Failure:" riders, the conditions a Paladin's
+ * Abjure Foes leaves until the creature takes damage, the Frightened condition
+ * of a Berserker's Intimidating Presence. Null for what it does not read in
+ * full (a spell's description, Turn Undead's Incapacitated).
+ */
+function conditionsApplied(action: CharmingAction): string[] | null {
+  if (action.source === 'statBlock') return conditionsOnFailure(action.text ?? '').map((rider) => rider.condition);
+  if (action.untilDamaged) return action.untilDamaged;
+  if (action.presence) return ['Frightened'];
+  return null;
+}
+
 /**
  * Whether an action's failed save applies the Charmed or Frightened
- * condition, as far as its text says: a stat block's "Failure:" sentence, a
- * spell's description, or Turn Undead.
+ * condition, as far as the server reads it: a stat block's "Failure:"
+ * sentence, Abjure Foes, Intimidating Presence, a spell's description, or
+ * Turn Undead.
  */
-export function charmsOrFrightens(action: Pick<CombatAction, 'source' | 'text' | 'name' | 'spell' | 'channel' | 'onlyCreatureType'>): boolean {
+export function charmsOrFrightens(action: CharmingAction): boolean {
   if (action.onlyCreatureType === 'undead' && action.channel) return true;
   const named = (text: string) => /\b(charmed|frightened)\b/i.test(text);
-  if (action.source === 'statBlock') {
-    return conditionsOnFailure(action.text ?? '').some((rider) => named(rider.condition));
-  }
+  const applied = conditionsApplied(action);
+  if (applied) return applied.some(named);
   if (action.spell) {
     const spell = findSpell(action.spell.id) ?? findSpell(action.name);
     return (spell?.description ?? []).some((paragraph) => /\b(?:has|have) the (?:charmed|frightened) condition\b/i.test(paragraph));
@@ -124,16 +141,16 @@ export function charmsOrFrightens(action: Pick<CombatAction, 'source' | 'text' |
 }
 
 /**
- * Whether Countercharm would change nothing for a creature: a stat block's
- * effect that deals no damage and whose every condition the creature is kept
- * from by an aura it stands in (`immune`, by condition in lower case: an Aura
- * of Courage, an Aura of Devotion). A spell's other effects are not read, so
- * it is never one.
+ * Whether Countercharm would change nothing for a creature: an effect that
+ * deals it no damage and whose every condition it is immune to (`immune`, by
+ * condition in lower case: an Aura of Courage, an Aura of Devotion, a raging
+ * Berserker's Mindless Rage). A spell's or Turn Undead's other effects are not
+ * read, so neither is ever one.
  */
-export function countercharmIdle(action: Pick<CombatAction, 'source' | 'text'>, dealsDamage: boolean, immune: Readonly<Record<string, string>>): boolean {
-  if (dealsDamage || action.source !== 'statBlock') return false;
-  const riders = conditionsOnFailure(action.text ?? '');
-  return riders.length > 0 && riders.every((rider) => immune[rider.condition.toLowerCase()] !== undefined);
+export function countercharmIdle(action: CharmingAction, dealsDamage: boolean, immune: Readonly<Record<string, string>>): boolean {
+  if (dealsDamage) return false;
+  const applied = conditionsApplied(action);
+  return applied !== null && applied.length > 0 && applied.every((condition) => immune[condition.toLowerCase()] !== undefined);
 }
 
 /** How a save is rolled again with Countercharm: with Advantage, which a Disadvantage on the first roll cancels. */

@@ -442,6 +442,167 @@ describe('Countercharm with other features on the same save', () => {
   });
 });
 
+describe('a roll Cutting Words turns into a failure is a failed D20 Test again', () => {
+  const longsword = async () => ask(player, 'combat.attack', { attackerId: HERO, targetId: FOE, action: await actionIndex(player, HERO, 'Longsword') });
+
+  it('offers Bardic Inspiration again, not Heroic Inspiration, and does not ask Cutting Words a second time', async () => {
+    fight(HERO);
+    await setSheet(heroCharacterId, sheet('Fighter', 1, [], { inspiration: true }));
+    await setSheet(foeCharacterId, sheet('Bard', 5, ['Cutting Words']));
+    await setTokens((t) => (t.id === HERO ? { ...t, metadata: heldDie() } : t));
+    const heroAsked = answering(player, ['Bardic Inspiration', 'Heroic Inspiration']);
+    const bardAsked = answering(dm, ['Cutting Words (attack roll)']);
+    // 13 + 5 = 18 hits AC 16; the Bard's d8 takes 4 off: 14 misses; the Hero's d8 adds 5: 19 hits; 6 + 3 slashing.
+    rolls = [13, 2, 4, 5, 6];
+    const swing = await longsword();
+    expect(optionsOf(bardAsked)).toEqual([['Cutting Words (attack roll)']]);
+    expect(optionsOf(heroAsked)).toEqual([['Bardic Inspiration']]);
+    expect(swing).toMatchObject({ ok: true, hit: true, dealt: 9 });
+    expect(swing.summary).toContain("Foe's Cutting Words -4");
+    expect(swing.summary).toContain('Bardic Inspiration +5');
+    expect((await sheetNow(heroCharacterId)).inspiration).toBe(true);
+    expect(await used(foeCharacterId, 'Bardic Inspiration')).toBe(1);
+  });
+
+  it('offers Stroke of Luck again: the d20 becomes a 20', async () => {
+    fight(HERO);
+    await setSheet(heroCharacterId, sheet('Rogue', 20));
+    await setSheet(foeCharacterId, sheet('Bard', 5, ['Cutting Words']));
+    const heroAsked = answering(player, ['Stroke of Luck']);
+    answering(dm, ['Cutting Words (attack roll)']);
+    // 18 hits; the d8 takes 4 off: 14 misses; Stroke of Luck: a 20, a Critical Hit: 2d8 of 3s + 3.
+    rolls = [13, 2, 4, 3, 3];
+    const swing = await longsword();
+    expect(optionsOf(heroAsked)).toEqual([['Stroke of Luck']]);
+    expect(swing).toMatchObject({ ok: true, hit: true, dealt: 9 });
+    expect(swing.summary).toContain('Stroke of Luck: the d20 becomes a 20');
+    expect(await used(heroCharacterId, 'Stroke of Luck')).toBe(1);
+  });
+
+  it('offers Peerless Skill again, and spends its use once the attack hits', async () => {
+    fight(HERO);
+    await setSheet(heroCharacterId, sheet('Bard', 14, ['Peerless Skill']));
+    await setSheet(foeCharacterId, sheet('Bard', 5, ['Cutting Words']));
+    const heroAsked = answering(player, ['Peerless Skill']);
+    answering(dm, ['Cutting Words (attack roll)']);
+    // 18 hits; the d8 takes 4 off: 14 misses; the Hero's d10 adds 5: 19 hits; 6 + 3.
+    rolls = [13, 2, 4, 5, 6];
+    const swing = await longsword();
+    expect(optionsOf(heroAsked)).toEqual([['Peerless Skill']]);
+    expect(swing).toMatchObject({ ok: true, hit: true, dealt: 9 });
+    expect(await used(heroCharacterId, 'Bardic Inspiration')).toBe(1);
+  });
+
+  it('offers Bardic Inspiration again on a check, and does not ask Cutting Words a second time', async () => {
+    fight(HERO);
+    await setSheet(heroCharacterId, sheet('Fighter', 1, [], { inspiration: true }));
+    await setSheet(foeCharacterId, sheet('Bard', 5, ['Cutting Words']));
+    await setTokens((t) => (t.id === HERO ? { ...t, metadata: heldDie() } : t));
+    const heroAsked = answering(player, ['Bardic Inspiration', 'Heroic Inspiration']);
+    const bardAsked = answering(dm, ['Cutting Words']);
+    // 10 + 6 = 16 meets DC 15; the Bard's d8 takes 4 off: 12 fails; the Hero's d8 adds 5: 17.
+    rolls = [10, 4, 5];
+    const check = await ask(player, 'combat.check', { tokenId: HERO, skill: 'stealth', dc: 15 });
+    expect(optionsOf(bardAsked)).toEqual([['Cutting Words']]);
+    expect(optionsOf(heroAsked)).toEqual([['Bardic Inspiration']]);
+    expect(check).toMatchObject({ ok: true, total: 17, success: true });
+    expect((await sheetNow(heroCharacterId)).inspiration).toBe(true);
+  });
+
+  it('a hit made again after Cutting Words is a new hit: a target that declined Shield is asked again', async () => {
+    fight(HERO);
+    await setSheet(foeCharacterId, withSpells(sheet('Wizard/Rogue', 5, ['Uncanny Dodge']), 'Shield'));
+    const skaldId = (
+      await prisma.character.create({ data: { userId: dmId, campaignId, name: 'Skald', gameSystem: 'DND_5E', data: toJson(sheet('Bard', 5, ['Cutting Words'])) } })
+    ).id;
+    const SKALD = randomUUID();
+    await prisma.map.update({
+      where: { id: mapId },
+      data: {
+        tokens: toJson([
+          ...freshTokens().map((t) => (t.id === HERO ? { ...t, metadata: heldDie() } : t)),
+          token(SKALD, 'Skald', 2, { position: { x: 2, y: 2 }, characterId: skaldId, type: 'npc', disposition: 'hostile' }),
+        ]),
+      },
+    });
+    const heroAsked = answering(player, ['Bardic Inspiration']);
+    // The Foe declines Shield the first time and casts it the second; the Skald takes Cutting Words.
+    const dmAsked: Offer[] = [];
+    dm.on('combat.prompt', (offer: Offer) => {
+      dmAsked.push(offer);
+      const [option] = offer.options;
+      const shieldsBefore = dmAsked.filter((asked) => asked.options[0].startsWith('Shield')).length;
+      const choice = option.startsWith('Shield') ? (shieldsBefore > 1 ? option : null) : option === 'Cutting Words (attack roll)' ? option : null;
+      dm.emit('combat.react', { promptId: offer.promptId, choice }, () => undefined);
+    });
+    // 11 + 5 = 16 hits AC 16 (Shield would make it a miss: declined); the Skald's d8 takes 4 off: 12 misses;
+    // the Hero's d8 adds 6: 18 hits again; Shield, asked again: AC 21, a miss.
+    rolls = [11, 4, 4, 6, 5];
+    const swing = await longsword();
+    expect(optionsOf(dmAsked)).toEqual([['Shield (level 1 slot)'], ['Cutting Words (attack roll)'], ['Shield (level 1 slot)']]);
+    expect(dmAsked.map((offer) => offer.tokenName)).toEqual(['Foe', 'Skald', 'Foe']);
+    expect(optionsOf(heroAsked)).toEqual([['Bardic Inspiration']]);
+    expect(swing).toMatchObject({ ok: true, hit: false, dealt: 0 });
+    expect(swing.summary).toContain("Skald's Cutting Words -4");
+    expect(swing.summary).toContain('Bardic Inspiration +6');
+    expect(swing.summary).toContain('Shield (level 1 slot): +5 AC');
+    expect((await sheetNow(foeCharacterId)).spellcasting.slots['1'].expended).toBe(1);
+    expect(getState(campaignId).reactionsSpent).toContain(FOE);
+    expect(await used(skaldId, 'Bardic Inspiration')).toBe(1);
+  });
+});
+
+describe('Countercharm against the features that frighten', () => {
+  it('is asked against a Paladin’s Abjure Foes', async () => {
+    fight(FOE);
+    await setSheet(foeCharacterId, sheet('Paladin', 9, ['Abjure Foes']));
+    await setSheet(heroCharacterId, sheet('Bard', 7));
+    const asked = answering(player, ['Countercharm']);
+    // 5 + 1 = 6 fails DC 14; again with Advantage, 16 and 8: 17 saves.
+    rolls = [5, 16, 8];
+    const abjured = await ask(dm, 'combat.save', { sourceId: FOE, targetIds: [HERO], action: await actionIndex(dm, FOE, 'Abjure Foes') });
+    expect(optionsOf(asked)).toEqual([['Countercharm']]);
+    expect(abjured.targets?.[0]).toMatchObject({ saved: true, total: 17 });
+    expect((await tokenNow(HERO)).conditions).toEqual([]);
+    expect(getState(campaignId).reactionsSpent).toEqual([HERO]);
+  });
+
+  it('is asked against a Berserker’s Intimidating Presence', async () => {
+    fight(FOE);
+    await setSheet(foeCharacterId, sheet('Barbarian', 14, ['Intimidating Presence']));
+    await setSheet(heroCharacterId, sheet('Bard', 7));
+    const asked = answering(player, ['Countercharm']);
+    // 5 + 1 = 6 fails DC 14; again with Advantage, 16 and 8: 17 saves.
+    rolls = [5, 16, 8];
+    const presence = await ask(dm, 'combat.save', { sourceId: FOE, targetIds: [HERO], action: await actionIndex(dm, FOE, 'Intimidating Presence') });
+    expect(optionsOf(asked)).toEqual([['Countercharm']]);
+    expect(presence.targets?.[0]).toMatchObject({ saved: true, total: 17 });
+    expect((await tokenNow(HERO)).conditions).toEqual([]);
+  });
+
+  it('is not asked for a raging Berserker that Mindless Rage keeps from being Frightened', async () => {
+    fight(HERO);
+    await setSheet(heroCharacterId, sheet('Bard/Barbarian', 10, ['Mindless Rage']));
+    await setSheet(foeCharacterId, sheet('Paladin', 9, ['Abjure Foes']));
+    expect((await ask(player, 'combat.feature', { tokenId: HERO, feature: 'Rage' })).ok).toBe(true);
+    setState(campaignId, { ...getState(campaignId), currentTokenId: FOE, turn: { movementSpent: 0, dashes: 0, action: null, bonusAction: false, attacks: 0 } });
+    const asked = answering(player, ['Countercharm']);
+    // Abjure Foes: 3 + 1 = 4 fails DC 14 (Advantage on no Wisdom save: rolled once), and the condition does not take.
+    rolls = [3];
+    const abjured = await ask(dm, 'combat.save', { sourceId: FOE, targetIds: [HERO], action: await actionIndex(dm, FOE, 'Abjure Foes') });
+    expect(abjured.targets?.[0]).toMatchObject({ saved: false });
+    expect(abjured.summary).toContain('Hero is immune to the Frightened condition (Mindless Rage)');
+    // The Ogre's Dread Roar: the same.
+    rolls = [3];
+    const roar = await ask(dm, 'combat.save', { sourceId: OGRE, targetIds: [HERO], action: await actionIndex(dm, OGRE, 'Dread Roar') });
+    expect(roar.targets?.[0]).toMatchObject({ saved: false });
+    expect(roar.summary).toContain('Hero is immune to the Frightened condition (Mindless Rage)');
+    expect(asked).toHaveLength(0);
+    expect((await tokenNow(HERO)).conditions).toEqual([]);
+    expect(getState(campaignId).reactionsSpent).toEqual([]);
+  });
+});
+
 describe('a Sorcerer’s Fire Bolt and an Evoker’s', () => {
   it('Transmuted Spell, then Elemental Affinity of the new type, then Empowered Spell on the dice', async () => {
     fight(HERO);

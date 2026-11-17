@@ -251,6 +251,28 @@ describe('AttackMenu extra attacks', () => {
     );
   });
 
+  it('casts a stat block’s spell with no slot, and shows its uses a day', async () => {
+    const { socket } = renderMenu({
+      actions: [
+        {
+          index: 0,
+          name: 'Fireball',
+          cost: 'action',
+          attack: null,
+          spell: { level: 3, slotLevels: [], noSlot: true },
+          save: { ability: 'dex', dc: 14, halfOnSuccess: true, damage: '9d6 fire', rangeFeet: 150 },
+          perDay: { max: 2, left: 1 },
+        },
+      ],
+    });
+    socket.resolveSave.mockResolvedValue({ ok: true, summary: 'Fireball', targets: [] });
+    expect(await screen.findByText(/1\/2 a day left/)).toBeInTheDocument();
+    expect(screen.queryByText('No spell slot left')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Fireball/ }));
+    await waitFor(() => expect(socket.resolveSave).toHaveBeenCalled());
+    expect(socket.resolveSave.mock.calls[0][0]).not.toHaveProperty('slotLevel');
+  });
+
   it('casts a healing spell on the creature with the slot chosen', async () => {
     const socket = {
       listCombatActions: vi.fn().mockResolvedValue({
