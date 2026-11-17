@@ -3150,7 +3150,7 @@ export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
                       }
                       placeholder="Feature name, e.g. Darkvision"
                       aria-label={`Feature ${index + 1} name`}
-                      className="flex-1 px-2 py-1 border border-ink/20 rounded-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-brand"
+                      className="flex-1 min-w-0 px-2 py-1 border border-ink/20 rounded-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-brand"
                     />
                     {(() => {
                       const offered = optionsOfFeature(feature.name, featureChoices);
@@ -3168,7 +3168,7 @@ export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
                             )
                           }
                           aria-label={`Feature ${index + 1} option`}
-                          className="ml-2 px-2 py-1 border border-ink/20 rounded-sm text-sm focus:outline-hidden focus:ring-2 focus:ring-brand"
+                          className="ml-2 max-w-[45%] px-2 py-1 border border-ink/20 rounded-sm text-sm focus:outline-hidden focus:ring-2 focus:ring-brand"
                         >
                           <option value="">Option…</option>
                           {offered.options.map((option) => (
@@ -3187,7 +3187,7 @@ export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
                         )
                       }
                       aria-label={`Remove ${feature.name || 'feature'}`}
-                      className="ml-2 px-2 py-1 text-danger-ink hover:bg-danger/10 font-bold"
+                      className="ml-2 shrink-0 px-2 py-1 text-danger-ink hover:bg-danger/10 font-bold"
                     >
                       ×
                     </button>

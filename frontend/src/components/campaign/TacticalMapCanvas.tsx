@@ -141,6 +141,26 @@ export function fitCamera(
   };
 }
 
+/** The attack menu's width (Tailwind w-72) and the least height it is given before it moves up. */
+const ATTACK_MENU_WIDTH = 288;
+const ATTACK_MENU_ROOM = 360;
+
+/**
+ * Where the attack menu opens: at the point clicked, moved left and up as far
+ * as it must to stay inside the view, and no taller than the room below it,
+ * so that it scrolls rather than running off the view's edge.
+ */
+export function attackMenuPlacement(
+  at: { x: number; y: number },
+  view: { width: number; height: number }
+): { left: number; top: number; maxHeight: number } {
+  const margin = 8;
+  const left = Math.max(margin, Math.min(at.x, view.width - ATTACK_MENU_WIDTH - margin));
+  const room = Math.min(ATTACK_MENU_ROOM, view.height - margin * 2);
+  const top = Math.max(margin, Math.min(at.y, view.height - margin - room));
+  return { left, top, maxHeight: Math.max(0, view.height - margin - top) };
+}
+
 export default function TacticalMapCanvas() {
   const { currentMap, setCurrentMap, userRole, campaign } = useCampaign();
   const { socket } = useWebSocket();
@@ -1094,7 +1114,7 @@ export default function TacticalMapCanvas() {
               ? `${formatFeet(sight.feet)} ft away, ${coverLabel(sight.cover)}`
               : null
           }
-          style={{ left: Math.max(8, attacking.x), top: Math.max(8, attacking.y) }}
+          style={attackMenuPlacement(attacking, canvasSize)}
           onResolved={(answer) => {
             if (answer.ok) showToast(answer.summary, answer.landed ? 'success' : 'info');
             else showToast(answer.error, 'error');

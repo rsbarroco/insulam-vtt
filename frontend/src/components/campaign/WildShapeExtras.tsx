@@ -61,12 +61,12 @@ export default function WildShapeExtras({ resurgence, spend, onResult }: WildSha
   };
 
   return (
-    <span className="flex items-center gap-1" role="group" aria-label="Wild Shape uses">
+    <span className="flex flex-wrap items-center justify-center gap-1" role="group" aria-label="Wild Shape uses">
       <select
         aria-label="Wild Resurgence or Wild Companion"
         value={offered.includes(picked) ? picked : offered[0]}
         onChange={(event) => setPicked(event.target.value as Choice)}
-        className="input-cozy text-sm py-1"
+        className="input-cozy text-sm py-1 w-auto max-w-full"
       >
         {offered.map((key) => (
           <option key={key} value={key}>
@@ -79,7 +79,7 @@ export default function WildShapeExtras({ resurgence, spend, onResult }: WildSha
           aria-label="Spell slot level"
           value={slotLevel}
           onChange={(event) => setSlotLevel(Number(event.target.value))}
-          className="input-cozy text-sm py-1"
+          className="input-cozy text-sm py-1 w-auto max-w-full"
         >
           {SLOT_LEVELS.map((level) => (
             <option key={level} value={level}>

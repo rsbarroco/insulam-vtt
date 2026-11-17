@@ -536,7 +536,7 @@ export default function AttackMenu({
     <div
       role="dialog"
       aria-label={`${attacker.name} attacks ${target.name}`}
-      className="absolute z-30 glass-panel p-3 space-y-2 w-72 bg-parchment/95 backdrop-blur-xs shadow-lg"
+      className="absolute z-30 glass-panel p-3 space-y-2 w-72 overflow-y-auto overscroll-contain bg-parchment/95 backdrop-blur-xs shadow-lg"
       style={style}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {

@@ -286,7 +286,7 @@ export default function TurnBar() {
 
   return (
     <div
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 glass-panel px-3 py-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-parchment/95 backdrop-blur-xs text-sm text-ink max-w-[calc(100%-2rem)]"
+      className="absolute bottom-4 inset-x-4 mx-auto w-fit z-20 glass-panel px-3 py-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-parchment/95 backdrop-blur-xs text-sm text-ink max-w-[calc(100%-2rem)]"
       role="group"
       aria-label={`Turn of ${actingName}`}
     >
