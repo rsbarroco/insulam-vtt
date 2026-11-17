@@ -91,3 +91,20 @@ it('says so when the rules cannot be loaded', async () => {
   render(<Harness />);
   expect(await screen.findByText('This campaign is not set to D&D 5e')).toBeInTheDocument();
 });
+
+it('asks for the option of a feature the class gives at the level, as a step of its own', async () => {
+  api.getDndRules.mockResolvedValue({
+    ...catalogue(),
+    featureChoices: [{
+      id: 'fightingStyleFighter', title: 'Fighting Style', class: 'Fighter', level: 1, counts: Array(20).fill(1), writes: 'adds', asked: true,
+      options: [{ label: 'Archery', name: 'Archery (Fighting Style feat)' }, { label: 'Defense', name: 'Defense (Fighting Style feat)' }],
+    }],
+  });
+  render(<Harness />);
+  await userEvent.selectOptions(await screen.findByLabelText('Class'), 'Wizard');
+  expect(screen.queryByText('Feature options')).not.toBeInTheDocument();
+  await userEvent.selectOptions(screen.getByLabelText('Class'), 'Fighter');
+  expect(screen.getByText('Feature options')).toBeInTheDocument();
+  await userEvent.selectOptions(screen.getByLabelText('Fighting Style'), 'Defense');
+  expect(latest.featureChoices).toEqual({ fightingStyleFighter: ['Defense'] });
+});

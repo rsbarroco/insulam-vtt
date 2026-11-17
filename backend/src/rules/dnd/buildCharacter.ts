@@ -6,6 +6,8 @@
 // campaign has them (utils/characterRules.ts) and works out the sheet they
 // make: scores, Hit Points, saving throws, skills, spell slots, and the
 // features of the species, the feats and the classes, written out.
+// Where a feature offers options, the one chosen is written into the
+// feature's name, the name the rules modules read it from (featureChoices.ts).
 //
 // Pure: the caller stores what comes back. What is not worked out is said in
 // docs/TACTICAL_MODE.md: equipment, Armor Class beyond 10 + Dexterity, most
@@ -25,6 +27,7 @@ import {
   spellSlots, tracksRefusal, type ClassName, type Improvement, type Tracks,
 } from './advancement';
 import { buildFeatures, findClass } from './classes';
+import { applyChoices, FEATURE_CHOICES, renameKey } from './featureChoices';
 import { backgroundIncreaseRefusal, findBackground, findFeat, findSpecies, originFeatChoices, type Feat } from './origins';
 
 export const ABILITIES: readonly Ability[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
@@ -74,6 +77,12 @@ export interface CharacterChoices {
   skills: readonly Skill[];
   /** One for each level that gives a feat or ability score points, in any order. */
   improvements: readonly ImprovementChoice[];
+  /**
+   * The options taken where a feature or the species gives a choice, by the
+   * choice's id and the options' labels (featureChoices.ts). One left out is
+   * not written: the feature keeps its own name until the sheet says.
+   */
+  featureChoices?: Readonly<Record<string, readonly string[]>>;
 }
 
 export type BuildResult = { ok: true; sheet: Record<string, unknown>; summary: BuildSummary } | { ok: false; errors: string[] };
@@ -231,6 +240,22 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
   if (!open && picks.some((skill) => !offered.has(skill))) errors.push(`Choose skills from the list of ${tracks.join(' or ')}`);
   if (picks.some((skill) => fromBackground.includes(skill))) errors.push(`${background.name} already gives ${background.skillProficiencies.join(' and ')}`);
 
+  // ── The options of features and of the species ────────────────────────
+  const optionPicks: Record<string, readonly string[]> = { ...(choices.featureChoices ?? {}) };
+  for (const choice of FEATURE_CHOICES) {
+    if (choice.asked) continue;
+    // A feat's option that is the score it increased: the one its points went to.
+    const pick = chosen.find((entry) => findFeat(entry.feat)?.name === choice.feat);
+    const option = choice.options.find((entry) => entries(pick?.featPoints).some(([ability]) => label(ability) === entry.label));
+    delete optionPicks[choice.id];
+    if (option) optionPicks[choice.id] = [option.label];
+  }
+  const options = applyChoices({ classes: tracks, level, species: species.name, feats: taken.map((feat) => feat.name) }, optionPicks);
+  errors.push(...options.errors);
+  // A Fighting Style feat a level gave is not chosen again as the class's Fighting Style.
+  const twice = taken.find((feat) => options.added.some((entry) => findFeat(entry.name)?.id === feat.id && entry.name.endsWith(' feat)')));
+  if (twice && !twice.repeatable) errors.push(`${twice.name} can be taken once`);
+
   if (errors.length > 0) return { ok: false, errors };
 
   // ── The sheet ──────────────────────────────────────────────────────────
@@ -255,7 +280,7 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
     characterName: choices.name.trim(),
     class: tracks.join(' / '),
     level,
-    race: species.name,
+    race: options.race ?? species.name,
     background: background.name,
     experiencePoints: 0,
     inspiration: false,
@@ -294,15 +319,16 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
         description: [trait.text, ...(trait.options ?? []).map((option) => `${option.name}. ${option.text}`)].join('\n\n'),
       })),
       ...taken.map((feat) => ({
-        name: `${feat.name} (${feat.category} feat)`,
+        name: options.renamed.get(renameKey('feat', feat.name)) ?? `${feat.name} (${feat.category} feat)`,
         description: [feat.description, ...feat.benefits.map((benefit) => `${benefit.name}. ${benefit.text}`), feat.repeatable ? `Repeatable. ${feat.repeatable}` : '']
           .filter(Boolean)
           .join('\n\n'),
       })),
       ...built.map((feature) => ({
-        name: `${feature.name} (${feature.from} ${feature.level})`,
+        name: options.renamed.get(renameKey(feature.from, feature.name)) ?? `${feature.name} (${feature.from} ${feature.level})`,
         description: feature.text.join('\n\n'),
       })),
+      ...options.added,
     ],
     ...(casts
       ? {

@@ -2084,6 +2084,42 @@ export interface DndClassSummary {
   improvements: DndImprovement[];
 }
 
+/** One option of a choice a feature gives, and the name the sheet gets for it. */
+export interface DndFeatureOption {
+  /** What the form shows and the build takes: "Divine Strike". */
+  label: string;
+  /** The feature name the server reads the option from: "Blessed Strikes: Divine Strike (Cleric 7)". */
+  name: string;
+  /** What it is a variant of: "Agonizing Blast" for each of its cantrips. */
+  group?: string;
+  /** Whether more than one option of the group can be taken. */
+  repeatable?: boolean;
+  /** The class level it needs. */
+  minLevel?: number;
+  /** The group of another option that must be taken with it. */
+  needs?: string;
+}
+
+/** A choice a class feature, a feat or a species gives: Blessed Strikes, Metamagic, a Dragonborn's ancestor. */
+export interface DndFeatureChoice {
+  id: string;
+  title: string;
+  class?: string;
+  feat?: string;
+  species?: string;
+  /** The class level it first comes at. */
+  level: number;
+  /** How many options a character has taken by each level, level 1 first. */
+  counts: number[];
+  /** Whether an option renames the feature that gives it, is listed beside it, or follows the species as `race`. */
+  writes: 'renames' | 'adds' | 'race';
+  /** The feature a `renames` choice renames. */
+  feature?: string;
+  /** False when the build works it out from another choice. */
+  asked: boolean;
+  options: DndFeatureOption[];
+}
+
 export interface DndRulesCatalogue {
   source: string;
   characterRules: CharacterRules;
@@ -2091,6 +2127,8 @@ export interface DndRulesCatalogue {
   backgrounds: DndBackground[];
   feats: DndFeat[];
   classes: DndClassSummary[];
+  /** The options features make a character choose, with the name each is written under. */
+  featureChoices?: DndFeatureChoice[];
 }
 
 export type DndRuleBlock =
@@ -2130,6 +2168,8 @@ export interface DndCharacterChoices {
   originFeat: string;
   skills: string[];
   improvements: Array<{ level: number; feat: string; featPoints?: DndPoints; abilityPoints?: DndPoints }>;
+  /** By choice id, the labels of the options taken. */
+  featureChoices?: Record<string, string[]>;
 }
 
 export interface DndBuildSummary {

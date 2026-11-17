@@ -85,6 +85,13 @@ describe('GET /api/campaigns/:campaignId/rules/dnd', () => {
     expect(fighter.skillChoices.count).toBe(2);
     expect(fighter.improvements.map((gain: { level: number }) => gain.level)).toEqual([4, 6, 8, 12, 14, 16, 19, 20]);
     expect(res.body.feats.find((feat: { name: string }) => feat.name === 'Grappler').abilityPoints).toEqual({ total: 1, among: ['str', 'dex'], cap: 22 });
+    // The options a feature gives, with the name the sheet gets for each.
+    const strikes = res.body.featureChoices.find((choice: { id: string }) => choice.id === 'blessedStrikes');
+    expect(strikes).toMatchObject({ class: 'Cleric', level: 7, writes: 'renames', feature: 'Blessed Strikes', asked: true });
+    expect(strikes.options).toEqual([
+      { label: 'Divine Strike', name: 'Blessed Strikes: Divine Strike (Cleric 7)' },
+      { label: 'Potent Spellcasting', name: 'Blessed Strikes: Potent Spellcasting (Cleric 7)' },
+    ]);
   });
 
   it('follows the campaign’s switches', async () => {
@@ -134,6 +141,14 @@ describe('POST /api/campaigns/:campaignId/rules/dnd/build', () => {
     expect([saved.status, saved.body.message]).toEqual([201, saved.body.message]);
     expect(saved.body.character.data.featuresAndTraits.length).toBeGreaterThan(10);
     expect(await prisma.character.count({ where: { userId: playerId, campaignId } })).toBe(1);
+  });
+
+  it('writes the options chosen for a feature under the names the server reads', async () => {
+    const res = await player.post(`/api/campaigns/${campaignId}/rules/dnd/build`).send({ ...choices, featureChoices: { fightingStyleFighter: ['Defense'] } });
+    expect(res.status).toBe(200);
+    expect(res.body.sheet.featuresAndTraits.map((entry: { name: string }) => entry.name)).toContain('Defense (Fighting Style feat)');
+    const refused = await player.post(`/api/campaigns/${campaignId}/rules/dnd/build`).send({ ...choices, featureChoices: { metamagic: ['Careful Spell'] } });
+    expect([refused.status, refused.body.errors]).toEqual([400, ['This character has no Metamagic to choose']]);
   });
 
   it('stores nothing itself', async () => {
