@@ -11,8 +11,17 @@
 // enforced. Movement is counted for moves made in the tactical view.
 // ============================================
 
-import { useEffect, useState } from 'react';
-import { Footprints, HeartPulse, SkipForward, Sparkles, Swords, Undo2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Footprints,
+  HeartPulse,
+  SkipForward,
+  Sparkles,
+  Swords,
+  Undo2,
+} from 'lucide-react';
 import { useCampaign } from '@/contexts/CampaignContext';
 import { useWebSocket } from '@/contexts/WebSocketContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -62,6 +71,31 @@ const COUNTED_TITLES: Record<CountedFeature, string> = {
   "Nature's Veil": 'A Bonus Action: you are Invisible until the end of your next turn. All uses back on a Long Rest.',
 };
 
+/** Where the viewer's choice to collapse the bar is kept, in this browser. */
+export const TURN_BAR_COLLAPSED_KEY = 'insulam.turnBar.collapsed';
+/** The app's narrow-screen breakpoint (as in CampaignPage): the bar starts collapsed below it. */
+const NARROW_SCREEN = '(max-width: 1023.98px)';
+
+/** The viewer's saved choice, or collapsed on a narrow screen and expanded on a wide one. */
+function initiallyCollapsed(): boolean {
+  try {
+    const saved = window.localStorage.getItem(TURN_BAR_COLLAPSED_KEY);
+    if (saved === '1') return true;
+    if (saved === '0') return false;
+  } catch {
+    // No storage (private window, blocked site data): fall back to the screen width.
+  }
+  return typeof window !== 'undefined' && window.matchMedia?.(NARROW_SCREEN).matches === true;
+}
+
+function saveCollapsed(collapsed: boolean) {
+  try {
+    window.localStorage.setItem(TURN_BAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+  } catch {
+    // Not remembered; the bar still works.
+  }
+}
+
 export default function TurnBar() {
   const { userRole } = useCampaign();
   const { socket } = useWebSocket();
@@ -101,6 +135,31 @@ export default function TurnBar() {
     actions: CombatActionSummary[];
   } | null>(null);
   const watching = combat.active ? combat.currentTokenId : null;
+
+  // Collapsed to a slim strip so the board under it can be reached on a phone.
+  // Collapsing unmounts the bar's controls, which closes their popups too.
+  const [collapsed, setCollapsed] = useState(initiallyCollapsed);
+  const setBarCollapsed = (next: boolean) => {
+    if (next) {
+      setShowFeatures(false);
+      setWeapons(null);
+    }
+    setCollapsed(next);
+    saveCollapsed(next);
+  };
+  // A player's own creature starts its turn: the bar opens once so the turn
+  // is not missed. Collapsing it again holds until the turn changes.
+  const watchedToken = watching ? (tokens.find((token) => token.id === watching) ?? null) : null;
+  const ownTurn =
+    userRole !== 'DM' && watchedToken !== null && controlsToken(watchedToken, user?.id, userRole);
+  const turnKey = watching ? `${combat.round}:${watching}` : null;
+  const openedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ownTurn || !turnKey || openedFor.current === turnKey) return;
+    openedFor.current = turnKey;
+    setCollapsed(false);
+  }, [ownTurn, turnKey]);
+
   useEffect(() => {
     setShowFeatures(false);
     if (!watching) {
@@ -284,12 +343,51 @@ export default function TurnBar() {
       ? `${formatFeet(turn.movementSpent)} ft moved`
       : `${formatFeet(movementLeft(speed, turn))} of ${formatFeet(movementBudget(speed, turn))} ft left`;
 
+  const toggle = (
+    <Button
+      variant="ghost"
+      size="sm"
+      iconOnly
+      icon={collapsed ? ChevronUp : ChevronDown}
+      aria-label={collapsed ? 'Show turn bar' : 'Hide turn bar'}
+      aria-expanded={!collapsed}
+      title={collapsed ? 'Show turn bar' : 'Hide turn bar'}
+      onClick={() => setBarCollapsed(!collapsed)}
+    />
+  );
+
+  if (collapsed) {
+    // Reactions this viewer may take stay visible as a cue to open the bar.
+    const waiting = offers.length + readied.length;
+    return (
+      <div
+        className="absolute bottom-4 inset-x-4 mx-auto w-fit z-20 glass-panel px-2 py-1 flex items-center gap-2 bg-parchment/95 backdrop-blur-xs text-sm text-ink max-w-[calc(100%-2rem)]"
+        role="group"
+        aria-label={`Turn of ${actingName}`}
+      >
+        <span className="font-medium truncate min-w-0 max-w-40">{actingName}</span>
+        {ownTurn && <span className="font-semibold text-brand-ink whitespace-nowrap">Your turn</span>}
+        {waiting > 0 && (
+          <button
+            type="button"
+            className="text-accent-ink font-medium underline whitespace-nowrap"
+            onClick={() => setBarCollapsed(false)}
+          >
+            {waiting === 1 ? 'Reaction offered' : `${waiting} reactions offered`}
+          </button>
+        )}
+        {toggle}
+      </div>
+    );
+  }
+
   return (
     <div
       className="absolute bottom-4 inset-x-4 mx-auto w-fit z-20 glass-panel px-3 py-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-parchment/95 backdrop-blur-xs text-sm text-ink max-w-[calc(100%-2rem)]"
       role="group"
       aria-label={`Turn of ${actingName}`}
     >
+      {toggle}
       <span className="font-medium truncate max-w-40">{actingName}</span>
 
       <span className="flex items-center gap-1" title="Movement this turn">
