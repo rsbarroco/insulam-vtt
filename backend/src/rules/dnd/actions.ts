@@ -66,8 +66,11 @@ export interface CombatAction {
   rangeFeet?: number;
   /** The area it fills, when it fills one. */
   area?: AreaOfEffect;
-  /** The spell it casts, when it is one: its catalogue id and its own level (0 for a cantrip). */
-  spell?: { id: string; level: number };
+  /**
+   * The spell it casts, when it is one: its catalogue id and its own level (0 for a cantrip), and the components
+   * the cast keeps when a stat block drops some ("requiring no Material components").
+   */
+  spell?: { id: string; level: number; components?: string[] };
   /** The action as written, for the table to read and for what could not be read here. */
   text?: string;
   /** The weapon's mastery property, when the sheet marks it as one its character uses. */
@@ -76,6 +79,8 @@ export interface CombatAction {
   weapon?: string;
   /** A stat block's "(Recharge 5–6)": the lowest d6 roll that gives it back once used. */
   recharge?: number;
+  /** A stat block's "(3/Day)", or a spell its Spellcasting lists "2/Day Each": the uses it has a day. */
+  perDay?: number;
   /** A healing spell: the dice it restores and the bonus added (the caster's spellcasting modifier). */
   heal?: { roll: { count: number; sides: number }; bonus: number };
   /** Hit Points it divides among the creatures chosen, with no roll: Preserve Life. */
@@ -113,6 +118,12 @@ export function legendaryUses(statBlock: { legendaryActions?: unknown; notes?: u
 /** The lowest d6 roll a "(Recharge 5–6)" or "(Recharge 6)" in an action's name asks for; null for none. */
 export function rechargeOf(name: string): number | null {
   const found = /\(recharge\s+([1-6])(?:\s*[–-]\s*6)?\)/i.exec(name);
+  return found ? Number(found[1]) : null;
+}
+
+/** The uses a day a stat block entry's name writes ("Misty Step (3/Day)"), or null. */
+export function perDayOf(name: string): number | null {
+  const found = /\((\d+)\/day(?:\s+each)?\)/i.exec(name);
   return found ? Number(found[1]) : null;
 }
 
@@ -311,6 +322,8 @@ export function actionFromStatBlockEntry(entry: { name: string; description?: st
   const action: CombatAction = { name: entry.name, cost, source: 'statBlock', text };
   const recharge = rechargeOf(entry.name);
   if (recharge !== null) action.recharge = recharge;
+  const perDay = perDayOf(entry.name);
+  if (perDay !== null) action.perDay = perDay;
   const attack = attackIn(text);
   if (attack) action.attack = attack;
   // An attack's rider ("…must succeed on a DC 11 Constitution saving throw")

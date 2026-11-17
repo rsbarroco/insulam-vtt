@@ -58,10 +58,10 @@ import {
   SHIELD,
   SHIELD_BONUS,
   shieldTurnsHit,
-  slotOfOption,
   slotOption,
 } from '../../rules/dnd/reactionSpells';
 import { answerPrompt, askReaction } from '../reactionPrompts';
+import { DAILY_USES, dailyUsesLeft, statBlockCastOption, statBlockReactionCast, statBlockSpellActions, withDailyUseSpent } from '../../rules/dnd/statBlockSpells';
 import { bardicSides, canCutWords, canUsePeerlessSkill, charmsOrFrightens, COUNTERCHARM_FEET, countercharmIdle, countercharmMode, CUT_ATTACK, CUT_DAMAGE, cutAttackOutcome, cutTurnsToMiss, CUTTING_WORDS_FEET, hasCountercharm, withCuttingWords, withInspirationRegained, withPeerlessSkill } from '../../rules/dnd/bard';
 import { isMonkAttack, monkSaveDC } from '../../rules/dnd/stunningStrike';
 import {
@@ -174,8 +174,8 @@ interface ActionSummary {
   cost: CombatAction['cost'];
   /** Present when the VTT can make the attack roll. */
   attack: { kind: 'melee' | 'ranged'; bonus: number; reachFeet?: number; rangeFeet?: { normal: number; long: number | null }; damage: string } | null;
-  /** For a spell: its level, and for a levelled one the slot levels the caster can cast it with now. */
-  spell: { level: number; slotLevels: number[] } | null;
+  /** For a spell: its level, and for a levelled one the slot levels the caster can cast it with now; `noSlot` for a stat block's, cast with no slot. */
+  spell: { level: number; slotLevels: number[]; noSlot?: true } | null;
   /** Present when the VTT can roll the targets' saving throws. */
   save: { ability: Ability; dc: number; halfOnSuccess: boolean; damage: string; rangeFeet?: number; area?: AreaOfEffect } | null;
   /** The extra attacks the weapon can be made as: Cleave, or the Light weapon's extra attack. */
@@ -186,6 +186,8 @@ interface ActionSummary {
   multiattack?: MultiattackStep[];
   /** A Legendary Action: the uses the creature has a round, and how many it has taken. */
   legendary?: { max: number; used: number };
+  /** A stat block's action or Spellcasting spell with uses a day ("2/Day Each"): how many, and how many are left today. */
+  perDay?: { max: number; left: number };
   /** A healing spell, made with `combat.heal`: what it restores at its own level ("2d8+3") and its range. */
   heal?: { dice: string; rangeFeet: number };
   /** Preserve Life, made with `combat.heal` and `shares`: the Hit Points to divide and how far it reaches. */
@@ -274,7 +276,7 @@ function actionsOf(token: Token, sheet: Record<string, unknown> | null): CombatA
     : sheet
     ? [...actionsFromSheet({ attacks: (sheet.attacks ?? []) as SheetAttack[] }), ...withPotentSpellcasting(sheet, withInvocations(sheet, spellActionsFromSheet(sheet as SheetSpellcasting))), ...channelDivinityActions(sheet), ...paladinChannelActions(sheet), ...intimidatingPresenceActions(sheet)]
     : token.statBlock
-      ? actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0])
+      ? [...actionsFromStatBlock(token.statBlock as Parameters<typeof actionsFromStatBlock>[0]), ...statBlockSpellActions(token.statBlock as Parameters<typeof statBlockSpellActions>[0])]
       : [];
   // A Druid's features: Potent Spellcasting on its cantrips, Land's Aid, and its spells in a form with Beast Spells.
   const own = sheet ? withDruidFeatures(sheet, base, form !== null) : base;
@@ -568,6 +570,69 @@ function reactionSpellSlots(campaignId: string, token: Token, sheet: Record<stri
   return reactionSlots(sheet as SheetSpellcasting, spell);
 }
 
+/**
+ * How a creature can cast a Reaction spell right now: a slot of its sheet
+ * (as `reactionSpellSlots`, lowest first), or a use of its stat block (a
+ * reaction such as the Mage's Protective Magic, or its Spellcasting list),
+ * with the prompt option that names it and the spell save DC it is cast with.
+ */
+interface ReactionCast {
+  level: number;
+  option: string;
+  dc: number | null;
+  /** A stat block's use a day it spends, by the name its metadata keeps; null for a slot or a cast at will. */
+  daily: { name: string; perDay: number } | null;
+  slot: boolean;
+}
+
+function reactionCasts(campaignId: string, token: Token, sheet: Record<string, unknown> | null, spell: string): ReactionCast[] {
+  if (sheet) {
+    const dc = (sheet as SheetSpellcasting).spellcasting?.spellSaveDC;
+    return reactionSpellSlots(campaignId, token, sheet, spell).map((level) => ({
+      level,
+      option: slotOption(spell, level),
+      dc: typeof dc === 'number' ? dc : null,
+      daily: null,
+      slot: true,
+    }));
+  }
+  if (!token.statBlock || token.characterId || wildShapeOf(token) || getCombatState(campaignId).reactionsSpent.includes(token.id)) return [];
+  if (!canAct(readConditions(token.conditions ?? [])) || (token.hp && token.hp.current <= 0)) return [];
+  const cast = statBlockReactionCast(token.statBlock as Parameters<typeof statBlockReactionCast>[0], spell, token.metadata);
+  if (!cast) return [];
+  return [{ level: cast.level, option: statBlockCastOption(cast), dc: cast.spellSaveDC, daily: cast.perDay === null ? null : { name: cast.via, perDay: cast.perDay }, slot: false }];
+}
+
+/** Spend what a Reaction spell was cast with: the sheet's slot, or the stat block's use a day. False when it is gone. */
+async function spendReactionCast(io: Server, campaignId: string, userId: string, mapId: string, token: Token, cast: ReactionCast): Promise<boolean> {
+  if (cast.slot) return spendSlot(campaignId, userId, token.characterId!, cast.level);
+  return cast.daily ? spendDailyUse(io, campaignId, mapId, token.id, cast.daily.name, cast.daily.perDay) : true;
+}
+
+/**
+ * Spend one of a stat block's uses a day ("2/Day Each", "(3/Day)"), kept on
+ * its token's metadata, and tell the table. False when none is left.
+ */
+async function spendDailyUse(io: Server, campaignId: string, mapId: string, tokenId: string, name: string, perDay: number): Promise<boolean> {
+  const updated = await withMapsLocked([mapId], async (tx) => {
+    const fresh = await tx.map.findUnique({ where: { id: mapId } });
+    if (!fresh) return null;
+    const list = readTokens(fresh.tokens);
+    const token = list.find((t) => t.id === tokenId);
+    if (!token || dailyUsesLeft(token.metadata, name, perDay) === 0) return null;
+    token.metadata = { ...(token.metadata ?? {}), [DAILY_USES]: withDailyUseSpent(token.metadata, name) };
+    return tx.map.update({ where: { id: mapId }, data: { tokens: toJson(list) } });
+  });
+  if (!updated) return false;
+  await bestEffort('map after a use a day', () => broadcastMapData(io, campaignId, updated as unknown as Parameters<typeof broadcastMapData>[2]));
+  return true;
+}
+
+/** Why a stat block's action with uses a day cannot be taken now (none left today), or null. */
+function dailyUseRefusal(token: Token, action: CombatAction): string | null {
+  return dailyUsesLeft(token.metadata, action.name, action.perDay) === 0 ? `${token.name} has no use of ${action.name} left today` : null;
+}
+
 /** Whether a creature sees another, for a Reaction spell that asks it: not Blinded, the other not Invisible, and on a lit map as the views draw it. */
 function seesForReaction(viewer: Token, seen: Token, map: ReactionMap): boolean {
   if (readConditions(viewer.conditions ?? []).has.has('blinded') || readConditions(seen.conditions ?? []).has.has('invisible')) return false;
@@ -580,7 +645,7 @@ async function reactionSaveRequest(
   map: ReactionMap,
   tokens: readonly Token[],
   caster: Token,
-  casterSheet: Record<string, unknown>,
+  casterSheet: Record<string, unknown> | null,
   target: Token,
   targetSheet: Record<string, unknown> | null,
   action: CombatAction
@@ -615,7 +680,7 @@ function shielded<T extends { armorClass: number | null }>(campaignId: string, t
  * Shield: a creature hit by an attack roll that +5 to its Armor Class would
  * turn into a miss, with the spell prepared, a slot and its reaction, is asked
  * before the damage is shown. The slot it casts it with (the lowest it has
- * left, since a higher one adds nothing), or null.
+ * left, since a higher one adds nothing), or the stat block's use, or null.
  */
 async function offerShield(
   io: Server,
@@ -625,19 +690,18 @@ async function offerShield(
   targetSheet: Record<string, unknown> | null,
   actionName: string,
   hit: AttackResult
-): Promise<number | null> {
+): Promise<ReactionCast | null> {
   if (!shieldTurnsHit(hit.outcome)) return null;
   // Already up: its +5 is in the Armor Class the roll met.
   if (getCombatState(campaignId).marks.some((mark) => mark.kind === 'shield' && mark.targetId === target.id)) return null;
-  const [slot] = reactionSpellSlots(campaignId, target, targetSheet, SHIELD);
-  if (slot === undefined) return null;
-  const option = slotOption(SHIELD, slot);
+  const [cast] = reactionCasts(campaignId, target, targetSheet, SHIELD);
+  if (cast === undefined) return null;
   const choice = await askReaction(io, campaignId, {
     token: target,
     text: `${attacker.name}'s ${actionName} hits ${target.name} (${hit.outcome.roll.total} against AC ${hit.outcome.armorClass}). Shield would make it a miss.`,
-    options: [option],
+    options: [cast.option],
   });
-  return choice === option ? slot : null;
+  return choice === cast.option ? cast : null;
 }
 
 /**
@@ -663,13 +727,13 @@ async function offerCounterspell(
   if (!socket.userId || !counterable(action, subtle) || hiddenFromPlayers(caster)) return null;
   const side = sideOf({ type: caster.type ?? 'npc', disposition: caster.disposition ?? null });
   for (const reactor of tokens) {
-    if (reactor.id === caster.id || reactor.layer !== caster.layer || !reactor.characterId) continue;
+    if (reactor.id === caster.id || reactor.layer !== caster.layer || (!reactor.characterId && !reactor.statBlock)) continue;
     const other = sideOf({ type: reactor.type ?? 'npc', disposition: reactor.disposition ?? null });
     if (side === null || other === null || other === side) continue;
     const sheet = await sheetOf(reactor, campaignId);
-    const [slot] = reactionSpellSlots(campaignId, reactor, sheet, COUNTERSPELL);
-    const dc = (sheet as SheetSpellcasting | null)?.spellcasting?.spellSaveDC;
-    if (!sheet || slot === undefined || typeof dc !== 'number' || !seesForReaction(reactor, caster, map)) continue;
+    const [cast] = reactionCasts(campaignId, reactor, sheet, COUNTERSPELL);
+    const dc = cast?.dc;
+    if (cast === undefined || typeof dc !== 'number' || !seesForReaction(reactor, caster, map)) continue;
     const counter: CombatAction = {
       name: COUNTERSPELL,
       cost: 'reaction',
@@ -680,7 +744,7 @@ async function offerCounterspell(
     const request = await reactionSaveRequest(campaignId, map, tokens, reactor, sheet, caster, casterSheet, counter);
     // Out of range, behind total cover, or a caster with no save to roll: not asked.
     if (!resolveSave(request, () => 10).ok) continue;
-    const option = slotOption(COUNTERSPELL, slot);
+    const option = cast.option;
     const choice = await askReaction(io, campaignId, {
       token: reactor,
       text: `${caster.name} casts ${action.name} within ${REACTION_SPELL_FEET} feet of ${reactor.name}.`,
@@ -688,13 +752,13 @@ async function offerCounterspell(
     });
     if (choice !== option) continue;
     const undo = await prepareUndo(campaignId, map.id, [reactor.characterId, caster.characterId]);
-    if (!(await spendSlot(campaignId, socket.userId, reactor.characterId, slot))) continue;
+    if (!(await spendReactionCast(io, campaignId, socket.userId, map.id, reactor, cast))) continue;
     await spendReaction(io, campaignId, reactor.id);
     const result = resolveSave(request);
     if (!result.ok) continue;
     const countered = !result.targets[0].outcome.success;
     const summary = `${reactor.name} casts ${option} at ${caster.name}'s ${action.name}; ${result.summary}; ${
-      countered ? `${action.name} dissipates: the action is spent, and no spell slot` : `${action.name} is cast`
+      countered ? `${action.name} dissipates: the action is spent, and no spell slot${action.perDay ? ' or use a day' : ''}` : `${action.name} is cast`
     }`;
     await logRoll(io, socket, campaignId, saveBreakdown(result, counter), reactor.name, summary, hiddenFromPlayers(reactor));
     commitUndo(campaignId, undo, summary);
@@ -719,16 +783,17 @@ async function offerHellishRebuke(
   damaged: Token,
   dealt: number
 ): Promise<void> {
-  if (dealt <= 0 || !socket.userId || !damaged.characterId || source.id === damaged.id || source.layer !== damaged.layer) return;
+  if (dealt <= 0 || !socket.userId || (!damaged.characterId && !damaged.statBlock) || source.id === damaged.id || source.layer !== damaged.layer) return;
   if (hiddenFromPlayers(source) || !seesForReaction(damaged, source, map)) return;
   // The sheet and the map as the damage left them: a creature at 0 Hit Points rebukes nothing.
   const sheet = await sheetOf(damaged, campaignId);
-  const slots = reactionSpellSlots(campaignId, damaged, sheet, HELLISH_REBUKE);
-  const dc = (sheet as SheetSpellcasting | null)?.spellcasting?.spellSaveDC;
   const fresh = await prisma.map.findUnique({ where: { id: map.id } });
   const tokens = fresh ? readTokens(fresh.tokens) : [];
+  // A stat block's uses and Hit Points as the damage left them.
+  const casts = reactionCasts(campaignId, tokens.find((t) => t.id === damaged.id) ?? damaged, sheet, HELLISH_REBUKE);
+  const dc = casts[0]?.dc;
   const struck = tokens.find((t) => t.id === source.id);
-  if (!sheet || slots.length === 0 || typeof dc !== 'number' || !struck || (struck.hp && struck.hp.current <= 0)) return;
+  if (casts.length === 0 || typeof dc !== 'number' || !struck || (struck.hp && struck.hp.current <= 0)) return;
   const struckSheet = await sheetOf(struck, campaignId);
   const rebuke = (level: number): CombatAction => ({
     name: HELLISH_REBUKE,
@@ -737,24 +802,24 @@ async function offerHellishRebuke(
     rangeFeet: REACTION_SPELL_FEET,
     save: { ability: 'dex', dc, damage: [hellishRebukeDamage(level)], halfOnSuccess: true },
   });
-  const request = await reactionSaveRequest(campaignId, map, tokens, damaged, sheet, struck, struckSheet, rebuke(slots[0]));
+  const request = await reactionSaveRequest(campaignId, map, tokens, damaged, sheet, struck, struckSheet, rebuke(casts[0].level));
   if (!resolveSave(request, () => 10).ok) return;
   const choice = await askReaction(io, campaignId, {
     token: damaged,
     text: `${source.name} deals ${dealt} damage to ${damaged.name} from within ${REACTION_SPELL_FEET} feet.`,
-    options: slots.map((level) => slotOption(HELLISH_REBUKE, level)),
+    options: casts.map((cast) => cast.option),
   });
-  const slot = slotOfOption(HELLISH_REBUKE, choice);
-  if (slot === null || !slots.includes(slot)) return;
+  const cast = casts.find((way) => way.option === choice);
+  if (!cast) return;
   const undo = await prepareUndo(campaignId, map.id, [damaged.characterId, struck.characterId]);
-  if (!(await spendSlot(campaignId, socket.userId, damaged.characterId, slot))) return;
+  if (!(await spendReactionCast(io, campaignId, socket.userId, map.id, damaged, cast))) return;
   await spendReaction(io, campaignId, damaged.id);
-  const action = rebuke(slot);
+  const action = rebuke(cast.level);
   const result = resolveSave({ ...request, action });
   if (!result.ok) return;
   const [target] = result.targets;
   const endured = await applyDealt(io, campaignId, map.id, [{ token: struck, sheet: struckSheet, dealt: target.dealt, hp: target.hp }]);
-  const summary = [`${damaged.name} casts ${slotOption(HELLISH_REBUKE, slot)}`, result.summary, ...endured].join('; ');
+  const summary = [`${damaged.name} casts ${cast.option}`, result.summary, ...endured].join('; ');
   await logRoll(io, socket, campaignId, saveBreakdown(result, action), damaged.name, summary, hiddenFromPlayers(damaged));
   commitUndo(campaignId, undo, summary);
 }
@@ -772,7 +837,7 @@ async function offerFeatherFall(
   tokens: readonly Token[],
   faller: Token,
   feet: number
-): Promise<{ caster: Token; slot: number } | null> {
+): Promise<{ caster: Token; cast: ReactionCast } | null> {
   const side = sideOf({ type: faller.type ?? 'npc', disposition: faller.disposition ?? null });
   const board = {
     heights: readTileHeights(map.tileHeights),
@@ -789,12 +854,11 @@ async function offerFeatherFall(
       seesForReaction(t, faller, map)
   );
   for (const caster of [faller, ...near]) {
-    if (!caster.characterId) continue;
-    const [slot] = reactionSpellSlots(campaignId, caster, await sheetOf(caster, campaignId), FEATHER_FALL);
-    if (slot === undefined) continue;
-    const option = slotOption(FEATHER_FALL, slot);
-    const choice = await askReaction(io, campaignId, { token: caster, text: `${faller.name} falls ${feet} ft.`, options: [option] });
-    if (choice === option) return { caster, slot };
+    if (!caster.characterId && !caster.statBlock) continue;
+    const [cast] = reactionCasts(campaignId, caster, await sheetOf(caster, campaignId), FEATHER_FALL);
+    if (cast === undefined) continue;
+    const choice = await askReaction(io, campaignId, { token: caster, text: `${faller.name} falls ${feet} ft.`, options: [cast.option] });
+    if (choice === cast.option) return { caster, cast };
   }
   return null;
 }
@@ -1295,16 +1359,16 @@ async function castDarts(
   // Shield: a creature targeted by Magic Missile takes no damage from it. One whose Shield is up already takes
   // none; one that could cast it is asked, before the damage is shown.
   const shieldNotes = new Map<number, string>();
-  const shieldSlots = new Map<number, number>();
+  const shieldSlots = new Map<number, ReactionCast>();
   for (const [index, token] of targets.entries()) {
     if (thrown.targets[index].dealt <= 0) continue;
     if (getCombatState(campaignId).marks.some((mark) => mark.kind === 'shield' && mark.targetId === token.id)) {
       shieldNotes.set(index, `${token.name}'s ${SHIELD} stops the darts: no damage`);
       continue;
     }
-    const [slot] = reactionSpellSlots(campaignId, token, sheets[index], SHIELD);
+    const [slot] = reactionCasts(campaignId, token, sheets[index], SHIELD);
     if (slot === undefined) continue;
-    const option = slotOption(SHIELD, slot);
+    const option = slot.option;
     const struckBy = darts ? darts[index] : count;
     const choice = await askReaction(io, campaignId, {
       token,
@@ -1327,10 +1391,13 @@ async function castDarts(
   if (slotLevel !== null && !(await spendSlot(campaignId, socket.userId!, caster.characterId!, slotLevel))) {
     return refuseRequest(socket, ack, `No level ${slotLevel} spell slot left to cast ${action.name}`);
   }
+  if (listed.perDay && !(await spendDailyUse(io, campaignId, map.id, caster.id, listed.name, listed.perDay))) {
+    return refuseRequest(socket, ack, `${caster.name} has no use of ${listed.name} left today`);
+  }
   if (meta) await spendSheetUse(campaignId, caster, 'Sorcery Points', meta.cost);
   // Shield cast: its slot, the reaction, and the +5 to Armor Class kept until the caster's next turn starts.
   for (const [index, slot] of shieldSlots) {
-    await spendSlot(campaignId, socket.userId!, targets[index].characterId!, slot);
+    await spendReactionCast(io, campaignId, socket.userId!, map.id, targets[index], slot);
     addMark(campaignId, { kind: 'shield', attackerId: targets[index].id, targetId: targets[index].id });
     await spendReaction(io, campaignId, targets[index].id);
   }
@@ -2889,7 +2956,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   }
 
   /**
-   * COMBAT.ACTIONS — List the actions of a token on the current map: its character's attacks and spells or its stat block's actions, with what the server can roll for each (a Multiattack with the attacks it makes). Answered through the acknowledgement. The DM, or the player who controls the token. `heroicInspiration` says whether the token's character holds Heroic Inspiration (null for a token with no character sheet).
+   * COMBAT.ACTIONS — List the actions of a token on the current map: its character's attacks and spells or its stat block's actions, with what the server can roll for each (a Multiattack with the attacks it makes). Answered through the acknowledgement. The DM, or the player who controls the token. `heroicInspiration` says whether the token's character holds Heroic Inspiration (null for a token with no character sheet). A stat block's Spellcasting spells are listed as actions with `spell.noSlot: true`, and an action with uses a day carries `perDay: { max, left }`.
    */
   socket.on('combat.actions', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -2933,7 +3000,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             const extras: ExtraAttack[] = isWeaponAttack(action) && hordeAfter.has(action.name) ? [...own, 'horde'] : own;
             // An Evoker's Sculpt Spells and Overchannel, on the spells each can change.
             const evoker = { ...(canSculpt(sheet, action) ? { sculpt: true } : {}), ...(canOverchannel(sheet, action) ? { overchannel: true } : {}) };
-            return { ...summary, extras: extras.length > 0 ? extras : undefined, ...(steps ? { multiattack: steps } : {}), ...(legendary ? { legendary } : {}), ...evoker };
+            return { ...summary, extras: extras.length > 0 ? extras : undefined, ...(steps ? { multiattack: steps } : {}), ...(legendary ? { legendary } : {}), ...(action.perDay ? { perDay: { max: action.perDay, left: dailyUsesLeft(token.metadata, action.name, action.perDay) ?? action.perDay } } : {}), ...(summary.spell && !sheet ? { spell: { ...summary.spell, noSlot: true as const } } : {}), ...evoker };
           }),
           // A stat block's Multiattack says how many attacks it makes; a character's features do.
           attacksPerAction: sheet ? Math.max(attacksPerAction(features), pactWeaponAttacks(sheet)) : null,
@@ -3040,6 +3107,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (listed.recharge && spentRecharges(campaignId, attackerId).includes(listed.name)) {
         return refuseRequest(socket, ack, `${attackerToken.name}'s ${listed.name} has not recharged`);
       }
+      const noUseLeft = dailyUseRefusal(attackerToken, listed);
+      if (noUseLeft) return refuseRequest(socket, ack, noUseLeft);
       // A Legendary Action: the action itself, or the attack one of them makes ("makes one Tentacle attack").
       const legendaryTaken =
         listed.cost === 'legendary' ? listed : legendary !== undefined ? actionsOf(attackerToken, attackerSheet)[legendary] : undefined;
@@ -3391,7 +3460,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (!result.ok) return refuseRequest(socket, ack, result.reason);
       // Shield, as the rules have it: asked of the target's player once the attack hits and before its damage is
       // shown, and only when +5 to its Armor Class would make the hit a miss. The same roll is decided again.
-      let shieldSlot = null as number | null;
+      let shieldSlot = null as ReactionCast | null;
       // Cutting Words on the attack roll, once asked below; a target that took it has no reaction left for Shield.
       let cutting: { bard: Token; choice: string; rolled: number } | null = null;
       let shieldAsked = false;
@@ -3412,7 +3481,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
         shieldSlot = slot;
         // What changed the roll stays in the line; what the cancelled hit would have added does not.
         const rollNotes = hit.bonuses.filter((bonus) => rollNote.test(bonus));
-        return { ...again, bonuses: [...rollNotes, ...again.bonuses, `${slotOption(SHIELD, slot)}: +${SHIELD_BONUS} AC until the start of ${targetToken.name}'s next turn`] };
+        return { ...again, bonuses: [...rollNotes, ...again.bonuses, `${slot.option}: +${SHIELD_BONUS} AC until the start of ${targetToken.name}'s next turn`] };
       };
       result = await answeredByShield(result);
       // Seeking and Empowered Spell, as the rules have them: asked of the Sorcerer's player once the roll is known.
@@ -3771,9 +3840,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, attackerToken.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
       }
+      // A stat block's use a day ("2/Day Each"), spent as a slot would be.
+      if (listed.perDay && !(await spendDailyUse(io, campaignId, map.id, attackerId, listed.name, listed.perDay))) {
+        return refuseRequest(socket, ack, `${attackerToken.name} has no use of ${listed.name} left today`);
+      }
       // Shield cast: its slot, the reaction, and the +5 kept until the caster's next turn starts.
       if (shieldSlot !== null) {
-        await spendSlot(campaignId, socket.userId, targetToken.characterId!, shieldSlot);
+        await spendReactionCast(io, campaignId, socket.userId, map.id, targetToken, shieldSlot);
         addMark(campaignId, { kind: 'shield', attackerId: targetId, targetId });
         await spendReaction(io, campaignId, targetId);
       }
@@ -4250,7 +4323,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const undo = await prepareUndo(campaignId, map.id, [token.characterId, ...(feather ? [feather.caster.characterId] : [])]);
       if (slowed) await spendReaction(io, campaignId, tokenId);
       if (feather) {
-        await spendSlot(campaignId, socket.userId, feather.caster.characterId!, feather.slot);
+        await spendReactionCast(io, campaignId, socket.userId, map.id, feather.caster, feather.cast);
         await spendReaction(io, campaignId, feather.caster.id);
       }
 
@@ -5242,6 +5315,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const listed = actionsOf(caster, sheet)[actionIndex];
       if (listed?.divide) return refuseRequest(socket, ack, `${listed.name} divides its Hit Points among creatures: send shares`);
       if (!listed?.heal) return refuseRequest(socket, ack, 'That is not a healing spell the caster has');
+      const noUseLeft = dailyUseRefusal(caster, listed);
+      if (noUseLeft) return refuseRequest(socket, ack, noUseLeft);
       const cast = castWithSlot(sheet as SheetSpellcasting | null, listed, slotLevel);
       if ('error' in cast) return refuseRequest(socket, ack, cast.error);
       const action = cast.action;
@@ -5277,6 +5352,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const undo = await prepareUndo(campaignId, map.id, [caster.characterId, target.characterId]);
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, caster.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
+      }
+      if (listed.perDay && !(await spendDailyUse(io, campaignId, map.id, casterId, listed.name, listed.perDay))) {
+        return refuseRequest(socket, ack, `${caster.name} has no use of ${listed.name} left today`);
       }
       // The Life Domain: Supreme Healing takes each die at its highest, Disciple of Life adds to a spell cast with a
       // slot, and Blessed Healer heals the Cleric when that spell heals another.
@@ -5386,7 +5464,7 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
   });
 
   /**
-   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions, cover and the best Aura of Protection it stands in, asks a Fighter that failed whether to roll again with Indomitable (and a Monk with Disciplined Survivor whether to roll again for a Focus Point) and a level 20 Rogue that failed whether to turn the d20 into a 20 with Stroke of Luck, asks a Bard of level 7 or more within 30 feet of a creature that failed a save against an effect applying Charmed or Frightened whether to take Countercharm (a Reaction: the save is rolled again with Advantage), refuses more targets than an action that chooses them allows (a Paladin's Abjure Foes: its Charisma modifier, at least one; a failed Wisdom save leaves the creature Frightened for 1 minute or until it takes damage, and spends a use of Channel Divinity), leaves a condition a stat block's effect gives off a creature that an Aura of Courage (Frightened) or Aura of Devotion (Charmed) keeps immune, applies full, half or no damage to each one's hit points and records the roll in the dice log. A Berserker's `Intimidating Presence` is one of its actions, a Bonus Action against creatures of its choice within 30 feet: a Wisdom save (DC 8 + Strength modifier + Proficiency Bonus) or the Frightened condition, saved against again at the end of each of the creature's turns; it spends its one use, and once that is gone it is listed as `Intimidating Presence (a use of Rage)` and spends a use of Rage. A raging creature with Mindless Rage takes neither the Charmed nor the Frightened condition from a failed save. A failed Strength save of a Barbarian with Indomitable Might uses its Strength score when that meets the DC. Relentless Rage and Retaliation are asked as for `combat.attack`. For an Evoker, `sculpt: { targetIds }` (Sculpt Spells) makes up to 1 + the slot's level of an Evocation spell's other targets succeed and take no damage, `overchannel: true` makes a Wizard spell cast with a slot of level 1–5 deal its maximum damage (later uses before a Long Rest deal the Wizard Necrotic damage), a cantrip saved against deals half damage (Potent Cantrip) and a Wizard Evocation spell adds the Intelligence modifier to its damage roll (Empowered Evocation). Magic Missile is cast here too, with no saving throw: `darts` says how many of its darts strike each of `targetIds`. The DM, or the player who controls the acting token; a player may not target a hidden token. A Land Druid's `Land's Aid` also takes `healId`, the creature in its area that regains Hit Points: the server rolls them after the damage, spends a use of Wild Shape, and answers with `healed`. A Hunter with Superior Hunter's Defense and its reaction unspent that takes damage from it is asked (`combat.prompt`) which of the damage types it resists until the turn ends. A Fiend Patron Warlock that failed, with a use of Dark One's Own Luck left, is asked whether to add 1d10; a target dropped to 0 Hit Points gives Dark One's Blessing's Temporary Hit Points to an enemy Fiend Patron Warlock that did it or stands within 10 feet. A target whose character holds Heroic Inspiration and fails a save it rolled is offered `Heroic Inspiration` in the same prompt as Indomitable: one d20 is rolled again, the new roll stands and the inspiration is expended. The damage of a source with the Boon of Irresistible Offense ignores Resistance to Bludgeoning, Piercing and Slashing. A spell cast from a sheet can be answered with Counterspell as in `combat.attack`: on the caster's failed Constitution save the ack carries `countered: true` and no targets, the action is spent and the slot kept. Once the action is answered, each creature it damaged that has Hellish Rebuke prepared is asked as in `combat.attack`. A creature Magic Missile is cast at that could cast Shield is asked before the damage is shown (option `Shield (level N slot)`): a yes, or a Shield already up, means the darts deal it no damage.
+   * COMBAT.SAVE — Use an action or spell that calls for a saving throw against one or more tokens on the current map: the server rolls the damage once and a save for each target with its own conditions, cover and the best Aura of Protection it stands in, asks a Fighter that failed whether to roll again with Indomitable (and a Monk with Disciplined Survivor whether to roll again for a Focus Point) and a level 20 Rogue that failed whether to turn the d20 into a 20 with Stroke of Luck, asks a Bard of level 7 or more within 30 feet of a creature that failed a save against an effect applying Charmed or Frightened whether to take Countercharm (a Reaction: the save is rolled again with Advantage), refuses more targets than an action that chooses them allows (a Paladin's Abjure Foes: its Charisma modifier, at least one; a failed Wisdom save leaves the creature Frightened for 1 minute or until it takes damage, and spends a use of Channel Divinity), leaves a condition a stat block's effect gives off a creature that an Aura of Courage (Frightened) or Aura of Devotion (Charmed) keeps immune, applies full, half or no damage to each one's hit points and records the roll in the dice log. A Berserker's `Intimidating Presence` is one of its actions, a Bonus Action against creatures of its choice within 30 feet: a Wisdom save (DC 8 + Strength modifier + Proficiency Bonus) or the Frightened condition, saved against again at the end of each of the creature's turns; it spends its one use, and once that is gone it is listed as `Intimidating Presence (a use of Rage)` and spends a use of Rage. A raging creature with Mindless Rage takes neither the Charmed nor the Frightened condition from a failed save. A failed Strength save of a Barbarian with Indomitable Might uses its Strength score when that meets the DC. Relentless Rage and Retaliation are asked as for `combat.attack`. For an Evoker, `sculpt: { targetIds }` (Sculpt Spells) makes up to 1 + the slot's level of an Evocation spell's other targets succeed and take no damage, `overchannel: true` makes a Wizard spell cast with a slot of level 1–5 deal its maximum damage (later uses before a Long Rest deal the Wizard Necrotic damage), a cantrip saved against deals half damage (Potent Cantrip) and a Wizard Evocation spell adds the Intelligence modifier to its damage roll (Empowered Evocation). Magic Missile is cast here too, with no saving throw: `darts` says how many of its darts strike each of `targetIds`. The DM, or the player who controls the acting token; a player may not target a hidden token. A Land Druid's `Land's Aid` also takes `healId`, the creature in its area that regains Hit Points: the server rolls them after the damage, spends a use of Wild Shape, and answers with `healed`. A Hunter with Superior Hunter's Defense and its reaction unspent that takes damage from it is asked (`combat.prompt`) which of the damage types it resists until the turn ends. A Fiend Patron Warlock that failed, with a use of Dark One's Own Luck left, is asked whether to add 1d10; a target dropped to 0 Hit Points gives Dark One's Blessing's Temporary Hit Points to an enemy Fiend Patron Warlock that did it or stands within 10 feet. A target whose character holds Heroic Inspiration and fails a save it rolled is offered `Heroic Inspiration` in the same prompt as Indomitable: one d20 is rolled again, the new roll stands and the inspiration is expended. The damage of a source with the Boon of Irresistible Offense ignores Resistance to Bludgeoning, Piercing and Slashing. A spell cast from a sheet or from a stat block's Spellcasting can be answered with Counterspell as in `combat.attack` (by a character, or by a stat block that casts it, such as the Mage's Protective Magic): on the caster's failed Constitution save the ack carries `countered: true` and no targets, the action is spent and the slot, or the stat block's use a day, kept. A stat block's action or spell with uses a day is refused once they are gone, and spends one when resolved. Once the action is answered, each creature it damaged that has Hellish Rebuke prepared is asked as in `combat.attack`. A creature Magic Missile is cast at that could cast Shield is asked before the damage is shown (option `Shield (level N slot)`): a yes, or a Shield already up, means the darts deal it no damage.
    */
   socket.on('combat.save', async (data: unknown, callback?: unknown) => {
     const ack = ackFrom(callback);
@@ -5420,6 +5498,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (listed.recharge && spentRecharges(campaignId, sourceId).includes(listed.name)) {
         return refuseRequest(socket, ack, `${sourceToken.name}'s ${listed.name} has not recharged`);
       }
+      const noUseLeft = dailyUseRefusal(sourceToken, listed);
+      if (noUseLeft) return refuseRequest(socket, ack, noUseLeft);
       if (listed.cost === 'legendary') {
         const refusal = legendaryRefusal(campaignId, sourceToken);
         if (refusal) return refuseRequest(socket, ack, refusal);
@@ -5841,6 +5921,9 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const undo = await prepareUndo(campaignId, map.id, [sourceToken.characterId, ...targetTokens.map((t) => t.characterId), ...(healed ? [healed.characterId] : [])]);
       if (cast.slotLevel !== null && !(await spendSlot(campaignId, socket.userId, sourceToken.characterId!, cast.slotLevel))) {
         return refuseRequest(socket, ack, `No level ${cast.slotLevel} spell slot left to cast ${action.name}`);
+      }
+      if (listed.perDay && !(await spendDailyUse(io, campaignId, map.id, sourceId, listed.name, listed.perDay))) {
+        return refuseRequest(socket, ack, `${sourceToken.name} has no use of ${listed.name} left today`);
       }
       // The cast stands: each Hunter that took Superior Hunter's Defense spends its reaction and resists until the turn ends.
       for (const [index, type] of resistedBy) {

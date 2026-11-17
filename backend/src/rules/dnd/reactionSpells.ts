@@ -76,11 +76,13 @@ export function hellishRebukeDamage(slotLevel: number): DamageComponent {
 
 /**
  * Whether Counterspell can answer the action: a spell of the catalogue with a
- * Verbal, Somatic or Material component, cast in a way that keeps them
+ * Verbal, Somatic or Material component, cast in a way that keeps them (a
+ * stat block's cast keeps only those its Spellcasting does not drop)
  * (`subtle` is a cast whose Verbal and Somatic components were dropped).
  */
 export function counterable(action: CombatAction, subtle = false): boolean {
   const spell = action.spell ? findSpell(action.spell.id) : null;
   if (!spell) return false;
-  return spell.components.some((component) => component === 'M' || (!subtle && (component === 'V' || component === 'S')));
+  // A stat block's Spellcasting may drop components ("requiring no Material components").
+  return (action.spell?.components ?? spell.components).some((component) => component === 'M' || (!subtle && (component === 'V' || component === 'S')));
 }
