@@ -167,6 +167,8 @@ export const CombatFeatureSchema = z
       'Innate Sorcery',
       'Font of Inspiration',
       'Fiendish Vigor',
+      'Heroic Inspiration',
+      'Spend Heroic Inspiration',
     ]),
     /** Font of Magic: the level of the spell slot created from Sorcery Points (a Bonus Action). */
     create: z.number().int().min(1).max(5).optional(),

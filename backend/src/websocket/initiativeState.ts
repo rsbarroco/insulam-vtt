@@ -110,9 +110,11 @@ export interface CombatState {
  * Attacks until the start of its next turn.
  * Innate: the Sorcerer (both ids) has its Innate Sorcery active for a minute,
  * counted as ten of its own turns ending.
+ * Shield: the caster of the Shield spell (both ids) has +5 to its Armor Class
+ * until the start of its next turn.
  */
 export interface WeaponMark {
-  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle' | 'innate';
+  kind: 'sap' | 'slow' | 'vex' | 'rage' | 'help' | 'ready' | 'condition' | 'recharge' | 'legendary' | 'concentration' | 'reckless' | 'hamstring' | 'stunning' | 'studied' | 'addle' | 'innate' | 'shield';
   attackerId: string;
   targetId: string;
   turnEndsLeft: number;

@@ -85,6 +85,9 @@ describe('weapon marks', () => {
     // Open Hand Technique's Addle is on the creature itself.
     const addled = [{ kind: 'addle' as const, attackerId: 'ogre', targetId: 'ogre', turnEndsLeft: 1 }];
     expect(markLabels(addled, 'ogre')).toEqual(['Addled (no Opportunity Attacks)']);
+    // The Shield spell is on its caster until its next turn starts.
+    const shielded = [{ kind: 'shield' as const, attackerId: 'mage', targetId: 'mage', turnEndsLeft: 1 }];
+    expect(markLabels(shielded, 'mage')).toEqual(['Shield (+5 AC)']);
   });
 
   it('names what a creature carries', () => {

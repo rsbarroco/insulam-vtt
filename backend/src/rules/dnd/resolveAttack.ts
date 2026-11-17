@@ -18,6 +18,7 @@ import { attackRoll, coverBonus, rollDie, rollMode, type AttackOutcome, type Rol
 import { lucky } from './species';
 import type { DamageReduction } from './reactions';
 import { atLeastThree } from './feats';
+import { rerollD20 } from './heroicInspiration';
 import { adjustedDamage, applyDamage, rerollLowest, rollDamage, type DamageType, type Defences, type HitPoints, type RolledDamage } from './damage';
 
 export interface Combatant {
@@ -88,10 +89,26 @@ export interface AttackRequest {
    */
   turned?: { roll: AttackOutcome['roll']; label: string };
   /**
+   * The roll already made, to be decided again as it stands against the
+   * target as it now is: a hit the target answered with the Shield spell,
+   * which raised its Armor Class. No die is rolled for the attack again.
+   */
+  kept?: { roll: AttackOutcome['roll'] };
+  /**
    * A feature of the target that lets no attack roll against it have
    * Advantage unless it is Incapacitated, by name: "Elusive".
    */
   noAdvantage?: string;
+  /**
+   * A missed roll one d20 of which is rolled again, the new roll standing
+   * (Heroic Inspiration): the roll as first made, and what rolls it again.
+   */
+  rerolled?: { roll: AttackOutcome['roll']; label: string };
+  /**
+   * A missed roll a feature turns into a hit afterwards (Boon of Combat
+   * Prowess): the roll as made, which stays, and the feature's name.
+   */
+  hitInstead?: { roll: AttackOutcome['roll']; label: string };
 }
 
 export interface AttackRefusal {
@@ -197,8 +214,18 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
   const turned = request.turned
     ? { roll: { ...request.turned.roll, natural: 20, total: 20 + request.turned.roll.modifier }, added: 0, label: request.turned.label }
     : null;
-  const outcome = turned
+  // One d20 rolled again: the new roll is read as any other.
+  const rerolled = request.rerolled && !request.kept
+    ? { roll: rerollD20(request.rerolled.roll, attacker.lucky ? lucky(roll) : roll), added: 0, label: request.rerolled.label }
+    : null;
+  const outcome = request.kept
+    ? inspiredOutcome({ roll: request.kept.roll, added: 0, label: '' }, target.armorClass, cover, modifiers.criticalOnHit, request.criticalFrom)
+    : request.hitInstead
+    ? inspiredOutcome({ ...request.hitInstead, added: 0 }, target.armorClass, cover, modifiers.criticalOnHit, request.criticalFrom, true)
+    : turned
     ? inspiredOutcome(turned, target.armorClass, cover, modifiers.criticalOnHit, request.criticalFrom)
+    : rerolled
+    ? inspiredOutcome(rerolled, target.armorClass, cover, modifiers.criticalOnHit, request.criticalFrom)
     : request.inspired
     ? inspiredOutcome(request.inspired, target.armorClass, cover, modifiers.criticalOnHit, request.criticalFrom)
     : attackRoll(
@@ -215,8 +242,10 @@ export function resolveAttack(request: AttackRequest, roll: RollDie = rollDie): 
 
   const damage: AttackResult['damage'] = [];
   const bonuses: string[] = [];
-  if (request.inspired) bonuses.push(`${request.inspired.label} ${request.inspired.added < 0 ? '-' : '+'}${Math.abs(request.inspired.added)}`);
-  if (turned) bonuses.push(`${turned.label}: the d20 becomes a 20`);
+  if (request.inspired && !request.kept) bonuses.push(`${request.inspired.label} ${request.inspired.added < 0 ? '-' : '+'}${Math.abs(request.inspired.added)}`);
+  if (turned && !request.kept) bonuses.push(`${turned.label}: the d20 becomes a 20`);
+  if (rerolled && request.rerolled) bonuses.push(`${rerolled.label}: the d20 is rolled again (${Math.min(...request.rerolled.roll.dice)} becomes ${rerolled.roll.dice[rerolled.roll.dice.length - 1]})`);
+  if (request.hitInstead && !request.kept) bonuses.push(`${request.hitInstead.label}: the miss becomes a hit`);
   let dealt = 0;
   let hp = target.hp;
   let dropped = false;
@@ -497,10 +526,11 @@ function inspiredOutcome(
   armorClass: number,
   cover: Cover,
   criticalOnHit: boolean | undefined,
-  criticalFrom = 20
+  criticalFrom = 20,
+  hits = false
 ): AttackOutcome {
   const rolled = { ...inspired.roll, total: inspired.roll.total + inspired.added };
   const needed = armorClass + coverBonus(cover);
-  const hit = rolled.natural === 20 || (rolled.natural !== 1 && rolled.total >= needed);
+  const hit = hits || rolled.natural === 20 || (rolled.natural !== 1 && rolled.total >= needed);
   return { roll: rolled, armorClass: needed, hit, critical: hit && (rolled.natural >= criticalFrom || criticalOnHit === true) };
 }

@@ -11,6 +11,7 @@
 // ============================================
 
 import { lucky } from './species';
+import { rerollD20 } from './heroicInspiration';
 import { d20Penalty, type Ability, type ConditionState } from './conditions';
 import { rollD20, rollDie, rollMode, type D20Roll, type RollDie, type RollMode } from './d20';
 
@@ -97,6 +98,8 @@ export interface CheckRequest {
   extraReasons?: readonly string[];
   /** A Rogue's Reliable Talent, on a check that uses a proficiency: a d20 of 9 or lower counts as 10. */
   reliable?: boolean;
+  /** A failed check one d20 of which is rolled again, the new roll standing (Heroic Inspiration): the roll as first made, and what rolls it again. */
+  rerolled?: { roll: D20Roll; label: string };
 }
 
 export interface CheckResult {
@@ -121,7 +124,11 @@ export function resolveCheck(request: CheckRequest, roll: RollDie = rollDie): Ch
     reasons.some((reason) => reason.startsWith('Advantage')),
     reasons.some((reason) => reason.startsWith('Disadvantage'))
   );
-  const asRolled = rollD20(request.bonus + modifiers.penalty, mode, request.lucky ? lucky(roll) : roll);
+  const die = request.lucky ? lucky(roll) : roll;
+  const asRolled = request.rerolled ? rerollD20(request.rerolled.roll, die) : rollD20(request.bonus + modifiers.penalty, mode, die);
+  const again = request.rerolled
+    ? ` (${request.rerolled.label}: the d20 is rolled again, ${Math.min(...request.rerolled.roll.dice)} becomes ${asRolled.dice[asRolled.dice.length - 1]})`
+    : '';
   const rolled = request.reliable ? withReliableTalent(asRolled) : asRolled;
   if (rolled !== asRolled) reasons.push(`Reliable Talent: the ${asRolled.natural} on the d20 counts as 10`);
   const success = request.dc === undefined ? null : rolled.total >= request.dc;
@@ -134,7 +141,7 @@ export function resolveCheck(request: CheckRequest, roll: RollDie = rollDie): Ch
     total: rolled.total,
     success,
     reasons,
-    summary: `${request.name} ${request.label} check: ${verdict}`,
+    summary: `${request.name} ${request.label} check: ${verdict}${again}`,
   };
 }
 

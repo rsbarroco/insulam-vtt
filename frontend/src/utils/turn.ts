@@ -90,6 +90,7 @@ export function markLabels(marks: CombatState['marks'], tokenId: string): string
   if (marks.some((mark) => mark.kind === 'hamstring' && mark.targetId === tokenId)) labels.push('Hamstrung');
   if (marks.some((mark) => mark.kind === 'stunning' && mark.targetId === tokenId)) labels.push('Staggered (Stunning Strike)');
   if (marks.some((mark) => mark.kind === 'addle' && mark.targetId === tokenId)) labels.push('Addled (no Opportunity Attacks)');
+  if (marks.some((mark) => mark.kind === 'shield' && mark.targetId === tokenId)) labels.push('Shield (+5 AC)');
   if (marks.some((mark) => mark.kind === 'vex' && mark.targetId === tokenId)) labels.push('Vexed');
   if (marks.some((mark) => mark.kind === 'studied' && mark.targetId === tokenId)) labels.push('Studied');
   if (marks.some((mark) => mark.kind === 'rage' && mark.targetId === tokenId)) labels.push('Raging');

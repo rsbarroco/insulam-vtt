@@ -829,7 +829,7 @@ class SocketClient {
     slotLevel?: number;
     shares?: Array<{ targetId: string; amount: number }>;
   }): Promise<CombatHealAck> {
-    return this.askFor<CombatHealAck>('combat.heal', cast, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+    return this.askFor<CombatHealAck>('combat.heal', cast, REACTION_ROLL_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** A token's caster concentrates on one of its spells, or ends its concentration. */
@@ -844,7 +844,7 @@ class SocketClient {
 
   /** Have the server roll a fall's damage for a token, apply it and land the token Prone. */
   resolveFall(tokenId: string, feet: number): Promise<CombatFallAck> {
-    return this.askFor<CombatFallAck>('combat.fall', { tokenId, feet }, ROLL_ANSWER_TIMEOUT_MS, 'No answer from the server');
+    return this.askFor<CombatFallAck>('combat.fall', { tokenId, feet }, REACTION_ROLL_TIMEOUT_MS, 'No answer from the server');
   }
 
   /** Have the server roll a death saving throw for the character a token is bound to. */
