@@ -182,9 +182,11 @@ export function resolveSave(request: SaveRequest, roll: RollDie = rollDie): Save
   const rolled = damage.map((entry) => `${entry.rolled.total}${entry.type ? ` ${entry.type}` : ''}`).join(' + ');
   const each = results.map((result) => {
     const rolledSave = result.outcome.roll ? ` (${result.outcome.roll.total})` : ' (no roll)';
-    const inspiration = result.inspired && result.outcome.roll ? `fails (${result.outcome.roll.total - result.inspired}), ${result.inspiredBy ?? 'Bardic Inspiration'} +${result.inspired}: ` : '';
+    // A die added before Stroke of Luck is in the total the luck turned: it is said with that total.
+    const added = result.turned ? result.turned.roll : result.outcome.roll;
+    const inspiration = result.inspired && added ? `fails (${added.total - result.inspired}), ${result.inspiredBy ?? 'Bardic Inspiration'} +${result.inspired}: ` : '';
     const luck = result.turned ? `fails (${result.turned.roll?.total}), Stroke of Luck, the d20 becomes a 20: ` : '';
-    const verdict = `${result.rerolled ? `fails (${result.rerolled.roll?.total}), ${result.rerolledBy ?? 'Indomitable'}: ` : ''}${result.turned ? '' : inspiration}${luck}${result.outcome.success ? 'saves' : 'fails'}`;
+    const verdict = `${result.rerolled ? `fails (${result.rerolled.roll?.total}), ${result.rerolledBy ?? 'Indomitable'}: ` : ''}${inspiration}${luck}${result.outcome.success ? 'saves' : 'fails'}`;
     const harm = damage.length > 0 ? `, ${result.dealt} damage${result.evaded ? ' (Evasion)' : result.protected ? ` (${request.protectedBy ?? 'Careful Spell'})` : ''}` : '';
     const fate = result.instantDeath ? ', killed outright' : result.dropped ? ', drops to 0' : '';
     return `${result.name} ${verdict}${rolledSave}${harm}${fate}`;
