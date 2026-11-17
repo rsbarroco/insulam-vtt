@@ -4,8 +4,8 @@
  * combat state and tokens are the real store.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { useGameStore } from '@/stores/gameStore';
 import type { CombatState, Token, TurnState } from '@/types';
 import { TokenLayer } from '@/types';
@@ -46,7 +46,7 @@ vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({ socket })
 vi.mock('@/contexts/ToastContext', () => ({ useToast: () => ({ showToast: h.showToast }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: h.userId } }) }));
 
-import TurnBar from '../TurnBar';
+import TurnBar, { TURN_BAR_COLLAPSED_KEY } from '../TurnBar';
 
 const token = (id: string, name: string, over: Partial<Token> = {}): Token =>
   ({
@@ -708,3 +708,135 @@ describe('undo', () => {
   });
 });
 
+
+describe('collapsing the bar', () => {
+  const narrow = (matches: boolean) =>
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+  beforeEach(() => {
+    localStorage.clear();
+    h.listCombatActions.mockResolvedValue({ ok: false, error: 'none' });
+  });
+  afterEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it('hides the controls behind a toggle, keeping whose turn it is, and brings them back', () => {
+    as('DM', 'dm-1');
+    fight();
+    render(<TurnBar />);
+    expect(screen.getByRole('button', { name: 'End turn' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide turn bar' }));
+    expect(screen.queryByRole('button', { name: 'End turn' })).toBeNull();
+    expect(screen.getByRole('group', { name: 'Turn of Hero' })).toHaveTextContent('Hero');
+    expect(screen.queryByText('Your turn')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show turn bar' }));
+    expect(screen.getByRole('button', { name: 'End turn' })).toBeInTheDocument();
+  });
+
+  it('remembers the choice in this browser', () => {
+    as('DM', 'dm-1');
+    fight();
+    const { unmount } = render(<TurnBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Hide turn bar' }));
+    expect(localStorage.getItem(TURN_BAR_COLLAPSED_KEY)).toBe('1');
+    unmount();
+    render(<TurnBar />);
+    expect(screen.getByRole('button', { name: 'Show turn bar' })).toBeInTheDocument();
+  });
+
+  it('starts collapsed on a narrow screen and expanded on a wide one, unless told otherwise', () => {
+    as('DM', 'dm-1');
+    fight();
+    narrow(true);
+    const first = render(<TurnBar />);
+    expect(screen.getByRole('button', { name: 'Show turn bar' })).toBeInTheDocument();
+    first.unmount();
+    narrow(false);
+    const second = render(<TurnBar />);
+    expect(screen.getByRole('button', { name: 'Hide turn bar' })).toBeInTheDocument();
+    second.unmount();
+    narrow(true);
+    localStorage.setItem(TURN_BAR_COLLAPSED_KEY, '0');
+    render(<TurnBar />);
+    expect(screen.getByRole('button', { name: 'Hide turn bar' })).toBeInTheDocument();
+  });
+
+  it('works when storage throws', () => {
+    as('DM', 'dm-1');
+    fight();
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    render(<TurnBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Hide turn bar' }));
+    expect(screen.getByRole('button', { name: 'Show turn bar' })).toBeInTheDocument();
+    get.mockRestore();
+    set.mockRestore();
+  });
+
+  it("opens once when a player's own creature starts its turn, then respects a collapse until the turn changes", () => {
+    as('PLAYER', 'player-1');
+    localStorage.setItem(TURN_BAR_COLLAPSED_KEY, '1');
+    fight({ currentTokenId: 'ogre' });
+    render(<TurnBar />);
+    expect(screen.getByRole('button', { name: 'Show turn bar' })).toBeInTheDocument();
+
+    act(() => useGameStore.getState().setCombatState({ ...useGameStore.getState().combat, currentTokenId: 'hero' }));
+    expect(screen.getByRole('button', { name: 'End turn' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide turn bar' }));
+    expect(screen.getByText('Your turn')).toBeInTheDocument();
+    act(() => useGameStore.getState().setCombatState({ ...useGameStore.getState().combat, turn: { ...fresh, movementSpent: 5 } }));
+    expect(screen.getByRole('button', { name: 'Show turn bar' })).toBeInTheDocument();
+
+    act(() => useGameStore.getState().setCombatState({ ...useGameStore.getState().combat, currentTokenId: 'ogre' }));
+    expect(screen.getByRole('button', { name: 'Show turn bar' })).toBeInTheDocument();
+    act(() =>
+      useGameStore.getState().setCombatState({ ...useGameStore.getState().combat, round: 2, currentTokenId: 'hero' })
+    );
+    expect(screen.getByRole('button', { name: 'End turn' })).toBeInTheDocument();
+  });
+
+  it('closes the popups the bar owns when collapsed', async () => {
+    as('PLAYER', 'player-1');
+    h.listCombatActions.mockResolvedValue({
+      ok: true,
+      actions: [],
+      attacksPerAction: 1,
+      features: [{ name: 'Second Wind', cost: 'bonusAction', text: 'Heal 1d10 plus your Fighter level.' }],
+      resources: [{ name: 'Lay on Hands', max: 15, used: 0 }],
+    });
+    fight();
+    render(<TurnBar />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Features' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lay on Hands (15/15)' }));
+    expect(screen.getByLabelText('Features of Hero')).toBeInTheDocument();
+    expect(screen.getByLabelText('Creature touched')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide turn bar' }));
+    expect(screen.queryByLabelText('Features of Hero')).toBeNull();
+    expect(screen.queryByLabelText('Creature touched')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show turn bar' }));
+    expect(screen.queryByLabelText('Features of Hero')).toBeNull();
+    expect(screen.queryByLabelText('Creature touched')).toBeNull();
+  });
+
+  it('points to a reaction on offer while collapsed', () => {
+    as('PLAYER', 'player-1');
+    localStorage.setItem(TURN_BAR_COLLAPSED_KEY, '1');
+    fight({ currentTokenId: 'ogre', marks: [{ kind: 'ready', attackerId: 'hero', targetId: 'ogre', turnEndsLeft: 1 }] });
+    render(<TurnBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reaction offered' }));
+    expect(screen.getByRole('button', { name: /Readied: Hero on Ogre/ })).toBeInTheDocument();
+  });
+});

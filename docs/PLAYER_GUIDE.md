@@ -433,6 +433,7 @@ When it's your turn, your name is highlighted. Describe your actions in chat and
 During combat a bar under the map shows the turn of whoever is acting: the movement they have left, and whether their action, bonus action and reaction are spent. When it is **your** token's turn the bar is yours to use:
 
 - Your **movement** goes down by itself as you move your token in the tactical view.
+- The arrow button at the bar's edge (**Hide turn bar** / **Show turn bar**) folds it to a slim strip with only whose turn it is (and **Your turn** when it is yours), so you can reach the tokens under it; your browser remembers the choice, the bar starts folded on a phone-sized screen, and it opens by itself once when your token's turn starts.
 - When you take the Attack action the bar counts your attacks (**Attack 1 of 2** with Extra Attack), and the VTT stops you at the number your features give you.
 - **Features** lists what your character can do with a Bonus Action or a Reaction, with the rule of each; **Use** marks the bonus action or reaction as spent.
 - At 0 hit points, on your turn, the bar shows **Death save**: the VTT rolls it and marks the result on your sheet. A 20 puts you back up with 1 hit point.
