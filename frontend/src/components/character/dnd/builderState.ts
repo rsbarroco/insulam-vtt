@@ -14,6 +14,8 @@ import type {
   DndCharacterChoices,
   DndClassSummary,
   DndFeat,
+  DndFeatureChoice,
+  DndFeatureOption,
   DndImprovement,
   DndPoints,
   DndRulesCatalogue,
@@ -87,6 +89,8 @@ export interface BuilderState {
   skills: string[];
   /** By `level:kind`. */
   improvements: Record<string, ImprovementState>;
+  /** The options of features, by choice id: one label for each to take, '' for one not chosen yet. */
+  featureChoices: Record<string, string[]>;
 }
 
 export function initialState(): BuilderState {
@@ -102,6 +106,7 @@ export function initialState(): BuilderState {
     originFeat: '',
     skills: [],
     improvements: {},
+    featureChoices: {},
   };
 }
 
@@ -127,6 +132,70 @@ export function dueImprovements(
     }
   }
   return [...byKey.values()].sort((a, b) => a.level - b.level || a.kind.localeCompare(b.kind));
+}
+
+/** A choice a feature or the species gives the character, and how many options of it. */
+export interface DueChoice {
+  choice: DndFeatureChoice;
+  count: number;
+}
+
+/**
+ * The choices the character's species and classes give at its level, in the
+ * order the rules list them. One the build works out by itself is not asked.
+ */
+export function dueChoices(state: BuilderState, catalogue: DndRulesCatalogue): DueChoice[] {
+  const classes = [state.classA, state.classB].filter(Boolean);
+  return (catalogue.featureChoices ?? []).flatMap((choice) => {
+    if (!choice.asked) return [];
+    const count = choice.species
+      ? choice.species === state.species
+        ? 1
+        : 0
+      : choice.class && classes.includes(choice.class)
+        ? (choice.counts[state.level - 1] ?? 0)
+        : 0;
+    return count > 0 ? [{ choice, count }] : [];
+  });
+}
+
+/** The labels picked for a choice, one entry per option to take. */
+export function choicePicks(state: BuilderState, due: DueChoice): string[] {
+  const picks = state.featureChoices[due.choice.id] ?? [];
+  return Array.from({ length: due.count }, (_, index) => picks[index] ?? '');
+}
+
+/**
+ * What one slot of a choice may take: not an option another slot has, nor
+ * what another choice already wrote (the same Fighting Style feat), nor one
+ * above the character's level or without the option it needs.
+ */
+export function choiceOptions(
+  state: BuilderState,
+  catalogue: DndRulesCatalogue,
+  due: DueChoice,
+  slot: number
+): DndFeatureOption[] {
+  const find = (choice: DndFeatureChoice, label: string) =>
+    choice.options.find((option) => option.label === label);
+  const others = choicePicks(state, due)
+    .filter((_, index) => index !== slot)
+    .flatMap((label) => find(due.choice, label) ?? []);
+  const elsewhere = new Set(
+    dueChoices(state, catalogue)
+      .filter((other) => other.choice.id !== due.choice.id)
+      .flatMap((other) =>
+        choicePicks(state, other).map((label) => find(other.choice, label)?.name)
+      )
+  );
+  return due.choice.options.filter(
+    (option) =>
+      (option.minLevel ?? 1) <= state.level &&
+      !elsewhere.has(option.name) &&
+      !others.includes(option) &&
+      (!option.group || option.repeatable || !others.some((other) => other.group === option.group)) &&
+      (!option.needs || others.some((other) => other.group === option.needs))
+  );
 }
 
 /** How many skills the character chooses, and from which. */
@@ -218,6 +287,11 @@ export function toChoices(
   state: BuilderState,
   catalogue: DndRulesCatalogue
 ): DndCharacterChoices {
+  const featureChoices: Record<string, string[]> = {};
+  for (const due of dueChoices(state, catalogue)) {
+    const picks = choicePicks(state, due).filter(Boolean);
+    if (picks.length > 0) featureChoices[due.choice.id] = picks;
+  }
   return {
     name: name.trim(),
     species: state.species,
@@ -242,6 +316,7 @@ export function toChoices(
         },
       ];
     }),
+    ...(Object.keys(featureChoices).length > 0 ? { featureChoices } : {}),
   };
 }
 
@@ -250,6 +325,11 @@ export function missing(name: string, state: BuilderState, catalogue: DndRulesCa
   const out: string[] = [];
   if (name.trim().length < 2) out.push('a name');
   if (!state.species) out.push('a species');
+  const lacking = (due: DueChoice) => choicePicks(state, due).filter((pick) => !pick).length;
+  const choices = dueChoices(state, catalogue);
+  for (const due of choices.filter((entry) => entry.choice.species)) {
+    if (lacking(due) > 0) out.push(`the ${due.choice.title}`);
+  }
   if (!state.background) out.push('a background');
   if (!state.classA) out.push('a class');
   const spread = state.backgroundSpread === '2+1' ? 2 : 3;
@@ -266,6 +346,10 @@ export function missing(name: string, state: BuilderState, catalogue: DndRulesCa
       chosen.extraPicks.some((pick) => !pick);
     if (unfinished)
       out.push(`the level ${gain.level} ${gain.kind === 'epicBoon' ? 'Epic Boon' : 'feat'}`);
+  }
+  for (const due of choices.filter((entry) => !entry.choice.species)) {
+    const left = lacking(due);
+    if (left > 0) out.push(due.count === 1 ? due.choice.title : `${left} of ${due.choice.title}`);
   }
   return out;
 }

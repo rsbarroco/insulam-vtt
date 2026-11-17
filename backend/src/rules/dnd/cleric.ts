@@ -76,7 +76,8 @@ export function blessedStrikesOf(sheet: Sheet | null | undefined): BlessedStrike
   if (!sheet || classLevel(sheet, 'Cleric') < 7) return null;
   const names = readFeatures(sheet).map((feature) => feature.name.toLowerCase());
   const strike = names.some((name) => name.includes('divine strike'));
-  const potent = names.some((name) => name.includes('potent spellcasting'));
+  // A gestalt Druid's Elemental Fury has a Potent Spellcasting of its own: a name tagged for the Druid is not the Cleric's.
+  const potent = names.some((name) => name.includes('potent spellcasting') && !/elemental fury|druid/.test(name));
   if (strike === potent) return null;
   return strike ? 'divineStrike' : 'potentSpellcasting';
 }

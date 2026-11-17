@@ -107,7 +107,12 @@ export function landsAidActions(sheet: Sheet): CombatAction[] {
 export function elementalFury(sheet: Sheet): 'primal' | 'potent' | null {
   if (classLevel(sheet, 'Druid') < 7) return null;
   if (lists(sheet, 'Primal Strike')) return 'primal';
-  if (lists(sheet, 'Potent Spellcasting')) return 'potent';
+  // A gestalt Cleric's Blessed Strikes has a Potent Spellcasting of its own: a name tagged for the Cleric is not the Druid's.
+  const potent = readFeatures(sheet).some((feature) => {
+    const name = plain(feature.name);
+    return name.includes(plain('Potent Spellcasting')) && !/blessed strikes|cleric/.test(name);
+  });
+  if (potent) return 'potent';
   return null;
 }
 

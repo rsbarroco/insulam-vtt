@@ -2,8 +2,8 @@
 // The guided D&D character builder
 //
 // One form for the choices a character is built from: species, background,
-// one class or two, level, ability scores, skills, and a feat for each level
-// that gives one. It offers what the campaign's rules allow, as the server
+// one class or two, level, ability scores, skills, a feat for each level
+// that gives one, and the option of each feature that offers several. It offers what the campaign's rules allow, as the server
 // lists them, and the server builds the sheet and has the last word.
 // ============================================
 
@@ -18,6 +18,9 @@ import {
   SKILL_LABELS,
   STANDARD_ARRAY,
   backgroundAbilities,
+  choiceOptions,
+  choicePicks,
+  dueChoices,
   dueImprovements,
   featsFor,
   improvementKey,
@@ -25,6 +28,7 @@ import {
   skillChoices,
   totalScores,
   type BuilderState,
+  type DueChoice,
   type ImprovementState,
   type Pick,
 } from './builderState';
@@ -142,10 +146,46 @@ export default function DndCharacterBuilder({
     onChange({ ...next, originFeat: offered.length === 1 ? offered[0].name : '', skills: [] });
   };
   const chooseClass = (patch: Partial<BuilderState>) =>
-    set({ ...patch, skills: [], improvements: {} });
+    set({ ...patch, skills: [], improvements: {}, featureChoices: {} });
 
   const setImprovement = (gain: DndImprovement, value: ImprovementState) =>
     set({ improvements: { ...state.improvements, [improvementKey(gain)]: value } });
+
+  const choices = dueChoices(state, catalogue);
+  const speciesChoices = choices.filter((due) => due.choice.species);
+  const classChoices = choices.filter((due) => !due.choice.species);
+  /** One select for each option a choice gives: the option's name is what the sheet will list. */
+  const choiceSelects = (due: DueChoice) => {
+    const picks = choicePicks(state, due);
+    return picks.map((pick, slot) => {
+      const label = due.count === 1 ? due.choice.title : `${due.choice.title} ${slot + 1}`;
+      return (
+        <select
+          key={slot}
+          id={`dnd-choice-${due.choice.id}-${slot}`}
+          aria-label={label}
+          value={pick}
+          disabled={disabled}
+          onChange={(event) =>
+            set({
+              featureChoices: {
+                ...state.featureChoices,
+                [due.choice.id]: picks.map((other, at) => (at === slot ? event.target.value : other)),
+              },
+            })
+          }
+          className={FIELD}
+        >
+          <option value="">Choose…</option>
+          {choiceOptions(state, catalogue, due, slot).map((option) => (
+            <option key={option.label} value={option.label}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      );
+    });
+  };
 
   return (
     <div className="space-y-5">
@@ -183,6 +223,12 @@ export default function DndCharacterBuilder({
             {species.traits.map((trait) => trait.name).join(', ')}
           </p>
         )}
+        {speciesChoices.map((due) => (
+          <div key={due.choice.id} className="mt-2">
+            <span className={LABEL}>{due.choice.title}</span>
+            {choiceSelects(due)}
+          </div>
+        ))}
       </div>
 
       {/* ── Background ── */}
@@ -447,6 +493,26 @@ export default function DndCharacterBuilder({
               {background.name} already gives {background.skillProficiencies.join(' and ')}.
             </p>
           )}
+        </fieldset>
+      )}
+
+      {/* ── The options of class features ── */}
+      {classChoices.length > 0 && (
+        <fieldset className="space-y-3" disabled={disabled}>
+          <legend className={LABEL}>Feature options</legend>
+          {classChoices.map((due) => (
+            <div key={due.choice.id} className="rounded-lg border border-ink/10 p-3 space-y-2">
+              <span className="block text-sm font-medium text-ink">
+                {due.choice.title} ({due.choice.class} {due.choice.level})
+                {due.count > 1 ? `: choose ${due.count}` : ''}
+              </span>
+              {choiceSelects(due)}
+            </div>
+          ))}
+          <p className={HINT}>
+            The option is written into the feature&apos;s name on the sheet, which is where the
+            rules are read from. One that changes on a rest can be changed there later.
+          </p>
         </fieldset>
       )}
 

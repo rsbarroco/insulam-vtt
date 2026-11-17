@@ -28,5 +28,7 @@ export const CharacterChoicesSchema = z
     improvements: z
       .array(z.object({ level: z.number().int().min(1).max(20), feat: name, featPoints: points.optional(), abilityPoints: points.optional() }).strict())
       .max(40),
+    // By choice id, the labels of the options taken (rules/dnd/featureChoices.ts).
+    featureChoices: z.record(z.string().trim().min(1).max(60), z.array(name).max(12)).optional(),
   })
   .strict();

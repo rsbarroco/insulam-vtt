@@ -3855,6 +3855,64 @@ paths:
                     type: array
                     items:
                       type: object
+                  featureChoices:
+                    type: array
+                    description: >
+                      The options a feature or a species makes a character
+                      choose (Blessed Strikes, Hunter's Prey, Metamagic,
+                      Eldritch Invocations, a Fighting Style feat, a
+                      Dragonborn's ancestor), with the exact name the sheet
+                      gets for each: the name the server reads the option from.
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          type: string
+                        class:
+                          type: string
+                        feat:
+                          type: string
+                        species:
+                          type: string
+                        level:
+                          type: integer
+                          description: The class level it first comes at.
+                        counts:
+                          type: array
+                          description: How many options a character has taken by each level, level 1 first.
+                          items:
+                            type: integer
+                        writes:
+                          type: string
+                          enum: [renames, adds, race]
+                          description: Whether an option renames the feature that gives it, is listed beside it, or is written after the species as `race`.
+                        feature:
+                          type: string
+                        asked:
+                          type: boolean
+                          description: False when the build works it out from another choice.
+                        options:
+                          type: array
+                          items:
+                            type: object
+                            required: [label, name]
+                            properties:
+                              label:
+                                type: string
+                                description: What a build sends in `featureChoices`.
+                              name:
+                                type: string
+                                description: What the sheet gets.
+                              group:
+                                type: string
+                              repeatable:
+                                type: boolean
+                              minLevel:
+                                type: integer
+                              needs:
+                                type: string
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -3994,6 +4052,18 @@ paths:
                       abilityPoints:
                         type: object
                         description: The 2 points the campaign's house rule adds beside the feat.
+                featureChoices:
+                  type: object
+                  description: >
+                    The options taken where a feature or the species gives a
+                    choice: by the choice's `id`, the `label` of each option
+                    (see `featureChoices` of `GET …/rules/dnd`). A choice left
+                    out is not written; a pick the character cannot make is
+                    refused.
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: string
       responses:
         '200':
           description: The sheet and a summary of it

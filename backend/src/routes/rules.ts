@@ -21,6 +21,7 @@ import { CLASSES, improvements, type Tracks } from '../rules/dnd/advancement';
 import { allClasses } from '../rules/dnd/classes';
 import { allBackgrounds, allFeats, allSpecies } from '../rules/dnd/origins';
 import { buildCharacter, classSkillChoices, featPointsRule } from '../rules/dnd/buildCharacter';
+import { choiceCatalogue } from '../rules/dnd/featureChoices';
 import { allRules, RULES_SOURCE } from '../rules/dnd/rulesText';
 
 const router = Router();
@@ -66,6 +67,8 @@ router.get('/:campaignId/rules/dnd', campaignMember, async (req: AuthenticatedRe
         // The levels that give a feat or ability score points to a character of this class alone.
         improvements: improvements([entry.name] as Tracks, 20, rules),
       })),
+      // The options a feature or a species makes a character choose, and the name the sheet gets for each.
+      featureChoices: choiceCatalogue(),
     });
   } catch (error) {
     logger.error('Error reading the D&D rules', { err: error });

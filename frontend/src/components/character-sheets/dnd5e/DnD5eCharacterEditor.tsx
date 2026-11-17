@@ -32,6 +32,8 @@ import type {
 import { apiErrorMessage, errorSummary } from '@/utils/errors';
 import { DND5E_CONDITIONS } from '@/utils/conditions';
 import { collectSheetFeatures, readFeatureEntriesForEditing } from '@/utils/featureEntries';
+import { optionsOfFeature } from '@/utils/featureChoiceNames';
+import { useFeatureChoices } from '@/hooks/useFeatureChoices';
 import { useServerConfigQuery } from '@/hooks/queries';
 import { tokenPictureProblem, uploadTokenPicture } from '@/utils/tokenPicture';
 import NumberField from '../../ui/NumberField';
@@ -774,6 +776,8 @@ export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
     () => readFeatureEntriesForEditing(formData.featuresAndTraits),
     [formData.featuresAndTraits]
   );
+  // The options a feature can be set to, by the names the server reads them from.
+  const featureChoices = useFeatureChoices(character.campaignId);
 
   /**
    * Convert a character saved before `initiativeBonus` existed, and keep the
@@ -3148,6 +3152,33 @@ export const DnD5eCharacterEditor: React.FC<DnD5eCharacterEditorProps> = ({
                       aria-label={`Feature ${index + 1} name`}
                       className="flex-1 px-2 py-1 border border-ink/20 rounded-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-brand"
                     />
+                    {(() => {
+                      const offered = optionsOfFeature(feature.name, featureChoices);
+                      if (!offered) return null;
+                      return (
+                        <select
+                          value={offered.current?.name ?? ''}
+                          onChange={(e) =>
+                            e.target.value &&
+                            updateField(
+                              'featuresAndTraits',
+                              featureRows.map((f, i) =>
+                                i === index ? { ...f, name: e.target.value } : f
+                              )
+                            )
+                          }
+                          aria-label={`Feature ${index + 1} option`}
+                          className="ml-2 px-2 py-1 border border-ink/20 rounded-sm text-sm focus:outline-hidden focus:ring-2 focus:ring-brand"
+                        >
+                          <option value="">Option…</option>
+                          {offered.options.map((option) => (
+                            <option key={option.name} value={option.name}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    })()}
                     <button
                       onClick={() =>
                         updateField(

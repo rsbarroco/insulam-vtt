@@ -4,11 +4,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { DndClassSummary, DndFeat, DndRulesCatalogue } from '@/types';
+import type { DndClassSummary, DndFeat, DndFeatureChoice, DndRulesCatalogue } from '@/types';
 import { DEFAULT_CHARACTER_RULES, RULES_AS_WRITTEN } from '@/utils/characterRules';
 import {
   backgroundAbilities,
   backgroundPoints,
+  choiceOptions,
+  dueChoices,
   dueImprovements,
   featsFor,
   initialState,
@@ -117,5 +119,56 @@ describe('what the form sends', () => {
     ]);
     expect(missing('Brann', chosen({ skills: ['arcana'], improvements: {} }), catalogue())).toEqual(['2 skills', 'the level 4 feat']);
     expect(missing('Brann', chosen({ improvements: { '4:both': { feat: 'Grappler', featPicks: [''], extraPicks: ['int', 'int'] } } }), catalogue())).toEqual(['the level 4 feat']);
+  });
+});
+
+describe('the options of features', () => {
+  const style = (id: string, cls: string, level: number): DndFeatureChoice => ({
+    id, title: 'Fighting Style', class: cls, level, counts: Array.from({ length: 20 }, (_, at) => (at + 1 >= level ? 1 : 0)),
+    writes: 'adds', asked: true,
+    options: ['Archery', 'Defense'].map((name) => ({ label: name, name: `${name} (Fighting Style feat)` })),
+  });
+  const withChoices = (): DndRulesCatalogue => ({
+    ...catalogue(),
+    featureChoices: [
+      { id: 'ancestry', title: 'Draconic Ancestry', species: 'Dwarf', level: 1, counts: [], writes: 'race', asked: true,
+        options: [{ label: 'Red', name: 'Dwarf (Red)' }, { label: 'Blue', name: 'Dwarf (Blue)' }] },
+      style('fighterStyle', 'Fighter', 1),
+      style('wizardStyle', 'Wizard', 3),
+      { id: 'invocations', title: 'Eldritch Invocations', class: 'Fighter', level: 1, counts: Array(20).fill(2), writes: 'adds', asked: true,
+        options: [
+          { label: 'Pact of the Blade', name: 'Pact of the Blade', group: 'Pact of the Blade' },
+          { label: 'Pact of the Blade (Longsword)', name: 'Pact of the Blade (Longsword)', group: 'Pact of the Blade' },
+          { label: 'Thirsting Blade', name: 'Thirsting Blade', group: 'Thirsting Blade', needs: 'Pact of the Blade', minLevel: 5 },
+          { label: 'Eldritch Mind', name: 'Eldritch Mind', group: 'Eldritch Mind' },
+        ] },
+      { id: 'boon', title: 'Boon', feat: 'Boon of Fate', level: 1, counts: [], writes: 'renames', asked: false, options: [] },
+    ],
+  });
+
+  it('asks those the species and the classes give at the level, and not those the build works out', () => {
+    expect(dueChoices(chosen(), withChoices()).map((due) => [due.choice.id, due.count])).toEqual([
+      ['ancestry', 1], ['fighterStyle', 1], ['wizardStyle', 1], ['invocations', 2],
+    ]);
+    expect(dueChoices(chosen({ level: 2, species: '' }), withChoices()).map((due) => due.choice.id)).toEqual(['fighterStyle', 'invocations']);
+  });
+
+  it('offers each slot what is left: not another slot’s option, another choice’s name, a level too high, or what needs a missing option', () => {
+    const state = chosen({ level: 5, featureChoices: { fighterStyle: ['Archery'], invocations: ['Pact of the Blade (Longsword)', ''] } });
+    const due = dueChoices(state, withChoices());
+    const of = (id: string, slot = 0) => choiceOptions(state, withChoices(), due.find((entry) => entry.choice.id === id)!, slot).map((option) => option.label);
+    expect(of('wizardStyle')).toEqual(['Defense']);
+    expect(of('invocations', 1)).toEqual(['Thirsting Blade', 'Eldritch Mind']);
+    expect(of('invocations', 0)).toEqual(['Pact of the Blade', 'Pact of the Blade (Longsword)', 'Eldritch Mind']);
+    const low = chosen({ level: 4, featureChoices: { invocations: ['Pact of the Blade', ''] } });
+    expect(choiceOptions(low, withChoices(), dueChoices(low, withChoices())[3], 1).map((option) => option.label)).toEqual(['Eldritch Mind']);
+  });
+
+  it('sends the picks, and says which are still to choose', () => {
+    const state = chosen({ featureChoices: { ancestry: ['Red'], fighterStyle: ['Archery'], invocations: ['Eldritch Mind', ''] } });
+    expect(toChoices('Brann', state, withChoices()).featureChoices).toEqual({ ancestry: ['Red'], fighterStyle: ['Archery'], invocations: ['Eldritch Mind'] });
+    expect(missing('Brann', state, withChoices())).toEqual(['Fighting Style', '1 of Eldritch Invocations']);
+    expect(missing('Brann', chosen(), withChoices())[0]).toBe('the Draconic Ancestry');
+    expect(toChoices('Brann', chosen(), withChoices())).not.toHaveProperty('featureChoices');
   });
 });
