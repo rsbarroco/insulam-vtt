@@ -351,6 +351,30 @@ describe('Deflect Attacks redirect', () => {
   });
 });
 
+describe('the Flurry of Blows strike in the attack menu', () => {
+  const unarmedExtras = async () => {
+    const listed = (await ask(player, 'combat.actions', { tokenId: HERO })) as unknown as {
+      actions: Array<{ name: string; extras?: string[] }>;
+    };
+    return listed.actions.find((action) => action.name === 'Unarmed Strike')!.extras;
+  };
+
+  it('is offered only once Flurry of Blows has given strikes this turn', async () => {
+    fight();
+    await asMonk(3, []);
+    expect(await unarmedExtras()).toBeUndefined();
+    expect((await ask(player, 'combat.feature', { tokenId: HERO, feature: 'Flurry of Blows' })).ok).toBe(true);
+    expect(await unarmedExtras()).toEqual(['flurry']);
+  });
+
+  it('is not offered to a character of another class', async () => {
+    fight();
+    await asMonk(3, []);
+    await prisma.character.update({ where: { id: heroCharacterId }, data: { data: toJson({ ...heroSheet([]), class: 'Wizard', level: 3 }) } });
+    expect(await unarmedExtras()).toBeUndefined();
+  });
+});
+
 describe('Open Hand Technique', () => {
   const flurry = async () => {
     expect((await ask(player, 'combat.feature', { tokenId: HERO, feature: 'Flurry of Blows' })).ok).toBe(true);

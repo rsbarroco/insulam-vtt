@@ -38,6 +38,13 @@ export default function LayOnHands({
   const left = pool.max - pool.used;
   const [open, setOpen] = useState(false);
   const [targetId, setTargetId] = useState(targets[0]?.id ?? '');
+  // A new list of creatures (the turn passed to another caster) starts again from its first.
+  const listed = targets.map((target) => target.id).join(' ');
+  const [listedFor, setListedFor] = useState(listed);
+  if (listed !== listedFor) {
+    setListedFor(listed);
+    setTargetId(targets[0]?.id ?? '');
+  }
   const [amount, setAmount] = useState(Math.min(5, left));
 
   const send = async (cure: LayOnHandsCure | null) => {

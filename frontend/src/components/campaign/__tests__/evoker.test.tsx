@@ -31,11 +31,28 @@ const missile = {
   overchannel: true,
 };
 
-function renderMenu(resources: Array<{ name: string; max: number; used: number }> = []) {
+const hands = {
+  ...fireball,
+  index: 2,
+  name: 'Burning Hands',
+  spell: { level: 1, slotLevels: [1, 2] },
+  overchannel: false,
+};
+const crowd = [
+  { id: 'hero', name: 'Hero' },
+  { id: 'ogre', name: 'Ogre' },
+  { id: 'ally', name: 'Ally' },
+  { id: 'bard', name: 'Bard' },
+  { id: 'cleric', name: 'Cleric' },
+];
+
+function renderMenu(
+  resources: Array<{ name: string; max: number; used: number }> = [],
+  actions: unknown[] = [fireball, missile],
+  caught = crowd.slice(0, 3)
+) {
   const socket = {
-    listCombatActions: vi
-      .fn()
-      .mockResolvedValue({ ok: true, actions: [fireball, missile], resources }),
+    listCombatActions: vi.fn().mockResolvedValue({ ok: true, actions, resources }),
     resolveAttack: vi.fn(),
     resolveSave: vi.fn().mockResolvedValue({ ok: true, summary: 'done', targets: [] }),
   };
@@ -46,11 +63,7 @@ function renderMenu(resources: Array<{ name: string; max: number; used: number }
       target={{ id: 'ogre', name: 'Ogre' }}
       situation={null}
       style={{}}
-      caughtBy={() => [
-        { id: 'hero', name: 'Hero' },
-        { id: 'ogre', name: 'Ogre' },
-        { id: 'ally', name: 'Ally' },
-      ]}
+      caughtBy={() => caught}
       onAim={() => {}}
       onResolved={vi.fn()}
       onClose={() => {}}
@@ -74,6 +87,20 @@ describe('AttackMenu for an Evoker', () => {
         sculpt: { targetIds: ['ally'] },
       })
     );
+  });
+
+  it('lets Sculpt Spells spare no more than 1 + the slot level', async () => {
+    renderMenu([], [hands], crowd);
+    for (const name of ['Ogre', 'Ally', 'Bard']) {
+      fireEvent.click(await screen.findByLabelText(`Burning Hands: Sculpt Spells spares ${name}`));
+    }
+    // Up to 3, with the level 2 slot: the fourth cannot be ticked, nor the level 1 slot used.
+    expect(screen.getByLabelText('Burning Hands: Sculpt Spells spares Cleric')).toBeDisabled();
+    expect(screen.getByLabelText('Cast Burning Hands with a level 1 slot')).toBeDisabled();
+    expect(screen.getByLabelText('Cast Burning Hands with a level 2 slot')).toBeEnabled();
+    fireEvent.click(screen.getByLabelText('Burning Hands: Sculpt Spells spares Bard'));
+    expect(screen.getByLabelText('Burning Hands: Sculpt Spells spares Cleric')).toBeEnabled();
+    expect(screen.getByLabelText('Cast Burning Hands with a level 1 slot')).toBeEnabled();
   });
 
   it('sends Overchannel with a slot of level 5 or lower only', async () => {

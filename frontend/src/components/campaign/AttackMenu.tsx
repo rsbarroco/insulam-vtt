@@ -135,6 +135,13 @@ function ExtraAttacks({
   );
 }
 
+/** How many creatures Sculpt Spells can spare: 1 + the level of the highest slot the spell can be cast with. */
+function sculptCap(action: CombatActionSummary): number {
+  const spell = action.spell;
+  if (!spell) return 1;
+  return 1 + Math.max(spell.level, ...spell.slotLevels);
+}
+
 /** Sculpt Spells: the creatures an Evocation spell's area catches, to tick the ones it spares. */
 function SculptPicks({
   action,
@@ -148,17 +155,20 @@ function SculptPicks({
   onToggle: (id: string) => void;
 }) {
   if (caught.length === 0) return null;
+  const cap = sculptCap(action);
+  const ticked = caught.filter((creature) => picked.includes(creature.id)).length;
   return (
     <span
       className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 pb-1 text-xs text-ink-muted"
       title="Sculpt Spells: 1 + the level of the slot of the other creatures you can see succeed on the save and take no damage."
     >
-      Sculpt Spells spares
+      Sculpt Spells spares up to {cap}
       {caught.map((creature) => (
         <label key={creature.id} className="flex items-center gap-1 text-ink">
           <input
             type="checkbox"
             checked={picked.includes(creature.id)}
+            disabled={!picked.includes(creature.id) && ticked >= cap}
             aria-label={`${action.name}: Sculpt Spells spares ${creature.name}`}
             onChange={() => onToggle(creature.id)}
           />
@@ -180,12 +190,15 @@ function ActionRow({
   action,
   busy,
   catches,
+  sculpting = 0,
   onMake,
 }: {
   action: CombatActionSummary;
   busy: boolean;
   /** For an effect with an area, the names of the creatures in it. */
   catches: string[] | null;
+  /** The creatures Sculpt Spells is to spare: a slot below that count less 1 cannot spare them all. */
+  sculpting?: number;
   onMake: (slotLevel?: number) => void;
 }) {
   const what = action.attack
@@ -227,7 +240,7 @@ function ActionRow({
               type="button"
               variant="ghost"
               size="sm"
-              disabled={busy}
+              disabled={busy || sculpting > 1 + level}
               aria-label={`Cast ${action.name} with a level ${level} slot`}
               onClick={() => onMake(level)}
             >
@@ -619,7 +632,6 @@ export default function AttackMenu({
                       detail={saveText(action.save)}
                       dice={action.areaHeal}
                       creatures={aidCreatures(action)}
-                      userId={attacker.id}
                       busy={busy}
                       onUse={(targetIds, healId) => void makeAid(action, targetIds, healId)}
                     />
@@ -629,6 +641,11 @@ export default function AttackMenu({
                       busy={busy}
                       catches={
                         action.save?.area ? caughtBy(action.save.area).map((c) => c.name) : null
+                      }
+                      sculpting={
+                        action.sculpt && action.save?.area
+                          ? caughtBy(action.save.area).filter((c) => sculpted.includes(c.id)).length
+                          : 0
                       }
                       onMake={(slot) => void make(action, slot)}
                     />

@@ -7,6 +7,8 @@ import { DEFAULT_CHARACTER_RULES as house, RULES_AS_WRITTEN as written } from '.
 import { dnd5eCharacterDataSchema } from '../../../validators/game-systems/dnd5e.schema';
 import { buildCharacter, classSkillChoices, featPointsRule, skillKey, type CharacterChoices } from '../buildCharacter';
 import { findFeat } from '../origins';
+import { spellActionsFromSheet } from '../spells';
+import { dnd5eSpellAttackBonus, dnd5eSpellSaveDC } from '../../../utils/rules/dnd5e';
 
 const fighter: CharacterChoices = {
   name: 'Brann',
@@ -220,5 +222,33 @@ describe('feats that raise a score', () => {
     expect(featPointsRule(findFeat('Grappler')!, house)).toEqual({ total: 1, among: ['str', 'dex'], cap: 22 });
     expect(featPointsRule(findFeat('Boon of Spell Recall')!, house)).toEqual({ total: 1, among: ['int', 'wis', 'cha'], cap: 30 });
     expect(featPointsRule(findFeat('Alert')!, house)).toBeNull();
+  });
+});
+
+describe('the spellcasting numbers of a caster', () => {
+  const caster = (name: 'Wizard' | 'Cleric' | 'Warlock', skills: CharacterChoices['skills'], level = 1) =>
+    built({ ...fighter, classes: [name], skills, level, abilityScores: { str: 10, dex: 12, con: 14, int: 15, wis: 16, cha: 17 } }).sheet;
+
+  it('writes the spellcasting ability, save DC and attack bonus, as the sheet editor works them out', () => {
+    const wizard = caster('Wizard', ['arcana', 'history']);
+    expect(wizard.spellcasting).toMatchObject({ ability: 'Intelligence', spellSaveDC: 12, spellAttackBonus: 4 });
+    expect((wizard.spellcasting as Record<string, unknown>).spellSaveDC).toBe(dnd5eSpellSaveDC(wizard));
+    expect((wizard.spellcasting as Record<string, unknown>).spellAttackBonus).toBe(dnd5eSpellAttackBonus(wizard));
+    expect(caster('Cleric', ['history', 'insight']).spellcasting).toMatchObject({ ability: 'Wisdom', spellSaveDC: 13, spellAttackBonus: 5 });
+    expect(caster('Warlock', ['arcana', 'history'], 3).spellcasting).toMatchObject({ ability: 'Charisma', spellSaveDC: 13, spellAttackBonus: 5 });
+    expect(dnd5eCharacterDataSchema.safeParse(caster('Cleric', ['history', 'insight'])).success).toBe(true);
+  });
+
+  it('lists the spells a new caster adds among its combat actions, without the sheet editor', () => {
+    const withCantrip = (sheet: Record<string, unknown>, cantrip: string) => ({
+      ...sheet,
+      spellcasting: { ...(sheet.spellcasting as Record<string, unknown>), cantrips: [cantrip] },
+    });
+    const bolt = spellActionsFromSheet(withCantrip(caster('Wizard', ['arcana', 'history']), 'Fire Bolt'));
+    expect(bolt.map((action) => [action.name, action.attack?.bonus])).toEqual([['Fire Bolt', 4]]);
+    const flame = spellActionsFromSheet(withCantrip(caster('Cleric', ['history', 'insight']), 'Sacred Flame'));
+    expect(flame.map((action) => [action.name, action.save?.dc])).toEqual([['Sacred Flame', 13]]);
+    const blast = spellActionsFromSheet(withCantrip(caster('Warlock', ['arcana', 'history']), 'Eldritch Blast'));
+    expect(blast.map((action) => action.name)).toEqual(['Eldritch Blast']);
   });
 });
