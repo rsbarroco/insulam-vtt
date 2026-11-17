@@ -3392,13 +3392,17 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       // Shield, as the rules have it: asked of the target's player once the attack hits and before its damage is
       // shown, and only when +5 to its Armor Class would make the hit a miss. The same roll is decided again.
       let shieldSlot = null as number | null;
+      // Cutting Words on the attack roll, once asked below; a target that took it has no reaction left for Shield.
+      let cutting: { bard: Token; choice: string; rolled: number } | null = null;
       let shieldAsked = false;
       // What a re-decided roll keeps from the one before: what changed the roll, not what a cancelled hit added.
-      const rollNote = /^(Seeking Spell$|Bardic Inspiration |Peerless Skill |Heroic Inspiration: |Shield \()/;
+      const rollNote = /^(Seeking Spell$|Bardic Inspiration |Peerless Skill |Heroic Inspiration: |Shield \(|.+'s Cutting Words -\d)/;
       // A target that cast Shield has spent its reaction on this attack: it is asked for no other.
       const mayReact = (tokenId: string) => !(shieldSlot !== null && tokenId === targetId);
       const answeredByShield = async (hit: AttackResult): Promise<AttackResult> => {
         if (shieldAsked || !shieldTurnsHit(hit.outcome)) return hit;
+        // A target that took Cutting Words against this attack has spent its reaction.
+        if (cutting?.bard.id === targetId) return hit;
         shieldAsked = true;
         const slot = await offerShield(io, campaignId, attackerToken, targetToken, targetSheet, action.name, hit);
         if (slot === null) return hit;
@@ -3441,49 +3445,52 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           heroicSpent = true;
         }
       }
-      // Bardic Inspiration: an attacker that missed while it holds the die is asked; the die is added to the same roll.
-      if (!result.outcome.hit && result.outcome.roll.natural !== 1) {
-        const added = await offerInspiration(io, campaignId, map.id, attackerToken, `${attackerToken.name}'s ${action.name} misses ${targetToken.name} (${result.outcome.roll.total} against AC ${result.outcome.armorClass}).`);
-        if (added !== null) {
-          const again = resolveAttack({ ...attackRequest, inspired: { roll: result.outcome.roll, added, label: 'Bardic Inspiration' } });
-          if (again.ok) result = { ...again, bonuses: [...result.bonuses.filter((bonus) => !again.bonuses.includes(bonus)), ...again.bonuses] };
-        }
-      }
-      // Stroke of Luck: a Rogue that still misses, with its use left, is asked; the d20 becomes a 20.
+      // What answers a failed D20 Test, as the rules have it: Bardic Inspiration, Stroke of Luck and Peerless Skill. They are
+      // asked again once Cutting Words turns the hit into a miss (that miss is a failed roll too), each at most once on the roll.
+      // Not Heroic Inspiration nor Seeking Spell: a reroll is made as the roll is, before Cutting Words answered it.
+      let inspirationTaken = false;
       let luckSpent = false;
-      if (
-        !result.outcome.hit &&
-        (await offerStrokeOfLuck(io, campaignId, attackerToken, attackerSheet, `${attackerToken.name}'s ${action.name} misses ${targetToken.name} (${result.outcome.roll.total} against AC ${result.outcome.armorClass}).`))
-      ) {
-        const again = resolveAttack({ ...attackRequest, inspired: undefined, turned: { roll: result.outcome.roll, label: 'Stroke of Luck' } });
-        if (again.ok) {
-          result = { ...again, bonuses: [...result.bonuses.filter((bonus) => !again.bonuses.includes(bonus)), ...again.bonuses] };
-          luckSpent = true;
-        }
-      }
-      // Peerless Skill: a Lore Bard that missed is asked; its own Bardic Inspiration die is added, and the use is spent only on a hit.
-      let peerless = false;
-      if (!result.outcome.hit && result.outcome.roll.natural !== 1 && canUsePeerlessSkill(attackerSheet)) {
-        const choice = await askReaction(io, campaignId, {
-          token: attackerToken,
-          text: `${attackerToken.name}'s ${action.name} misses ${targetToken.name} (${result.outcome.roll.total} against AC ${result.outcome.armorClass}).`,
-          options: ['Peerless Skill'],
-        });
-        if (choice === 'Peerless Skill') {
-          const again = resolveAttack({ ...attackRequest, inspired: { roll: result.outcome.roll, added: rollDie(bardicSides(attackerSheet)), label: 'Peerless Skill' } });
-          if (again.ok) {
-            result = { ...again, bonuses: [...result.bonuses.filter((bonus) => !again.bonuses.includes(bonus)), ...again.bonuses] };
-            peerless = again.outcome.hit;
+      let peerlessTaken = false;
+      const missed = (roll: AttackResult) => `${attackerToken.name}'s ${action.name} misses ${targetToken.name} (${roll.outcome.roll.total} against AC ${roll.outcome.armorClass}).`;
+      const answerMiss = async (from: AttackResult): Promise<AttackResult> => {
+        let result = from;
+        // Bardic Inspiration: an attacker that missed while it holds the die is asked; the die is added to the same roll.
+        if (!inspirationTaken && !result.outcome.hit && result.outcome.roll.natural !== 1) {
+          const added = await offerInspiration(io, campaignId, map.id, attackerToken, missed(result));
+          if (added !== null) {
+            inspirationTaken = true;
+            const again = resolveAttack({ ...attackRequest, inspired: { roll: result.outcome.roll, added, label: 'Bardic Inspiration' } });
+            if (again.ok) result = { ...again, bonuses: [...result.bonuses.filter((bonus) => !again.bonuses.includes(bonus)), ...again.bonuses] };
           }
         }
-      }
+        // Stroke of Luck: a Rogue that still misses, with its use left, is asked; the d20 becomes a 20.
+        if (!luckSpent && !result.outcome.hit && (await offerStrokeOfLuck(io, campaignId, attackerToken, attackerSheet, missed(result)))) {
+          const again = resolveAttack({ ...attackRequest, inspired: undefined, turned: { roll: result.outcome.roll, label: 'Stroke of Luck' } });
+          if (again.ok) {
+            result = { ...again, bonuses: [...result.bonuses.filter((bonus) => !again.bonuses.includes(bonus)), ...again.bonuses] };
+            luckSpent = true;
+          }
+        }
+        // Peerless Skill: a Lore Bard that missed is asked; its own Bardic Inspiration die is added, and the use is spent only on a hit.
+        if (!peerlessTaken && !result.outcome.hit && result.outcome.roll.natural !== 1 && canUsePeerlessSkill(attackerSheet)) {
+          const choice = await askReaction(io, campaignId, { token: attackerToken, text: missed(result), options: ['Peerless Skill'] });
+          if (choice === 'Peerless Skill') {
+            const again = resolveAttack({ ...attackRequest, inspired: { roll: result.outcome.roll, added: rollDie(bardicSides(attackerSheet)), label: 'Peerless Skill' } });
+            if (again.ok) {
+              result = { ...again, bonuses: [...result.bonuses.filter((bonus) => !again.bonuses.includes(bonus)), ...again.bonuses] };
+              peerlessTaken = true;
+            }
+          }
+        }
+        return result;
+      };
+      result = await answerMiss(result);
       // A miss the attacker turned into a hit (Heroic or Bardic Inspiration, Peerless Skill, Seeking Spell) can still be
       // answered by Shield. The Boon of Combat Prowess below hits whatever the Armor Class, so Shield is not asked after it.
       result = await answeredByShield(result);
       // Cutting Words, as the rules have it: a Lore Bard that sees the attacker within 60 feet is asked once the hit is
       // known, before its damage is: the die comes off the attack roll. One that declines is asked again below, once
       // the damage is rolled, whether to take the die off that instead.
-      let cutting: { bard: Token; choice: string; rolled: number } | null = null;
       if (result.outcome.hit && result.outcome.roll.natural !== 20) {
         cutting = await offerCuttingWords(
           io,
@@ -3500,13 +3507,25 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
             const again = resolveAttack({ ...attackRequest, inspired: { roll: result.outcome.roll, added: -cutting.rolled, label } });
             // A miss keeps what was said of the roll, and none of what the hit added.
             if (again.ok) result = { ...again, bonuses: [...result.bonuses.filter((bonus) => rollNote.test(bonus)), ...again.bonuses] };
+            if (!result.outcome.hit) {
+              // The roll now fails: what answers a failed D20 Test is asked again. Cutting Words is not asked a second time on
+              // this roll, even if that turns it back into a hit: the Bard has used it (or declined it) once already, and a Lore
+              // Bard's Cutting Words answers one attack once.
+              result = await answerMiss(result);
+              // Shield's trigger is being hit: a miss turned back into a hit is a new hit, and a target that declined Shield
+              // (with its slot and reaction still there) is asked again. One that cast it already has the +5.
+              if (shieldSlot === null) shieldAsked = false;
+              result = await answeredByShield(result);
+              // A Shield that turns it back into a miss leaves what was not yet taken to be asked.
+              if (!result.outcome.hit) result = await answerMiss(result);
+            }
           } else {
             result = { ...result, outcome: cutAttackOutcome(result.outcome, cutting.rolled), bonuses: [...result.bonuses, `${label} -${cutting.rolled} (still a hit)`] };
           }
         }
       }
       // Peerless Skill's use is spent only on a hit: not when Shield or Cutting Words turned that hit back into a miss.
-      if (!result.outcome.hit) peerless = false;
+      const peerless = peerlessTaken && result.outcome.hit;
       // Boon of Combat Prowess (Peerless Aim): a roll that still misses (or that Cutting Words turned into a miss) can hit instead, once until the start of the attacker's next turn.
       let peerlessAim = false;
       if (!result.outcome.hit && hasFeat(attackerFeatures, COMBAT_PROWESS) && !peerlessAimUsed(campaignId, attackerId)) {
@@ -4348,40 +4367,52 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           summary: `${token.name} ${label} check: ${success === null ? `${mighty}` : `${mighty} vs DC ${dc}: ${success ? 'success' : 'failure'}`} (Indomitable Might, rolled ${result.total})`,
         };
       }
-      // Tactical Mind: a Fighter that failed the check, with a use of Second Wind left, is asked; it adds 1d10,
-      // and the use is spent only if that turns the check into a success.
-      const secondWind = sheet ? resourcesOf(sheet).find((entry) => entry.name === 'Second Wind') : undefined;
-      if (result.success === false && dc !== undefined && sheet && hasFeature(readFeatures(sheet), 'Tactical Mind') && secondWind && secondWind.used < secondWind.max) {
-        const choice = await askReaction(io, campaignId, {
-          token,
-          text: `${token.name} fails the ${label} check (${result.total} vs DC ${dc}).`,
-          options: ['Tactical Mind'],
-        });
-        if (choice === 'Tactical Mind') result = withTacticalMind(result, dc, rollDie(10));
-      }
-      // Bardic Inspiration: a creature that failed the check while it holds the die is asked; the die is added.
-      if (result.success === false && dc !== undefined) {
-        const added = await offerInspiration(io, campaignId, map.id, token, `${token.name} fails the ${label} check (${result.total} vs DC ${dc}).`);
-        if (added !== null) result = withInspiration(result, dc, added);
-      }
-      // Stroke of Luck: a Rogue that still fails, with its use left, is asked; the d20 becomes a 20.
-      if (result.success === false && dc !== undefined && (await offerStrokeOfLuck(io, campaignId, token, sheet, `${token.name} fails the ${label} check (${result.total} vs DC ${dc}).`))) {
-        result = withStrokeOfLuck(result, dc);
-        await spendSheetUse(campaignId, token, 'Stroke of Luck');
-      }
-      // Peerless Skill: a Lore Bard that failed the check is asked; its own die is added, and the use is spent only on a success.
-      let peerlessCheck = false;
-      if (result.success === false && dc !== undefined && canUsePeerlessSkill(sheet)) {
-        const choice = await askReaction(io, campaignId, {
-          token,
-          text: `${token.name} fails the ${label} check (${result.total} vs DC ${dc}).`,
-          options: ['Peerless Skill'],
-        });
-        if (choice === 'Peerless Skill') {
-          result = withPeerlessSkill(result, dc, rollDie(bardicSides(sheet)));
-          peerlessCheck = result.success === true;
+      // What answers a failed D20 Test: Tactical Mind, Bardic Inspiration, Stroke of Luck and Peerless Skill, each at most
+      // once on the roll. They are asked again once Cutting Words turns the success into a failure; Heroic Inspiration,
+      // a reroll made as the roll is, is not.
+      const failed = (check: typeof result) => `${token.name} fails the ${label} check (${check.total} vs DC ${dc}).`;
+      let tacticalTaken = false;
+      let inspirationTaken = false;
+      let luckTaken = false;
+      let peerlessTaken = false;
+      const answerFailure = async (from: typeof result): Promise<typeof result> => {
+        let check = from;
+        if (check.success !== false || dc === undefined) return check;
+        // Tactical Mind: a Fighter that failed the check, with a use of Second Wind left, is asked; it adds 1d10,
+        // and the use is spent only if that turns the check into a success.
+        const secondWind = sheet ? resourcesOf(sheet).find((entry) => entry.name === 'Second Wind') : undefined;
+        if (!tacticalTaken && sheet && hasFeature(readFeatures(sheet), 'Tactical Mind') && secondWind && secondWind.used < secondWind.max) {
+          const choice = await askReaction(io, campaignId, { token, text: failed(check), options: ['Tactical Mind'] });
+          if (choice === 'Tactical Mind') {
+            tacticalTaken = true;
+            check = withTacticalMind(check, dc, rollDie(10));
+          }
         }
-      }
+        // Bardic Inspiration: a creature that failed the check while it holds the die is asked; the die is added.
+        if (!inspirationTaken && check.success === false) {
+          const added = await offerInspiration(io, campaignId, map.id, token, failed(check));
+          if (added !== null) {
+            inspirationTaken = true;
+            check = withInspiration(check, dc, added);
+          }
+        }
+        // Stroke of Luck: a Rogue that still fails, with its use left, is asked; the d20 becomes a 20.
+        if (!luckTaken && check.success === false && (await offerStrokeOfLuck(io, campaignId, token, sheet, failed(check)))) {
+          luckTaken = true;
+          check = withStrokeOfLuck(check, dc);
+          await spendSheetUse(campaignId, token, 'Stroke of Luck');
+        }
+        // Peerless Skill: a Lore Bard that failed the check is asked; its own die is added, and the use is spent only on a success.
+        if (!peerlessTaken && check.success === false && canUsePeerlessSkill(sheet)) {
+          const choice = await askReaction(io, campaignId, { token, text: failed(check), options: ['Peerless Skill'] });
+          if (choice === 'Peerless Skill') {
+            peerlessTaken = true;
+            check = withPeerlessSkill(check, dc, rollDie(bardicSides(sheet)));
+          }
+        }
+        return check;
+      };
+      result = await answerFailure(result);
       // Cutting Words: a Lore Bard that sees the creature within 60 feet is asked once the check succeeds; the die comes off it.
       if (result.success === true && dc !== undefined) {
         const cut = await offerCuttingWords(io, campaignId, map, readTokens(map.tokens), token, `${token.name} succeeds on the ${label} check (${result.total} vs DC ${dc}).`, ['Cutting Words']);
@@ -4389,11 +4420,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           result = withCuttingWords(result, dc, cut.rolled, cut.bard.name);
           await spendSheetUse(campaignId, cut.bard, 'Bardic Inspiration');
           await spendReaction(io, campaignId, cut.bard.id);
+          // The check now fails: what answers a failed D20 Test is asked again. Cutting Words is not asked a second time
+          // on this roll, even if that turns it back into a success: the Bards were asked once, and one used it.
+          result = await answerFailure(result);
         }
       }
       // Tactical Mind and Peerless Skill spend their use on a success only: not when Cutting Words turned it back into a failure.
       if (result.success === true && result.tacticalMind?.success === true) await spendSheetUse(campaignId, token, 'Second Wind');
-      if (peerlessCheck && result.success === true) await spendSheetUse(campaignId, token, 'Bardic Inspiration');
+      if (peerlessTaken && result.success === true) await spendSheetUse(campaignId, token, 'Bardic Inspiration');
       // Dark One's Own Luck: once the roll is seen, a Fiend Patron Warlock with a use left is asked whether to add 1d10.
       // With no DC the table reads the total, so it is asked each time.
       if (sheet && result.success !== true && hasOwnLuckLeft(sheet)) {
@@ -5632,8 +5666,14 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       if (charmsOrFrightens(action)) {
         for (const [index, target] of result.targets.entries()) {
           if (target.outcome.success || target.outcome.roll === null) continue;
-          // An aura that keeps every condition of the effect off the creature leaves Countercharm nothing to change.
-          if (countercharmIdle(action, target.dealt > 0, auras[index].immune)) continue;
+          // An aura, or a raging Berserker's Mindless Rage, that keeps every condition of the effect off the creature
+          // leaves Countercharm nothing to change.
+          const raging = isRaging(campaignId, targetTokens[index].id);
+          const immune = {
+            ...Object.fromEntries(MINDLESS_RAGE_CONDITIONS.filter((condition) => mindlessRageBlocks(targetSheets[index], raging, condition)).map((condition) => [condition.toLowerCase(), 'Mindless Rage'])),
+            ...auras[index].immune,
+          };
+          if (countercharmIdle(action, target.dealt > 0, immune)) continue;
           const bards = (await bardsNear(campaignId, map, tokens, targetTokens[index], COUNTERCHARM_FEET, false)).filter(
             (bard) => ![...countercharmed.values()].some((used) => used.id === bard.token.id)
           );
@@ -5890,7 +5930,8 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
           if (target.outcome.success || target.dropped) continue;
           const abjured = targetTokens[index];
           for (const condition of action.untilDamaged) {
-            const warded = auras[index].immune[condition.toLowerCase()];
+            // Aura of Courage, or a raging Berserker's Mindless Rage: the condition does not take.
+            const warded = auras[index].immune[condition.toLowerCase()] ?? ((await immuneWhileRaging(campaignId, abjured, condition)) ? 'Mindless Rage' : undefined);
             if (warded) {
               riders.push(`${abjured.name} is immune to the ${condition} condition (${warded})`);
               continue;

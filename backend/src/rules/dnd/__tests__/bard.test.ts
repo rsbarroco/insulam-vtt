@@ -3,6 +3,7 @@ import {
   canCutWords,
   canUsePeerlessSkill,
   charmsOrFrightens,
+  countercharmIdle,
   countercharmMode,
   cutAttackOutcome,
   cutTurnsToMiss,
@@ -116,6 +117,25 @@ describe('Countercharm', () => {
     expect(charmsOrFrightens({ source: 'spell', name: 'Charm Person', spell: { id: 'charm-person', level: 1 } })).toBe(true);
     expect(charmsOrFrightens({ source: 'spell', name: 'Fireball', spell: { id: 'fireball', level: 3 } })).toBe(false);
     expect(charmsOrFrightens({ source: 'sheet', name: 'Turn Undead', channel: 'Channel Divinity', onlyCreatureType: 'undead' })).toBe(true);
+  });
+
+  it('answers Abjure Foes and Intimidating Presence, which frighten', () => {
+    expect(charmsOrFrightens({ source: 'sheet', name: 'Abjure Foes', channel: 'Channel Divinity', untilDamaged: ['Frightened'] })).toBe(true);
+    expect(charmsOrFrightens({ source: 'sheet', name: 'Intimidating Presence', presence: 'Intimidating Presence' })).toBe(true);
+    expect(charmsOrFrightens({ source: 'sheet', name: 'Intimidating Presence (a use of Rage)', presence: 'Rage' })).toBe(true);
+    expect(charmsOrFrightens({ source: 'sheet', name: 'Second Wind' })).toBe(false);
+  });
+
+  it('is idle when the creature is immune to every condition of an effect that deals it no damage', () => {
+    const frightened = { frightened: 'Mindless Rage' };
+    expect(countercharmIdle({ source: 'sheet', name: 'Abjure Foes', untilDamaged: ['Frightened'] }, false, frightened)).toBe(true);
+    expect(countercharmIdle({ source: 'sheet', name: 'Intimidating Presence', presence: 'Intimidating Presence' }, false, frightened)).toBe(true);
+    expect(countercharmIdle({ source: 'sheet', name: 'Intimidating Presence', presence: 'Intimidating Presence' }, false, {})).toBe(false);
+    expect(countercharmIdle({ source: 'statBlock', name: 'Roar', text: 'Wisdom Saving Throw: DC 13. Failure: The target has the Frightened condition.' }, false, frightened)).toBe(true);
+    expect(countercharmIdle({ source: 'statBlock', name: 'Roar', text: 'Wisdom Saving Throw: DC 13. Failure: The target has the Frightened condition.' }, true, frightened)).toBe(false);
+    // Turn Undead also Incapacitates, and a spell's other effects are not read.
+    expect(countercharmIdle({ source: 'sheet', name: 'Turn Undead', channel: 'Channel Divinity', onlyCreatureType: 'undead' }, false, frightened)).toBe(false);
+    expect(countercharmIdle({ source: 'spell', name: 'Fear', spell: { id: 'fear', level: 3 } }, false, frightened)).toBe(false);
   });
 
   it('rolls again with Advantage, which a Disadvantage cancels', () => {
