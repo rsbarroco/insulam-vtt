@@ -2908,6 +2908,12 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
       const sheet = await sheetOf(token, socket.campaignId);
       const slots = slotsLeft(sheet as SheetSpellcasting | null);
       const features = readFeatures(sheet);
+      // What this turn already allows: Flurry of Blows strikes left, and the weapons Horde Breaker can follow.
+      const flurryLeft = (turnAttacksOf(socket.campaignId)?.flurry.get(token.id) ?? 0) > 0;
+      const hunt = sheet && huntersPrey(sheet) === 'horde' ? hunterTurnOf(socket.campaignId) : null;
+      const hordeAfter = new Set(
+        hunt && !hunt.hordeBroken.has(token.id) ? hunt.attacked.filter((entry) => entry.attackerId === token.id).map((entry) => entry.weapon) : []
+      );
       if (ack) {
         ack({
           ok: true,
@@ -2921,11 +2927,13 @@ export function registerCombatHandlers(io: Server, socket: AuthenticatedSocket):
               action.cost === 'legendary'
                 ? { max: legendaryUses(token.statBlock as Parameters<typeof legendaryUses>[0]), used: legendarySpent(socket.campaignId!, token.id) }
                 : null;
-            // Horde Breaker: another attack with the same weapon, offered under each weapon.
-            const horde: ExtraAttack[] = sheet && huntersPrey(sheet) === 'horde' && isWeaponAttack(action) ? [...(summary.extras ?? []), 'horde'] : [];
+            // A Flurry of Blows strike, offered while the Monk has one left this turn; Horde Breaker, under a
+            // weapon the Hunter has attacked with this turn, until it is used.
+            const own = (summary.extras ?? []).filter((extra) => extra !== 'flurry' || flurryLeft);
+            const extras: ExtraAttack[] = isWeaponAttack(action) && hordeAfter.has(action.name) ? [...own, 'horde'] : own;
             // An Evoker's Sculpt Spells and Overchannel, on the spells each can change.
             const evoker = { ...(canSculpt(sheet, action) ? { sculpt: true } : {}), ...(canOverchannel(sheet, action) ? { overchannel: true } : {}) };
-            return { ...summary, ...(horde.length > 0 ? { extras: horde } : {}), ...(steps ? { multiattack: steps } : {}), ...(legendary ? { legendary } : {}), ...evoker };
+            return { ...summary, extras: extras.length > 0 ? extras : undefined, ...(steps ? { multiattack: steps } : {}), ...(legendary ? { legendary } : {}), ...evoker };
           }),
           // A stat block's Multiattack says how many attacks it makes; a character's features do.
           attacksPerAction: sheet ? Math.max(attacksPerAction(features), pactWeaponAttacks(sheet)) : null,

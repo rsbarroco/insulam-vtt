@@ -1,11 +1,13 @@
 // ============================================
-// ReactionPrompt — the server asks whether a creature takes a reaction
+// ReactionPrompt — the server asks a creature's controller to choose
 //
 // Some features are chosen once a roll is known, as the rules have it: a
 // Rogue's Uncanny Dodge after an attack hits it. The server stops the roll and
 // asks whoever controls the creature; this shows the question with a button
 // for each feature it may use and one to take none, and goes away once
 // answered, when another member answers first, or when the time runs out.
+// Not every question is a reaction (Divine Smite, Bardic Inspiration, Heroic
+// Inspiration are not), so the wording names none: the text says what it is.
 // ============================================
 
 import { useEffect, useState } from 'react';
@@ -60,11 +62,11 @@ export default function ReactionPrompt({ socket }: ReactionPromptProps) {
   return (
     <div
       role="alertdialog"
-      aria-label={`Reaction for ${prompt.tokenName}`}
+      aria-label={`Choice for ${prompt.tokenName}`}
       className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 card-cozy p-4 shadow-lg max-w-md w-[calc(100%-2rem)] space-y-3"
     >
       <p className="text-sm text-ink">{prompt.text}</p>
-      <p className="text-sm text-ink font-semibold">Does {prompt.tokenName} take a reaction?</p>
+      <p className="text-sm text-ink font-semibold">Choose for {prompt.tokenName}:</p>
       <div className="flex flex-wrap gap-2">
         {prompt.options.map((option) => (
           <Button key={option} type="button" size="sm" onClick={() => void answer(option)}>
@@ -72,7 +74,7 @@ export default function ReactionPrompt({ socket }: ReactionPromptProps) {
           </Button>
         ))}
         <Button type="button" size="sm" variant="ghost" onClick={() => void answer(null)}>
-          No reaction
+          None
         </Button>
       </div>
       {problem && <p className="text-xs text-danger-ink">{problem}</p>}

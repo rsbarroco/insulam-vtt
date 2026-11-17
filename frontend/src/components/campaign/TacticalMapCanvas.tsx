@@ -41,6 +41,7 @@ import { controlsToken } from '@/utils/tokenOwnership';
 import { tokenDisplayName } from '@/utils/tokenDisplayName';
 import Button from '@/components/ui/Button';
 import AttackMenu from './AttackMenu';
+import { useLongPress } from '@/hooks/useLongPress';
 import { areaCells, standsIn, type AreaOfEffect } from '@/utils/boardArea';
 import { formatFeet, movementLeft, slowedSpeed, steadiedSpeed } from '@/utils/turn';
 import { useTokenImages } from './map/useTokenImages';
@@ -733,7 +734,7 @@ export default function TacticalMapCanvas() {
    * Right-click on another token while one is held: the held one attacks it.
    * On an empty square, it can aim an area effect there.
    */
-  const openAttackMenu = (event: React.PointerEvent) => {
+  const openAttackMenu = (event: { clientX: number; clientY: number }) => {
     const target = tokenUnder(event);
     const rect = containerRef.current?.getBoundingClientRect();
     if (!held || !rect || target?.id === held.id) {
@@ -755,7 +756,7 @@ export default function TacticalMapCanvas() {
     });
   };
 
-  const openStatsEditor = (event: React.PointerEvent) => {
+  const openStatsEditor = (event: { clientX: number; clientY: number }) => {
     if (held) {
       openAttackMenu(event);
       return;
@@ -795,6 +796,9 @@ export default function TacticalMapCanvas() {
     if (cell) brush.paint(cell);
   };
 
+  // A touch screen has no right click: a long press does what one does.
+  const longPress = useLongPress((at) => openStatsEditor(at));
+
   const onPointerDown = (event: React.PointerEvent) => {
     // The right button always pans, so the map can be moved with a brush up.
     // A right click that does not travel opens a token's movement numbers.
@@ -824,6 +828,13 @@ export default function TacticalMapCanvas() {
       moved: false,
       button: 0,
     };
+    if (event.pointerType === 'touch') {
+      const press = pressRef.current;
+      longPress.start(event, () => {
+        // Used: the lift that follows is no click.
+        if (pressRef.current === press) pressRef.current = null;
+      });
+    }
   };
 
   const onPointerMove = (event: React.PointerEvent) => {
@@ -832,7 +843,10 @@ export default function TacticalMapCanvas() {
     if (press) {
       const dx = event.clientX - press.x;
       const dy = event.clientY - press.y;
-      if (!press.moved && Math.hypot(dx, dy) > CLICK_SLOP_PX) press.moved = true;
+      if (!press.moved && Math.hypot(dx, dy) > CLICK_SLOP_PX) {
+        press.moved = true;
+        longPress.cancel();
+      }
       if (press.moved) {
         setCamera((current) => ({
           zoom: current.zoom,
@@ -871,6 +885,7 @@ export default function TacticalMapCanvas() {
   };
 
   const onPointerUp = (event: React.PointerEvent) => {
+    longPress.cancel();
     if (paintingRef.current) {
       paintingRef.current = false;
       brush.endStroke();

@@ -323,20 +323,24 @@ describe('Hunter’s Prey', () => {
   it('Horde Breaker makes another attack with the same weapon on a creature beside the first, once on each turn', async () => {
     fight();
     await asRanger(3, ['Horde Breaker']);
-    const listed = await ask(player, 'combat.actions', { tokenId: HERO });
-    expect(listed.actions!.find((action) => action.name === 'Longsword')!.extras).toEqual(['horde']);
+    // The menu offers it under a weapon once that weapon has made an attack this turn, until it is used.
+    const hordeOffer = async () =>
+      (await ask(player, 'combat.actions', { tokenId: HERO })).actions!.find((action) => action.name === 'Longsword')!.extras;
+    expect(await hordeOffer()).toBeUndefined();
     const sword = await longsword();
     expect((await swing(GOBLIN, sword, { extra: 'horde' })).error).toBe(
       'Horde Breaker follows an attack with the same weapon on a creature within 5 feet of Goblin'
     );
     rolls = [15, 4];
     expect((await swing(OGRE, sword)).dealt).toBe(7);
+    expect(await hordeOffer()).toEqual(['horde']);
     expect((await swing(OGRE, sword, { extra: 'horde' })).error).toBe('Hero has attacked Ogre this turn');
     rolls = [15, 6];
     const again = await swing(GOBLIN, sword, { extra: 'horde' });
     expect(again.dealt).toBe(9);
     expect(again.summary).toContain('Horde Breaker');
     expect(getState(campaignId).turn?.attacks).toBe(1);
+    expect(await hordeOffer()).toBeUndefined();
     expect((await swing(FAR, sword, { extra: 'horde' })).error).toBe('Hero has used Horde Breaker this turn');
   });
 

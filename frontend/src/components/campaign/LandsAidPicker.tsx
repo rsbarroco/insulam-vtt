@@ -18,8 +18,6 @@ interface LandsAidPickerProps {
   dice: string;
   /** The creatures in the area. */
   creatures: Array<{ id: string; name: string }>;
-  /** The creature using it, which is spared the save unless chosen. */
-  userId: string;
   busy: boolean;
   /** Use it: the creatures that save, and the one that regains Hit Points, if any. */
   onUse: (targetIds: string[], healId: string | undefined) => void;
@@ -30,14 +28,13 @@ export default function LandsAidPicker({
   detail,
   dice,
   creatures,
-  userId,
   busy,
   onUse,
 }: LandsAidPickerProps) {
-  // Who is spared the save: the Druid itself, until it says otherwise.
-  const [spared, setSpared] = useState<string[]>([userId]);
+  // Who makes the save: nobody until the Druid ticks them, since the area catches allies too.
+  const [chosen, setChosen] = useState<string[]>([]);
   const [healId, setHealId] = useState('');
-  const saving = creatures.filter((creature) => !spared.includes(creature.id));
+  const saving = creatures.filter((creature) => chosen.includes(creature.id));
   const healed = creatures.some((creature) => creature.id === healId) ? healId : '';
 
   return (
@@ -52,12 +49,12 @@ export default function LandsAidPicker({
             <label key={creature.id} className="flex items-center gap-2 text-xs text-ink">
               <input
                 type="checkbox"
-                checked={!spared.includes(creature.id)}
+                checked={chosen.includes(creature.id)}
                 onChange={(event) =>
-                  setSpared((now) =>
+                  setChosen((now) =>
                     event.target.checked
-                      ? now.filter((id) => id !== creature.id)
-                      : [...now, creature.id]
+                      ? [...now, creature.id]
+                      : now.filter((id) => id !== creature.id)
                   )
                 }
               />

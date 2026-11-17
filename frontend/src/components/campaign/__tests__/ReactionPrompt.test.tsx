@@ -43,17 +43,24 @@ describe('ReactionPrompt', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
-  it('sends none for No reaction', async () => {
+  it('words the question without calling it a reaction, since some are not', () => {
+    const { ask } = setup();
+    ask({ text: 'Hero hits Ogre (not a Critical Hit). Divine Smite:', options: ['Divine Smite (level 1)'] });
+    expect(screen.getByText('Choose for Hero:')).toBeInTheDocument();
+    expect(screen.queryByText(/reaction/i)).toBeNull();
+  });
+
+  it('sends none for None', async () => {
     const { socket, ask } = setup();
     ask();
-    fireEvent.click(screen.getByRole('button', { name: 'No reaction' }));
+    fireEvent.click(screen.getByRole('button', { name: 'None' }));
     await waitFor(() => expect(socket.react).toHaveBeenCalledWith('p1', null));
   });
 
   it('goes away when the question is closed elsewhere', () => {
     const { ask, close } = setup();
     ask();
-    expect(screen.getByRole('alertdialog', { name: 'Reaction for Hero' })).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog', { name: 'Choice for Hero' })).toBeInTheDocument();
     close('p1');
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });

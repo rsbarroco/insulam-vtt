@@ -16,10 +16,13 @@
 // Dwarf's Dwarven Toughness adds 1 Hit Point a level, and a Barbarian's or
 // Monk's Unarmored Defense sets the Armor Class, as a Draconic Sorcerer's
 // Draconic Resilience does, which also adds a Hit Point a Sorcerer level.
+// A caster's spellcasting ability, spell save DC and spell attack bonus are
+// written as the sheet editor works them out (utils/rules/dnd5e.ts).
 // ============================================
 
 import { abilityScoreCap, type CharacterRules } from '../../utils/characterRules';
 import { armorClassOf } from '../../utils/srdArmor';
+import { dnd5eSpellAttackBonus, dnd5eSpellSaveDC } from '../../utils/rules/dnd5e';
 import { draconicResilienceHitPoints } from './sorcery';
 import type { Ability } from './conditions';
 import {
@@ -32,6 +35,10 @@ import { backgroundIncreaseRefusal, findBackground, findFeat, findSpecies, origi
 
 export const ABILITIES: readonly Ability[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const ABILITY_NAMES = { str: 'strength', dex: 'dexterity', con: 'constitution', int: 'intelligence', wis: 'wisdom', cha: 'charisma' } as const;
+/** Each casting class's spellcasting ability, as its Spellcasting feature names it. */
+const SPELLCASTING_ABILITY: Partial<Record<ClassName, Ability>> = {
+  Bard: 'cha', Cleric: 'wis', Druid: 'wis', Paladin: 'cha', Ranger: 'wis', Sorcerer: 'cha', Warlock: 'cha', Wizard: 'int',
+};
 const label = (ability: Ability) => ABILITY_NAMES[ability][0].toUpperCase() + ABILITY_NAMES[ability].slice(1);
 
 /** The eighteen skills as the sheet keys them, with the ability each uses. */
@@ -341,6 +348,16 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
         }
       : {}),
   };
+  // The save DC and attack bonus, worked out as the sheet editor does (utils/rules/dnd5e.ts), so the spells
+  // a player adds are offered in combat without first saving the sheet in the editor. Two casting classes
+  // under gestalt: the first one's ability, which the player can change in the editor.
+  const castingAbility = tracks.map((name) => SPELLCASTING_ABILITY[name]).find((ability) => ability !== undefined);
+  if (casts && castingAbility) {
+    const spellcasting = sheet.spellcasting as Record<string, unknown>;
+    spellcasting.ability = label(castingAbility);
+    spellcasting.spellSaveDC = dnd5eSpellSaveDC(sheet);
+    spellcasting.spellAttackBonus = dnd5eSpellAttackBonus(sheet);
+  }
 
   return { ok: true, sheet, summary: { scores, hitPoints, proficiencyBonus: bonus, feats: taken.map((feat) => feat.name) } };
 }

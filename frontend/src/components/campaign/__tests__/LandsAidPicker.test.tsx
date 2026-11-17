@@ -14,7 +14,6 @@ const show = (onUse = vi.fn(), listed = creatures) => {
       detail="CON save DC 14"
       dice="2d6"
       creatures={listed}
-      userId="druid"
       busy={false}
       onUse={onUse}
     />
@@ -23,10 +22,13 @@ const show = (onUse = vi.fn(), listed = creatures) => {
 };
 
 describe('LandsAidPicker', () => {
-  it('spares the Druid by default, and sends the creatures that save with the one healed', () => {
+  it('ticks nobody by default, and sends the creatures chosen to save with the one healed', () => {
     const onUse = show();
-    expect(screen.getByLabelText('Druid makes the save')).not.toBeChecked();
-    fireEvent.click(screen.getByLabelText('Ally makes the save'));
+    for (const name of ['Druid', 'Ogre', 'Ally']) {
+      expect(screen.getByLabelText(`${name} makes the save`)).not.toBeChecked();
+    }
+    expect(screen.getByRole('button', { name: "Use Land's Aid" })).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('Ogre makes the save'));
     fireEvent.change(screen.getByLabelText("Land's Aid: the creature that regains Hit Points"), {
       target: { value: 'ally' },
     });
@@ -36,6 +38,8 @@ describe('LandsAidPicker', () => {
 
   it('heals nobody unless one is chosen, and needs a creature to save', () => {
     const onUse = show();
+    fireEvent.click(screen.getByLabelText('Ogre makes the save'));
+    fireEvent.click(screen.getByLabelText('Ally makes the save'));
     fireEvent.click(screen.getByRole('button', { name: "Use Land's Aid" }));
     expect(onUse).toHaveBeenCalledWith(['ogre', 'ally'], undefined);
     fireEvent.click(screen.getByLabelText('Ogre makes the save'));
