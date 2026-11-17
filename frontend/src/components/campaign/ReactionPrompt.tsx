@@ -35,6 +35,20 @@ export default function ReactionPrompt({ socket }: ReactionPromptProps) {
   }, [socket]);
 
   const prompt = prompts[0];
+  // An answer the server refused (too late, say) is said once the question has gone.
+  if (!prompt && problem) {
+    return (
+      <div
+        role="alert"
+        className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 card-cozy p-4 shadow-lg max-w-md w-[calc(100%-2rem)] flex items-center justify-between gap-3"
+      >
+        <p className="text-sm text-danger-ink">{problem}</p>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setProblem(null)}>
+          Dismiss
+        </Button>
+      </div>
+    );
+  }
   if (!prompt) return null;
 
   const answer = async (choice: string | null) => {

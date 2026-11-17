@@ -51,12 +51,12 @@ export default function WildShapeControl({
     );
   }
   return (
-    <span className="flex items-center gap-1" role="group" aria-label="Wild Shape">
+    <span className="flex flex-wrap items-center justify-center gap-1" role="group" aria-label="Wild Shape">
       <select
         aria-label="Wild Shape form"
         value={form}
         onChange={(event) => setForm(event.target.value)}
-        className="input-cozy text-sm py-1"
+        className="input-cozy text-sm py-1 w-auto max-w-full"
       >
         {forms.map((name) => (
           <option key={name} value={name}>

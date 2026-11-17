@@ -57,4 +57,15 @@ describe('ReactionPrompt', () => {
     close('p1');
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
+
+  it('says why an answer was refused once the question has gone, until dismissed', async () => {
+    const { socket, ask } = setup();
+    socket.react.mockResolvedValueOnce({ ok: false, error: 'That question has closed' });
+    ask();
+    fireEvent.click(screen.getByRole('button', { name: 'Uncanny Dodge' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('That question has closed');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });

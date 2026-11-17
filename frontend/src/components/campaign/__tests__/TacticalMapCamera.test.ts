@@ -9,7 +9,7 @@ vi.mock('@/contexts/WebSocketContext', () => ({ useWebSocket: () => ({}) }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({}) }));
 vi.mock('@/contexts/ToastContext', () => ({ useToast: () => ({}) }));
 
-import { fitCamera, footprintOriginAt } from '../TacticalMapCanvas';
+import { attackMenuPlacement, fitCamera, footprintOriginAt } from '../TacticalMapCanvas';
 import { projectPoint, type IsoView } from '../map/iso/projection';
 
 const view: IsoView = { cols: 20, rows: 12, gridSize: 50, rotation: 0 };
@@ -73,5 +73,25 @@ describe('fitCamera', () => {
     expect(fitCamera(view, { width: 4000, height: 600 }, 0).zoom).toBeGreaterThan(
       fitCamera(view, { width: 4000, height: 600 }, 32).zoom
     );
+  });
+});
+
+describe('attackMenuPlacement', () => {
+  const room = { width: 750, height: 760 };
+
+  it('opens the menu at the point clicked when it fits', () => {
+    expect(attackMenuPlacement({ x: 100, y: 50 }, room)).toEqual({ left: 100, top: 50, maxHeight: 702 });
+  });
+
+  it('keeps the menu inside the view near its right and bottom edges, scrolling what does not fit', () => {
+    const placed = attackMenuPlacement({ x: 720, y: 700 }, room);
+    expect(placed.left).toBe(750 - 288 - 8);
+    expect(placed.top).toBe(760 - 8 - 360);
+    expect(placed.top + placed.maxHeight).toBe(760 - 8);
+  });
+
+  it('fits a narrow, short view such as a phone', () => {
+    const placed = attackMenuPlacement({ x: 300, y: 250 }, { width: 346, height: 300 });
+    expect(placed).toEqual({ left: 50, top: 8, maxHeight: 284 });
   });
 });
