@@ -40,6 +40,12 @@ describe('armorClassOf', () => {
       from: 'Chain Mail 16 + Defense 1 + Shield 2',
     });
     expect(armorClassOf({ ...base, features: ['Defense'] }).armorClass).toBe(13);
+    expect(armorClassOf({ ...base, equipped: ['Chain Mail'], features: ['Defense (Fighting Style feat)'] }).armorClass).toBe(17);
+  });
+
+  it('does not take Unarmored Defense or Superior Hunter’s Defense for the Defense fighting style', () => {
+    const features = ['Unarmored Defense (Barbarian 1)', 'Superior Hunter’s Defense (Ranger 15)'];
+    expect(armorClassOf({ ...base, equipped: ['Chain Mail'], features }).armorClass).toBe(16);
   });
 
   it('takes the best Unarmored Defense, a Monk’s only without a Shield', () => {

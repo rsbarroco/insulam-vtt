@@ -9,14 +9,19 @@ import { DEFAULT_CHARACTER_RULES, RULES_AS_WRITTEN } from '@/utils/characterRule
 import {
   backgroundAbilities,
   backgroundPoints,
+  carriedWeapons,
   choiceOptions,
   dueChoices,
   dueImprovements,
   featsFor,
   initialState,
+  masteryWeapons,
   missing,
   originFeats,
   skillChoices,
+  spellAllowances,
+  spellOptions,
+  spellPicks,
   toChoices,
   totalScores,
   type BuilderState,
@@ -170,5 +175,86 @@ describe('the options of features', () => {
     expect(missing('Brann', state, withChoices())).toEqual(['Fighting Style', '1 of Eldritch Invocations']);
     expect(missing('Brann', chosen(), withChoices())[0]).toBe('the Draconic Ancestry');
     expect(toChoices('Brann', chosen(), withChoices())).not.toHaveProperty('featureChoices');
+  });
+});
+
+describe('the starting equipment and the spells', () => {
+  const fighterKit = [
+    { option: 'A', gold: 4, text: 'Chain Mail, Greatsword, 8 Javelins, and 4 GP', items: [
+      { name: 'Chain Mail', quantity: 1, armor: 'Chain Mail' }, { name: 'Greatsword', quantity: 1, weapon: 'Greatsword' },
+      { name: 'Javelin', quantity: 8, weapon: 'Javelin' },
+    ] },
+    { option: 'B', gold: 155, text: '155 GP', items: [] },
+  ];
+  const spell = (name: string, level: number, classes: string[]) => ({ name, level, classes, school: 'Evocation', ritual: false, concentration: false });
+  const casting = (): DndRulesCatalogue => {
+    const base = catalogue();
+    return {
+      ...base,
+      backgrounds: [{ ...base.backgrounds[0], startingEquipment: [
+        { option: 'A', gold: 14, text: 'Spear, Shortbow, 14 GP', items: [{ name: 'Spear', quantity: 1, weapon: 'Spear' }, { name: 'Shortbow', quantity: 1, weapon: 'Shortbow' }] },
+        { option: 'B', gold: 50, text: '50 GP', items: [] },
+      ] }],
+      classes: base.classes.map((entry) =>
+        entry.name === 'Fighter'
+          ? { ...entry, coreTraits: { 'Weapon Proficiencies': 'Simple and Martial weapons' }, startingEquipment: fighterKit, weaponMastery: Array(20).fill(3), spellcasting: null }
+          : entry.name === 'Wizard'
+            ? { ...entry, coreTraits: { 'Weapon Proficiencies': 'Simple weapons' }, weaponMastery: Array(20).fill(0), spellcasting: {
+              cantrips: Array(20).fill(2), prepared: Array(20).fill(2), maxSpellLevel: [1, 1, 2, ...Array(17).fill(2)],
+              spellbook: Array.from({ length: 20 }, (_, at) => 3 + at), alwaysPrepared: [{ level: 3, spell: 'Shield' }],
+            } }
+            : entry
+      ),
+      spells: [
+        spell('Fire Bolt', 0, ['Wizard']), spell('Light', 0, ['Wizard', 'Cleric']), spell('Sacred Flame', 0, ['Cleric']),
+        spell('Magic Missile', 1, ['Wizard']), spell('Shield', 1, ['Wizard']), spell('Sleep', 1, ['Wizard']), spell('Grease', 1, ['Wizard']),
+        spell('Web', 2, ['Wizard']),
+      ],
+    };
+  };
+
+  it('carries the weapons of the packages chosen, and offers the ones Weapon Mastery can take', () => {
+    const state = chosen({ classEquipment: 'A', backgroundEquipment: 'A' });
+    expect(carriedWeapons(state, casting())).toEqual(['Greatsword', 'Javelin', 'Spear', 'Shortbow']);
+    expect(masteryWeapons(state, casting())).toEqual(['Greatsword', 'Javelin', 'Spear', 'Shortbow']);
+    expect(carriedWeapons(chosen({ classEquipment: 'B', backgroundEquipment: 'B' }), casting())).toEqual([]);
+  });
+
+  it('counts each casting class’s picks by its table, of the levels it has slots for', () => {
+    const [wizard] = spellAllowances(chosen({ level: 1 }), casting());
+    expect(wizard).toEqual({ class: 'Wizard', cantrips: 2, prepared: 2, maxSpellLevel: 1, spellbook: 3, alwaysPrepared: [] });
+    const at3 = spellAllowances(chosen({ level: 3 }), casting())[0];
+    expect(at3.alwaysPrepared).toEqual(['Shield']);
+    // At level 3: level 2 spells, and not Shield, which a feature prepares.
+    expect(spellOptions(chosen({ level: 3 }), casting(), at3).spells.map((entry) => entry.name)).toEqual(['Magic Missile', 'Sleep', 'Grease', 'Web']);
+    expect(spellOptions(chosen({ level: 1 }), casting(), wizard).cantrips.map((entry) => entry.name)).toEqual(['Fire Bolt', 'Light']);
+  });
+
+  it('prepares a Wizard’s spells from its book, and drops picks the level no longer allows', () => {
+    const state = chosen({ level: 1, spells: { Wizard: { cantrips: ['Fire Bolt', 'Light'], spellbook: ['Magic Missile', 'Sleep', 'Web', 'Grease'], prepared: ['Sleep', 'Shield', 'Web'] } } });
+    const [wizard] = spellAllowances(state, casting());
+    expect(spellOptions(state, casting(), wizard).prepared.map((entry) => entry.name)).toEqual(['Magic Missile', 'Sleep', 'Grease']);
+    expect(spellPicks(state, casting(), wizard)).toEqual({ cantrips: ['Fire Bolt', 'Light'], spellbook: ['Magic Missile', 'Sleep', 'Grease'], prepared: ['Sleep'] });
+  });
+
+  it('sends the equipment, the masteries and the spells, and says what is missing', () => {
+    const state = chosen({
+      level: 1,
+      classEquipment: 'A',
+      backgroundEquipment: 'A',
+      masteries: ['Greatsword', 'Longsword'],
+      spells: { Wizard: { cantrips: ['Fire Bolt', 'Light'], spellbook: ['Magic Missile', 'Sleep', 'Grease'], prepared: ['Sleep', 'Grease'] } },
+    });
+    expect(toChoices('Brann', state, casting())).toMatchObject({
+      equipment: { class: 'A', background: 'A' },
+      masteries: ['Greatsword'],
+      spells: [{ class: 'Wizard', cantrips: ['Fire Bolt', 'Light'], spellbook: ['Magic Missile', 'Sleep', 'Grease'], prepared: ['Sleep', 'Grease'] }],
+    });
+    expect(missing('Brann', { ...state, improvements: {} }, casting())).toEqual([]);
+    expect(missing('Brann', { ...state, improvements: {}, classEquipment: '', spells: {} }, casting())).toEqual([
+      'the Fighter\'s starting equipment', '2 cantrips for Wizard', '3 spells in the spellbook for Wizard', '2 prepared spells for Wizard',
+    ]);
+    // A catalogue without equipment or spells asks for neither.
+    expect(toChoices('Brann', chosen(), catalogue())).not.toHaveProperty('spells');
   });
 });

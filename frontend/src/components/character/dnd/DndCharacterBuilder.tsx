@@ -5,10 +5,19 @@
 // one class or two, level, ability scores, skills, a feat for each level
 // that gives one, and the option of each feature that offers several. It offers what the campaign's rules allow, as the server
 // lists them, and the server builds the sheet and has the last word.
+// The starting equipment and the spells come last: the weapons and spells
+// chosen are what the character's actions in combat are made of.
 // ============================================
 
 import { useEffect, useState } from 'react';
-import type { DndAbility, DndFeat, DndImprovement, DndRulesCatalogue } from '@/types';
+import type {
+  DndAbility,
+  DndEquipmentPackage,
+  DndFeat,
+  DndImprovement,
+  DndRulesCatalogue,
+  DndSpellSummary,
+} from '@/types';
 import api from '@/services/api';
 import { apiErrorMessage } from '@/utils/errors';
 import Button from '@/components/ui/Button';
@@ -18,19 +27,28 @@ import {
   SKILL_LABELS,
   STANDARD_ARRAY,
   backgroundAbilities,
+  carriedWeapons,
   choiceOptions,
   choicePicks,
   dueChoices,
   dueImprovements,
+  equipmentPackages,
   featsFor,
   improvementKey,
+  masteryCount,
+  masteryWeapons,
   originFeats,
   skillChoices,
+  spellAllowances,
+  spellOptions,
+  spellPicks,
   totalScores,
   type BuilderState,
   type DueChoice,
   type ImprovementState,
   type Pick,
+  type SpellAllowance,
+  type SpellState,
 } from './builderState';
 
 interface DndCharacterBuilderProps {
@@ -83,6 +101,106 @@ function AbilitySelect({
         ))}
       </select>
     </span>
+  );
+}
+
+/** A list of spells to tick, as many as `max`, grouped by level when it has several. */
+function SpellChecklist({
+  title,
+  options,
+  picked,
+  max,
+  onChange,
+}: {
+  title: string;
+  options: DndSpellSummary[];
+  picked: string[];
+  max: number;
+  onChange: (picked: string[]) => void;
+}) {
+  const levels = [...new Set(options.map((spell) => spell.level))].sort((a, b) => a - b);
+  return (
+    <fieldset className="space-y-1">
+      <legend className="text-sm font-medium text-ink">
+        {title} ({picked.length} of {max})
+      </legend>
+      <div
+        className={options.length > 24 ? 'max-h-64 overflow-y-auto pr-1 space-y-1' : 'space-y-1'}
+      >
+        {levels.map((level) => (
+          <div key={level}>
+            {levels.length > 1 && (
+              <span className="block text-xs text-ink-muted">
+                {level === 0 ? 'Cantrips' : `Level ${level}`}
+              </span>
+            )}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">
+              {options
+                .filter((spell) => spell.level === level)
+                .map((spell) => {
+                  const checked = picked.includes(spell.name);
+                  return (
+                    <label
+                      key={spell.name}
+                      className="flex items-start gap-1.5 text-sm text-ink min-w-0"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={checked}
+                        disabled={!checked && picked.length >= max}
+                        onChange={() =>
+                          onChange(
+                            checked
+                              ? picked.filter((name) => name !== spell.name)
+                              : [...picked, spell.name]
+                          )
+                        }
+                      />
+                      <span className="break-words">{spell.name}</span>
+                    </label>
+                  );
+                })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+/** The options of one starting-equipment choice, as radio buttons. */
+function PackageRadios({
+  name,
+  title,
+  packages,
+  value,
+  onChange,
+}: {
+  name: string;
+  title: string;
+  packages: DndEquipmentPackage[];
+  value: string;
+  onChange: (option: string) => void;
+}) {
+  return (
+    <fieldset className="rounded-lg border border-ink/10 p-3 space-y-1.5">
+      <legend className="text-sm font-medium text-ink px-1">{title}</legend>
+      {packages.map((entry) => (
+        <label key={entry.option} className="flex items-start gap-2 text-sm text-ink">
+          <input
+            type="radio"
+            className="mt-1"
+            name={name}
+            checked={value === entry.option}
+            onChange={() => onChange(entry.option)}
+          />
+          <span>
+            ({entry.option}) {entry.text}
+          </span>
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
@@ -141,15 +259,42 @@ export default function DndCharacterBuilder({
 
   /** A new background can change which scores and which feat are allowed; a new class, which skills. */
   const chooseBackground = (name: string) => {
-    const next = { ...state, background: name, backgroundPicks: ['', '', ''] as Pick[] };
+    const next = {
+      ...state,
+      background: name,
+      backgroundPicks: ['', '', ''] as Pick[],
+      backgroundEquipment: '',
+      masteries: [],
+    };
     const offered = originFeats(next, catalogue);
     onChange({ ...next, originFeat: offered.length === 1 ? offered[0].name : '', skills: [] });
   };
   const chooseClass = (patch: Partial<BuilderState>) =>
-    set({ ...patch, skills: [], improvements: {}, featureChoices: {} });
+    set({
+      ...patch,
+      skills: [],
+      improvements: {},
+      featureChoices: {},
+      classEquipment: '',
+      masteries: [],
+      spells: {},
+    });
 
   const setImprovement = (gain: DndImprovement, value: ImprovementState) =>
     set({ improvements: { ...state.improvements, [improvementKey(gain)]: value } });
+
+  const packages = equipmentPackages(state, catalogue);
+  const carried = carriedWeapons(state, catalogue);
+  const masteries = masteryCount(state, catalogue);
+  const masterable = masteryWeapons(state, catalogue);
+  const casters = spellAllowances(state, catalogue);
+  const setSpells = (allowance: SpellAllowance, patch: Partial<SpellState>) =>
+    set({
+      spells: {
+        ...state.spells,
+        [allowance.class]: { ...spellPicks(state, catalogue, allowance), ...patch },
+      },
+    });
 
   const choices = dueChoices(state, catalogue);
   const speciesChoices = choices.filter((due) => due.choice.species);
@@ -602,6 +747,124 @@ export default function DndCharacterBuilder({
             );
           })}
           <p className={HINT}>Pick the same ability twice to add 2 to it.</p>
+        </fieldset>
+      )}
+
+      {/* ── Starting equipment ── */}
+      {(packages.fromClass.length > 0 || packages.fromBackground.length > 0) && (
+        <fieldset className="space-y-3" disabled={disabled}>
+          <legend className={LABEL}>Equipment</legend>
+          {packages.fromClass.length > 0 && (
+            <PackageRadios
+              name="dnd-equipment-class"
+              title={`${state.classA} starting equipment`}
+              packages={packages.fromClass}
+              value={state.classEquipment}
+              onChange={(option) => set({ classEquipment: option, masteries: [] })}
+            />
+          )}
+          {packages.fromBackground.length > 0 && (
+            <PackageRadios
+              name="dnd-equipment-background"
+              title={`${state.background} starting equipment`}
+              packages={packages.fromBackground}
+              value={state.backgroundEquipment}
+              onChange={(option) => set({ backgroundEquipment: option, masteries: [] })}
+            />
+          )}
+          {masteries > 0 && masterable.length > 0 && (
+            <fieldset className="space-y-1">
+              <legend className="text-sm font-medium text-ink">
+                Weapon Mastery ({state.masteries.length} of up to {masteries})
+              </legend>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">
+                {masterable.map((weapon) => {
+                  const checked = state.masteries.includes(weapon);
+                  return (
+                    <label key={weapon} className="flex items-center gap-1.5 text-sm text-ink">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!checked && state.masteries.length >= masteries}
+                        onChange={() =>
+                          set({
+                            masteries: checked
+                              ? state.masteries.filter((other) => other !== weapon)
+                              : [...state.masteries, weapon],
+                          })
+                        }
+                      />
+                      {weapon}
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+          )}
+          <p className={HINT}>
+            {carried.length > 0
+              ? `Each weapon becomes an attack on the sheet, its bonus and damage worked out: ${carried.join(', ')}. `
+              : ''}
+            The armor and Shield the class is trained in are worn, and the Armor Class is theirs.
+            {state.classB ? ` The starting equipment is the first class's.` : ''}
+          </p>
+        </fieldset>
+      )}
+
+      {/* ── Spells ── */}
+      {casters.length > 0 && (
+        <fieldset className="space-y-3" disabled={disabled}>
+          <legend className={LABEL}>Spells</legend>
+          {casters.map((allowance) => {
+            const options = spellOptions(state, catalogue, allowance);
+            const picks = spellPicks(state, catalogue, allowance);
+            return (
+              <div key={allowance.class} className="rounded-lg border border-ink/10 p-3 space-y-3">
+                <span className="block text-sm font-medium text-ink">
+                  {allowance.class} spells, of level {allowance.maxSpellLevel} or lower
+                </span>
+                {allowance.cantrips > 0 && (
+                  <SpellChecklist
+                    title="Cantrips"
+                    options={options.cantrips}
+                    picked={picks.cantrips}
+                    max={allowance.cantrips}
+                    onChange={(cantrips) => setSpells(allowance, { cantrips })}
+                  />
+                )}
+                {allowance.spellbook !== null && (
+                  <SpellChecklist
+                    title="Spellbook"
+                    options={options.spells}
+                    picked={picks.spellbook}
+                    max={allowance.spellbook}
+                    onChange={(spellbook) => setSpells(allowance, { spellbook })}
+                  />
+                )}
+                <SpellChecklist
+                  title={
+                    allowance.spellbook !== null
+                      ? 'Prepared, from the spellbook'
+                      : 'Prepared spells'
+                  }
+                  options={options.prepared}
+                  picked={picks.prepared}
+                  max={allowance.prepared}
+                  onChange={(prepared) => setSpells(allowance, { prepared })}
+                />
+                {allowance.alwaysPrepared.length > 0 && (
+                  <p className={HINT}>
+                    Always prepared, and not counted: {allowance.alwaysPrepared.join(', ')}.
+                  </p>
+                )}
+              </div>
+            );
+          })}
+          <p className={HINT}>
+            The numbers are the class table&apos;s at this level. The spells go on the sheet, where
+            the prepared ones are offered in combat; a Wizard&apos;s spellbook holds two spells for
+            each level after the first, each of a level it had slots for when it learned it.
+          </p>
         </fieldset>
       )}
     </div>

@@ -23,6 +23,9 @@ import { allBackgrounds, allFeats, allSpecies } from '../rules/dnd/origins';
 import { buildCharacter, classSkillChoices, featPointsRule } from '../rules/dnd/buildCharacter';
 import { choiceCatalogue } from '../rules/dnd/featureChoices';
 import { allRules, RULES_SOURCE } from '../rules/dnd/rulesText';
+import { backgroundEquipment, classEquipment, weaponMasteryCount } from '../rules/dnd/startingEquipment';
+import { classSpellcasting } from '../rules/dnd/spellChoices';
+import { allSpells } from '../rules/dnd/spells';
 
 const router = Router();
 
@@ -52,7 +55,7 @@ router.get('/:campaignId/rules/dnd', campaignMember, async (req: AuthenticatedRe
       source: 'System Reference Document 5.2.1',
       characterRules: rules,
       species: allSpecies(),
-      backgrounds: allBackgrounds(),
+      backgrounds: allBackgrounds().map((background) => ({ ...background, startingEquipment: backgroundEquipment(background) })),
       feats: allFeats().map((feat) => ({ ...feat, abilityPoints: featPointsRule(feat, rules) })),
       classes: allClasses().map((entry) => ({
         id: entry.id,
@@ -66,7 +69,15 @@ router.get('/:campaignId/rules/dnd', campaignMember, async (req: AuthenticatedRe
         subclass: entry.subclass.name,
         // The levels that give a feat or ability score points to a character of this class alone.
         improvements: improvements([entry.name] as Tracks, 20, rules),
+        // The packages its starting equipment offers, read from its Core Traits.
+        startingEquipment: classEquipment(entry.name),
+        // How many kinds of weapons its Weapon Mastery covers, by level; all 0 without the feature.
+        weaponMastery: Array.from({ length: 20 }, (_, index) => weaponMasteryCount(entry.name, index + 1)),
+        // Its cantrips, prepared spells, highest spell level and always-prepared spells by level; null for a class that casts none.
+        spellcasting: classSpellcasting(entry.name),
       })),
+      // The spells of the reference document, for the classes' lists.
+      spells: allSpells().map((spell) => ({ name: spell.name, level: spell.level, classes: spell.classes, school: spell.school, ritual: spell.ritual, concentration: spell.concentration })),
       // The options a feature or a species makes a character choose, and the name the sheet gets for each.
       featureChoices: choiceCatalogue(),
     });
