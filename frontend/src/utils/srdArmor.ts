@@ -170,6 +170,17 @@ export interface ArmorClassResult {
 const has = (list: readonly string[], name: string) =>
   list.some((entry) => entry.toLowerCase().includes(name.toLowerCase()));
 
+/**
+ * The Defense fighting style, however a sheet writes it: "Defense", "Defense
+ * (Fighting Style feat)", "Fighting Style: Defense". Not Unarmored Defense, nor
+ * Superior Hunter's Defense.
+ */
+const hasDefenseStyle = (features: readonly string[]) =>
+  features.some((entry) => {
+    const name = entry.trim().toLowerCase();
+    return name === 'defense' || name.startsWith('defense (') || name.endsWith(': defense');
+  });
+
 /** A character's Armor Class from what it has equipped, its class and its features. */
 export function armorClassOf(input: ArmorClassInput): ArmorClassResult {
   const items = input.equipped
@@ -184,7 +195,7 @@ export function armorClassOf(input: ArmorClassInput): ArmorClassResult {
     const dex = worn.dexCap === null ? input.dex : Math.min(input.dex, worn.dexCap);
     armorClass = worn.base + dex;
     from = `${worn.name} ${worn.base}${worn.dexCap === 0 ? '' : ` ${sign(dex)} Dexterity`}`;
-    if (has(input.features, 'Defense')) {
+    if (hasDefenseStyle(input.features)) {
       armorClass += 1;
       from += ' + Defense 1';
     }

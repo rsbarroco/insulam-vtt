@@ -30,5 +30,23 @@ export const CharacterChoicesSchema = z
       .max(40),
     // By choice id, the labels of the options taken (rules/dnd/featureChoices.ts).
     featureChoices: z.record(z.string().trim().min(1).max(60), z.array(name).max(12)).optional(),
+    // The option letters of the starting equipment of the first class and of the background.
+    equipment: z.object({ class: z.string().trim().min(1).max(2), background: z.string().trim().min(1).max(2) }).strict().optional(),
+    // The kinds of weapons carried whose mastery property the character uses.
+    masteries: z.array(name).max(6).optional(),
+    // Each casting class's cantrips and prepared spells, and a Wizard's spellbook (rules/dnd/spellChoices.ts).
+    spells: z
+      .array(
+        z
+          .object({
+            class: z.enum(CLASS_NAMES),
+            cantrips: z.array(name).max(10).optional(),
+            prepared: z.array(name).max(30).optional(),
+            spellbook: z.array(name).max(50).optional(),
+          })
+          .strict()
+      )
+      .max(2)
+      .optional(),
   })
   .strict();

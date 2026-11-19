@@ -19,7 +19,9 @@ import type {
   DndImprovement,
   DndPoints,
   DndRulesCatalogue,
+  DndSpellSummary,
 } from '@/types';
+import { findSrdWeapon, proficientWith } from '@/utils/srdWeapons';
 
 export const ABILITIES: readonly DndAbility[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 export const ABILITY_LABELS: Record<DndAbility, string> = {
@@ -91,6 +93,20 @@ export interface BuilderState {
   improvements: Record<string, ImprovementState>;
   /** The options of features, by choice id: one label for each to take, '' for one not chosen yet. */
   featureChoices: Record<string, string[]>;
+  /** The option letter of the first class's starting equipment, and of the background's; '' for none yet. */
+  classEquipment: string;
+  backgroundEquipment: string;
+  /** The kinds of weapons carried whose mastery the character uses. */
+  masteries: string[];
+  /** By casting class, the spells picked. */
+  spells: Record<string, SpellState>;
+}
+
+export interface SpellState {
+  cantrips: string[];
+  prepared: string[];
+  /** A Wizard's spellbook. */
+  spellbook: string[];
 }
 
 export function initialState(): BuilderState {
@@ -107,6 +123,10 @@ export function initialState(): BuilderState {
     skills: [],
     improvements: {},
     featureChoices: {},
+    classEquipment: '',
+    backgroundEquipment: '',
+    masteries: [],
+    spells: {},
   };
 }
 
@@ -317,6 +337,29 @@ export function toChoices(
       ];
     }),
     ...(Object.keys(featureChoices).length > 0 ? { featureChoices } : {}),
+    ...(state.classEquipment && state.backgroundEquipment
+      ? { equipment: { class: state.classEquipment, background: state.backgroundEquipment } }
+      : {}),
+    ...(masteryCount(state, catalogue) > 0 && state.masteries.length > 0
+      ? {
+          masteries: state.masteries
+            .filter((name) => masteryWeapons(state, catalogue).includes(name))
+            .slice(0, masteryCount(state, catalogue)),
+        }
+      : {}),
+    ...(spellAllowances(state, catalogue).length > 0
+      ? {
+          spells: spellAllowances(state, catalogue).map((allowance) => {
+            const picks = spellPicks(state, catalogue, allowance);
+            return {
+              class: allowance.class,
+              cantrips: picks.cantrips,
+              prepared: picks.prepared,
+              ...(allowance.spellbook !== null ? { spellbook: picks.spellbook } : {}),
+            };
+          }),
+        }
+      : {}),
   };
 }
 
@@ -351,5 +394,169 @@ export function missing(name: string, state: BuilderState, catalogue: DndRulesCa
     const left = lacking(due);
     if (left > 0) out.push(due.count === 1 ? due.choice.title : `${left} of ${due.choice.title}`);
   }
+  const packages = equipmentPackages(state, catalogue);
+  if (packages.fromClass.length > 0 && !state.classEquipment)
+    out.push(`the ${state.classA}'s starting equipment`);
+  if (packages.fromBackground.length > 0 && !state.backgroundEquipment)
+    out.push(`the ${state.background}'s starting equipment`);
+  for (const allowance of spellAllowances(state, catalogue)) {
+    const picks = spellPicks(state, catalogue, allowance);
+    const short = (have: number, want: number, what: string) => {
+      if (have !== want) out.push(`${want} ${what} for ${allowance.class}`);
+    };
+    short(picks.cantrips.length, allowance.cantrips, 'cantrips');
+    if (allowance.spellbook !== null)
+      short(picks.spellbook.length, allowance.spellbook, 'spells in the spellbook');
+    short(picks.prepared.length, allowance.prepared, 'prepared spells');
+  }
   return out;
+}
+
+// ── Starting equipment and Weapon Mastery ────────────────────────────────
+
+/** The starting equipment the first class and the background offer. */
+export function equipmentPackages(state: BuilderState, catalogue: DndRulesCatalogue) {
+  const first = catalogue.classes.find((entry) => entry.name === state.classA);
+  const background = catalogue.backgrounds.find((entry) => entry.name === state.background);
+  return {
+    fromClass: first?.startingEquipment ?? [],
+    fromBackground: background?.startingEquipment ?? [],
+  };
+}
+
+/** The SRD weapons in the packages chosen, once each, in their order. */
+export function carriedWeapons(state: BuilderState, catalogue: DndRulesCatalogue): string[] {
+  const { fromClass, fromBackground } = equipmentPackages(state, catalogue);
+  const chosen = [
+    fromClass.find((entry) => entry.option === state.classEquipment),
+    fromBackground.find((entry) => entry.option === state.backgroundEquipment),
+  ];
+  const names = chosen.flatMap((entry) => entry?.items ?? []).flatMap((item) => item.weapon ?? []);
+  return [...new Set(names)];
+}
+
+/** How many kinds of weapons the character's Weapon Mastery covers: the most its classes give. */
+export function masteryCount(state: BuilderState, catalogue: DndRulesCatalogue): number {
+  return Math.max(
+    0,
+    ...classesOf(state, catalogue).map((entry) => entry.weaponMastery?.[state.level - 1] ?? 0)
+  );
+}
+
+/**
+ * The carried weapons Weapon Mastery can take: ones the classes give
+ * proficiency with, and melee ones when only a Barbarian has the feature.
+ */
+export function masteryWeapons(state: BuilderState, catalogue: DndRulesCatalogue): string[] {
+  const classes = classesOf(state, catalogue);
+  const proficiencies = classes
+    .map((entry) => entry.coreTraits['Weapon Proficiencies'] ?? '')
+    .join('; ');
+  const masters = classes.filter((entry) => (entry.weaponMastery?.[state.level - 1] ?? 0) > 0);
+  return carriedWeapons(state, catalogue).filter((name) => {
+    const weapon = findSrdWeapon(name);
+    if (!weapon || !proficientWith(weapon, proficiencies)) return false;
+    return masters.some((entry) => entry.name !== 'Barbarian' || weapon.kind === 'melee');
+  });
+}
+
+// ── Spells ───────────────────────────────────────────────────────────────
+
+/** What one casting class chooses at the character's level, as the server counts it. */
+export interface SpellAllowance {
+  class: string;
+  cantrips: number;
+  prepared: number;
+  maxSpellLevel: number;
+  spellbook: number | null;
+  alwaysPrepared: string[];
+}
+
+/** The class's cantrips (level 0) or its spells of levels 1 to `maxLevel`. */
+export function classSpells(
+  catalogue: DndRulesCatalogue,
+  name: string,
+  kind: 'cantrip' | 'spell',
+  maxLevel = 9
+): DndSpellSummary[] {
+  return (catalogue.spells ?? []).filter(
+    (spell) =>
+      spell.classes.includes(name) &&
+      (kind === 'cantrip' ? spell.level === 0 : spell.level >= 1 && spell.level <= maxLevel)
+  );
+}
+
+/** Each casting class of the character, with what its table lets it choose. */
+export function spellAllowances(
+  state: BuilderState,
+  catalogue: DndRulesCatalogue
+): SpellAllowance[] {
+  const at = state.level - 1;
+  return classesOf(state, catalogue).flatMap((entry) => {
+    const casting = entry.spellcasting;
+    if (!casting) return [];
+    const alwaysPrepared = [
+      ...new Set(
+        casting.alwaysPrepared.filter((one) => one.level <= state.level).map((one) => one.spell)
+      ),
+    ];
+    const maxSpellLevel = casting.maxSpellLevel[at] ?? 0;
+    const pool = classSpells(catalogue, entry.name, 'spell', maxSpellLevel).filter(
+      (spell) => !alwaysPrepared.includes(spell.name)
+    ).length;
+    const spellbook = casting.spellbook ? Math.min(casting.spellbook[at] ?? 0, pool) : null;
+    return [
+      {
+        class: entry.name,
+        cantrips: Math.min(
+          casting.cantrips[at] ?? 0,
+          classSpells(catalogue, entry.name, 'cantrip').length
+        ),
+        prepared: Math.min(casting.prepared[at] ?? 0, spellbook ?? pool),
+        maxSpellLevel,
+        spellbook,
+        alwaysPrepared,
+      },
+    ];
+  });
+}
+
+/**
+ * What can be picked for a class: its cantrips, its spells of levels it has
+ * slots for less the ones always prepared, and, for a Wizard, the prepared
+ * spells from among those in its book.
+ */
+export function spellOptions(
+  state: BuilderState,
+  catalogue: DndRulesCatalogue,
+  allowance: SpellAllowance
+): { cantrips: DndSpellSummary[]; spells: DndSpellSummary[]; prepared: DndSpellSummary[] } {
+  const cantrips = classSpells(catalogue, allowance.class, 'cantrip');
+  const spells = classSpells(catalogue, allowance.class, 'spell', allowance.maxSpellLevel).filter(
+    (spell) => !allowance.alwaysPrepared.includes(spell.name)
+  );
+  const book = state.spells[allowance.class]?.spellbook ?? [];
+  const prepared =
+    allowance.spellbook === null ? spells : spells.filter((spell) => book.includes(spell.name));
+  return { cantrips, spells, prepared };
+}
+
+/** The picks of a class that its options still allow, at most as many as it takes. */
+export function spellPicks(
+  state: BuilderState,
+  catalogue: DndRulesCatalogue,
+  allowance: SpellAllowance
+): SpellState {
+  const picked = state.spells[allowance.class] ?? { cantrips: [], prepared: [], spellbook: [] };
+  const options = spellOptions(state, catalogue, allowance);
+  const keep = (names: string[], among: DndSpellSummary[], max: number) =>
+    names.filter((name) => among.some((spell) => spell.name === name)).slice(0, max);
+  return {
+    cantrips: keep(picked.cantrips, options.cantrips, allowance.cantrips),
+    spellbook:
+      allowance.spellbook === null
+        ? []
+        : keep(picked.spellbook, options.spells, allowance.spellbook),
+    prepared: keep(picked.prepared, options.prepared, allowance.prepared),
+  };
 }

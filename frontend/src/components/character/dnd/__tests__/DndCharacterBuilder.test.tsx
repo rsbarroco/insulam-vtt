@@ -108,3 +108,53 @@ it('asks for the option of a feature the class gives at the level, as a step of 
   await userEvent.selectOptions(screen.getByLabelText('Fighting Style'), 'Defense');
   expect(latest.featureChoices).toEqual({ fightingStyleFighter: ['Defense'] });
 });
+
+it('asks for the starting equipment and the spells, as steps of their own', async () => {
+  const base = catalogue();
+  api.getDndRules.mockResolvedValue({
+    ...base,
+    classes: base.classes.map((entry) =>
+      entry.name === 'Fighter'
+        ? {
+            ...entry,
+            coreTraits: { 'Weapon Proficiencies': 'Simple and Martial weapons' },
+            weaponMastery: Array(20).fill(1),
+            startingEquipment: [
+              { option: 'A', gold: 4, text: 'Greatsword, 8 Javelins, and 4 GP', items: [{ name: 'Greatsword', quantity: 1, weapon: 'Greatsword' }, { name: 'Javelin', quantity: 8, weapon: 'Javelin' }] },
+              { option: 'B', gold: 155, text: '155 GP', items: [] },
+            ],
+          }
+        : {
+            ...entry,
+            spellcasting: { cantrips: Array(20).fill(1), prepared: Array(20).fill(1), maxSpellLevel: Array(20).fill(1), spellbook: Array(20).fill(2), alwaysPrepared: [] },
+          }
+    ),
+    spells: [
+      { name: 'Fire Bolt', level: 0, classes: ['Wizard'], school: 'Evocation', ritual: false, concentration: false },
+      { name: 'Light', level: 0, classes: ['Wizard'], school: 'Evocation', ritual: false, concentration: false },
+      { name: 'Magic Missile', level: 1, classes: ['Wizard'], school: 'Evocation', ritual: false, concentration: false },
+      { name: 'Sleep', level: 1, classes: ['Wizard'], school: 'Enchantment', ritual: false, concentration: true },
+    ],
+  } satisfies DndRulesCatalogue);
+  render(<Harness />);
+  await userEvent.selectOptions(await screen.findByLabelText('Class'), 'Fighter');
+  expect(screen.getByText('Equipment')).toBeInTheDocument();
+  expect(screen.queryByText('Spells')).not.toBeInTheDocument();
+  await userEvent.click(screen.getByLabelText('(A) Greatsword, 8 Javelins, and 4 GP'));
+  expect(latest.classEquipment).toBe('A');
+  await userEvent.click(screen.getByLabelText('Greatsword'));
+  expect(screen.getByLabelText('Javelin')).toBeDisabled();
+  expect(latest.masteries).toEqual(['Greatsword']);
+
+  await userEvent.selectOptions(screen.getByLabelText('Class'), 'Wizard');
+  expect(latest.classEquipment).toBe('');
+  const cantrips = screen.getByRole('group', { name: 'Cantrips (0 of 1)' });
+  await userEvent.click(within(cantrips).getByLabelText('Fire Bolt'));
+  expect(within(screen.getByRole('group', { name: 'Cantrips (1 of 1)' })).getByLabelText('Light')).toBeDisabled();
+  await userEvent.click(within(screen.getByRole('group', { name: 'Spellbook (0 of 2)' })).getByLabelText('Magic Missile'));
+  // Prepared from the book: only what it holds.
+  const prepared = screen.getByRole('group', { name: 'Prepared, from the spellbook (0 of 1)' });
+  expect(within(prepared).queryByLabelText('Sleep')).not.toBeInTheDocument();
+  await userEvent.click(within(prepared).getByLabelText('Magic Missile'));
+  expect(latest.spells.Wizard).toEqual({ cantrips: ['Fire Bolt'], spellbook: ['Magic Missile'], prepared: ['Magic Missile'] });
+});

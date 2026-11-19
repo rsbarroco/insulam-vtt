@@ -3845,6 +3845,9 @@ paths:
                       type: object
                   backgrounds:
                     type: array
+                    description: >
+                      Each background with `startingEquipment`: the packages
+                      its equipment sentence offers (see the classes' field).
                     items:
                       type: object
                   feats:
@@ -3853,8 +3856,43 @@ paths:
                       type: object
                   classes:
                     type: array
+                    description: >
+                      Each class with, beside its core traits and features:
+                      `startingEquipment`, the packages of its Starting
+                      Equipment (`option` "A", "B" or "C", `items` with
+                      `name`, `quantity` and the SRD `weapon` or `armor` an
+                      item is, `gold`, and the package's `text`);
+                      `weaponMastery`, how many kinds of weapons its Weapon
+                      Mastery covers at each level (all 0 without it); and
+                      `spellcasting`, null for a class that casts no spells,
+                      else `cantrips`, `prepared` and `maxSpellLevel` by class
+                      level (level 1 first), `spellbook` (a Wizard's book size
+                      by level, null for the others) and `alwaysPrepared`
+                      (`{ level, spell }` for the spells its features always
+                      prepare).
                     items:
                       type: object
+                  spells:
+                    type: array
+                    description: The spells of the reference document, for the classes' lists.
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        level:
+                          type: integer
+                          description: 0 for a cantrip.
+                        classes:
+                          type: array
+                          items:
+                            type: string
+                        school:
+                          type: string
+                        ritual:
+                          type: boolean
+                        concentration:
+                          type: boolean
                   featureChoices:
                     type: array
                     description: >
@@ -3988,7 +4026,9 @@ paths:
         Checks the choices against the rules as the campaign has them and
         returns the sheet they make: scores, Hit Points, saving throws, skills,
         spell slots, and the features of the species, the feats and the
-        classes. Stores nothing; save the sheet with `POST /api/characters`.
+        classes; with `equipment`, the inventory, gold, Armor Class and an
+        attack for each weapon; with `spells`, the cantrips and spells.
+        Stores nothing; save the sheet with `POST /api/characters`.
         A refusal lists everything wrong in `errors`.
       operationId: buildDndCharacter
       security:
@@ -4064,6 +4104,59 @@ paths:
                     type: array
                     items:
                       type: string
+                equipment:
+                  type: object
+                  additionalProperties: false
+                  required: [class, background]
+                  description: >
+                    The option letters of the starting equipment taken: the
+                    first class's package and the background's (see
+                    `startingEquipment` of `GET …/rules/dnd`). Left out, the
+                    sheet has no inventory and no attacks.
+                  properties:
+                    class:
+                      type: string
+                    background:
+                      type: string
+                masteries:
+                  type: array
+                  maxItems: 6
+                  description: >
+                    The kinds of weapons carried whose mastery property the
+                    character uses, up to the number its Weapon Mastery gives
+                    (a Barbarian's melee only). Their attacks get `useMastery`.
+                  items:
+                    type: string
+                spells:
+                  type: array
+                  maxItems: 2
+                  description: >
+                    One entry for each casting class of the character, or left
+                    out for no spells. The counts must be those of the class
+                    table at the level, the spells on the class's list and of
+                    a level it has slots for; spells a feature always prepares
+                    are added and may not be picked. A Wizard sends its
+                    `spellbook` and prepares from it; the book's spells not
+                    prepared are written with `prepared: false`.
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [class]
+                    properties:
+                      class:
+                        type: string
+                      cantrips:
+                        type: array
+                        items:
+                          type: string
+                      prepared:
+                        type: array
+                        items:
+                          type: string
+                      spellbook:
+                        type: array
+                        items:
+                          type: string
       responses:
         '200':
           description: The sheet and a summary of it

@@ -2051,6 +2051,41 @@ export interface DndBackground {
   skillProficiencies: string[];
   toolProficiency: string;
   equipment: string;
+  /** The packages its starting equipment offers, read from `equipment`. */
+  startingEquipment?: DndEquipmentPackage[];
+}
+
+/** One option of a class's or a background's starting equipment: "(A) Greataxe, 4 Handaxes, …, and 15 GP". */
+export interface DndEquipmentPackage {
+  /** "A", "B" or "C". */
+  option: string;
+  items: Array<{ name: string; quantity: number; weapon?: string; armor?: string; notes?: string }>;
+  gold: number;
+  /** As the document prints it. */
+  text: string;
+}
+
+/** What a class's Spellcasting lets its character choose, by class level (level 1 first). */
+export interface DndClassSpellcasting {
+  cantrips: number[];
+  prepared: number[];
+  /** The highest level of spell the class has slots for. */
+  maxSpellLevel: number[];
+  /** A Wizard's spellbook size; null for the other classes. */
+  spellbook: number[] | null;
+  /** Spells its features always prepare, and the class level each comes at. */
+  alwaysPrepared: Array<{ level: number; spell: string }>;
+}
+
+/** A spell of the reference document, as the builder offers it. */
+export interface DndSpellSummary {
+  name: string;
+  /** 0 for a cantrip. */
+  level: number;
+  classes: string[];
+  school: string;
+  ritual: boolean;
+  concentration: boolean;
 }
 
 export interface DndFeat {
@@ -2084,6 +2119,11 @@ export interface DndClassSummary {
   featuresByLevel: string[][];
   subclass: string;
   improvements: DndImprovement[];
+  startingEquipment?: DndEquipmentPackage[];
+  /** How many kinds of weapons its Weapon Mastery covers, by level; all 0 without the feature. */
+  weaponMastery?: number[];
+  /** Null for a class that casts no spells. */
+  spellcasting?: DndClassSpellcasting | null;
 }
 
 /** One option of a choice a feature gives, and the name the sheet gets for it. */
@@ -2131,6 +2171,8 @@ export interface DndRulesCatalogue {
   classes: DndClassSummary[];
   /** The options features make a character choose, with the name each is written under. */
   featureChoices?: DndFeatureChoice[];
+  /** The spells of the reference document, for the classes' lists. */
+  spells?: DndSpellSummary[];
 }
 
 export type DndRuleBlock =
@@ -2172,6 +2214,12 @@ export interface DndCharacterChoices {
   improvements: Array<{ level: number; feat: string; featPoints?: DndPoints; abilityPoints?: DndPoints }>;
   /** By choice id, the labels of the options taken. */
   featureChoices?: Record<string, string[]>;
+  /** The option letters of the first class's and the background's starting equipment. */
+  equipment?: { class: string; background: string };
+  /** The kinds of weapons carried whose mastery property the character uses. */
+  masteries?: string[];
+  /** Each casting class's cantrips and prepared spells, and a Wizard's spellbook. */
+  spells?: Array<{ class: string; cantrips?: string[]; prepared?: string[]; spellbook?: string[] }>;
 }
 
 export interface DndBuildSummary {

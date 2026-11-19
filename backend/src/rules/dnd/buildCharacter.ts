@@ -10,9 +10,12 @@
 // feature's name, the name the rules modules read it from (featureChoices.ts).
 //
 // Pure: the caller stores what comes back. What is not worked out is said in
-// docs/TACTICAL_MODE.md: equipment, Armor Class beyond 10 + Dexterity, most
-// numbers a species trait or a feature changes, and which spells are known.
-// Some are worked out: Alert adds the Proficiency Bonus to Initiative, a
+// docs/TACTICAL_MODE.md: most numbers a species trait or a feature changes.
+// The starting equipment chosen is written into the inventory, with the
+// armor worn, and its weapons into the attacks (startingEquipment.ts); the
+// Armor Class is the armor's. The cantrips and spells chosen are checked
+// against each casting class's table and list and written with the spells
+// its features always prepare (spellChoices.ts). Some more are worked out: Alert adds the Proficiency Bonus to Initiative, a
 // Dwarf's Dwarven Toughness adds 1 Hit Point a level, and a Barbarian's or
 // Monk's Unarmored Defense sets the Armor Class, as a Draconic Sorcerer's
 // Draconic Resilience does, which also adds a Hit Point a Sorcerer level.
@@ -32,6 +35,11 @@ import {
 import { buildFeatures, findClass } from './classes';
 import { applyChoices, FEATURE_CHOICES, renameKey } from './featureChoices';
 import { backgroundIncreaseRefusal, findBackground, findFeat, findSpecies, originFeatChoices, type Feat } from './origins';
+import {
+  attacksOf, backgroundEquipment, classEquipment, inventoryOf, masteryAllows, weaponMasteryCount, type EquipmentPackage, type InventoryItem,
+} from './startingEquipment';
+import { sheetSpellsOf, spellPicksRefusals, type SpellPicks } from './spellChoices';
+import { findSrdWeapon, proficientWith } from '../../utils/srdWeapons';
 
 export const ABILITIES: readonly Ability[] = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const ABILITY_NAMES = { str: 'strength', dex: 'dexterity', con: 'constitution', int: 'intelligence', wis: 'wisdom', cha: 'charisma' } as const;
@@ -90,6 +98,16 @@ export interface CharacterChoices {
    * not written: the feature keeps its own name until the sheet says.
    */
   featureChoices?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The starting equipment taken: the option letter of the first class's
+   * package ("A", "B", "C") and of the background's. Left out, the sheet
+   * starts with no equipment.
+   */
+  equipment?: { class: string; background: string };
+  /** The kinds of weapons carried whose mastery property the character uses, as many as its Weapon Mastery gives. */
+  masteries?: readonly string[];
+  /** The cantrips and spells of each casting class (spellChoices.ts). Left out, the sheet lists none. */
+  spells?: readonly SpellPicks[];
 }
 
 export type BuildResult = { ok: true; sheet: Record<string, unknown>; summary: BuildSummary } | { ok: false; errors: string[] };
@@ -263,6 +281,33 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
   const twice = taken.find((feat) => options.added.some((entry) => findFeat(entry.name)?.id === feat.id && entry.name.endsWith(' feat)')));
   if (twice && !twice.repeatable) errors.push(`${twice.name} can be taken once`);
 
+  // ── Starting equipment and weapon masteries ───────────────────────────
+  const classTraits = (key: string) =>
+    [...new Set(tracks.map((name) => findClass(name)?.coreTraits[key]).filter((text): text is string => !!text && text !== 'None'))].join('; ');
+  const packages: EquipmentPackage[] = [];
+  if (choices.equipment) {
+    const fromClass = classEquipment(tracks[0]).find((entry) => entry.option === choices.equipment!.class);
+    const fromBackground = backgroundEquipment(background).find((entry) => entry.option === choices.equipment!.background);
+    // A gestalt character's starting equipment is its first class's, as a multiclass character's is.
+    if (!fromClass) errors.push(`${tracks[0]} offers starting equipment ${classEquipment(tracks[0]).map((entry) => entry.option).join(', ')}`);
+    if (!fromBackground) errors.push(`${background.name} offers starting equipment ${backgroundEquipment(background).map((entry) => entry.option).join(', ')}`);
+    packages.push(...[fromClass, fromBackground].filter((entry): entry is EquipmentPackage => entry !== undefined));
+  }
+  const inventory: InventoryItem[] = inventoryOf(packages, classTraits('Armor Training'));
+  const masteries = [...new Set((choices.masteries ?? []).map((name) => findSrdWeapon(name)?.name ?? name))];
+  const masteryCount = Math.max(0, ...tracks.map((name) => weaponMasteryCount(name, level)));
+  if (masteries.length > masteryCount) errors.push(masteryCount === 0 ? 'This character has no Weapon Mastery' : `Weapon Mastery gives ${masteryCount} kinds of weapons at level ${level}`);
+  for (const name of masteryCount > 0 ? masteries : []) {
+    const weapon = findSrdWeapon(name);
+    if (!weapon) errors.push(`"${name}" is not a weapon of the reference document`);
+    else if (!inventory.some((item) => item.name === weapon.name)) errors.push(`Weapon Mastery is chosen among the weapons carried, and ${weapon.name} is not one`);
+    else if (!proficientWith(weapon, classTraits('Weapon Proficiencies'))) errors.push(`Weapon Mastery needs proficiency with the ${weapon.name}`);
+    else if (!tracks.some((track) => weaponMasteryCount(track, level) > 0 && masteryAllows(track, weapon))) errors.push(`A Barbarian's Weapon Mastery takes melee weapons, and the ${weapon.name} is not one`);
+  }
+
+  // ── Spells ─────────────────────────────────────────────────────────────
+  if (choices.spells) errors.push(...spellPicksRefusals(tracks, level, choices.spells));
+
   if (errors.length > 0) return { ok: false, errors };
 
   // ── The sheet ──────────────────────────────────────────────────────────
@@ -279,8 +324,7 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
   const slots = spellSlots(tracks, level);
   const pact = pactMagic(tracks, level);
   if (pact) slots[pact.slotLevel - 1] += pact.slots;
-  const classes = tracks.map((name) => findClass(name)!);
-  const core = (key: string) => [...new Set(classes.map((entry) => entry.coreTraits[key]).filter((text) => text && text !== 'None'))].join('; ');
+  const core = classTraits;
   const casts = slots.some((count) => count > 0);
 
   const sheet: Record<string, unknown> = {
@@ -303,8 +347,8 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
       ])
     ),
     passivePerception: 10 + mods.wis + (proficient.has('perception') ? bonus : 0),
-    // No armor yet: 10 + Dexterity, or a Barbarian's or Monk's Unarmored Defense.
-    armorClass: Math.max(1, armorClassOf({ dex: mods.dex, con: mods.con, wis: mods.wis, cha: mods.cha, classes: tracks, features: built.map((feature) => feature.name), equipped: [] }).armorClass),
+    // The armor worn and the Shield, or 10 + Dexterity, or Unarmored Defense; set below.
+    armorClass: 10,
     initiative: mods.dex + alert,
     initiativeBonus: alert,
     speed: species.speedFeet,
@@ -313,7 +357,15 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
     exhaustionLevel: 0,
     hitDice: [{ class: tracks.join(' / '), die: `d${hitDie(tracks)}`, maximum: level, remaining: level }],
     deathSaves: { successes: 0, failures: 0 },
-    attacks: [],
+    attacks: attacksOf(inventory, {
+      str: mods.str,
+      dex: mods.dex,
+      proficiencyBonus: bonus,
+      proficiencies: core('Weapon Proficiencies'),
+      monkLevel: tracks.includes('Monk') ? level : 0,
+      masteries,
+    }),
+    ...(choices.equipment ? { inventory, currency: { cp: 0, sp: 0, ep: 0, gp: packages.reduce((sum, entry) => sum + entry.gold, 0), pp: 0 } } : {}),
     proficiencies: {
       armor: core('Armor Training'),
       weapons: core('Weapon Proficiencies'),
@@ -341,13 +393,23 @@ export function buildCharacter(choices: CharacterChoices, rules: CharacterRules)
       ? {
           spellcasting: {
             class: tracks.filter((name) => CLASSES[name].caster).join(' / '),
-            cantrips: [],
-            spells: [],
+            ...sheetSpellsOf(tracks, level, choices.spells ?? []),
             slots: Object.fromEntries(slots.map((count, index) => [String(index + 1), { total: count, expended: 0 }])),
           },
         }
       : {}),
   };
+  // The Armor Class of what is worn, its features (Unarmored Defense, Draconic Resilience, the Defense fighting style)
+  // as the sheet names them, the way the sheet editor works it out.
+  const featureNames = (sheet.featuresAndTraits as Array<{ name: string }>).map((feature) => feature.name);
+  sheet.armorClass = Math.max(
+    1,
+    armorClassOf({
+      dex: mods.dex, con: mods.con, wis: mods.wis, cha: mods.cha, classes: tracks,
+      features: featureNames,
+      equipped: inventory.filter((item) => item.equipped).map((item) => item.name),
+    }).armorClass
+  );
   // The save DC and attack bonus, worked out as the sheet editor does (utils/rules/dnd5e.ts), so the spells
   // a player adds are offered in combat without first saving the sheet in the editor. Two casting classes
   // under gestalt: the first one's ability, which the player can change in the editor.

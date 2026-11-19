@@ -92,6 +92,15 @@ describe('GET /api/campaigns/:campaignId/rules/dnd', () => {
       { label: 'Divine Strike', name: 'Blessed Strikes: Divine Strike (Cleric 7)' },
       { label: 'Potent Spellcasting', name: 'Blessed Strikes: Potent Spellcasting (Cleric 7)' },
     ]);
+    // The starting equipment, Weapon Mastery and spellcasting of each class, and the spells they choose from.
+    expect(fighter.startingEquipment.map((entry: { option: string; gold: number }) => [entry.option, entry.gold])).toEqual([['A', 4], ['B', 11], ['C', 155]]);
+    expect(fighter.weaponMastery.slice(0, 4)).toEqual([3, 3, 3, 4]);
+    expect(fighter.spellcasting).toBeNull();
+    const wizard = res.body.classes.find((entry: { name: string }) => entry.name === 'Wizard');
+    expect(wizard.spellcasting).toMatchObject({ cantrips: expect.arrayContaining([3]), spellbook: expect.arrayContaining([6, 8]) });
+    expect(wizard.spellcasting.prepared[0]).toBe(4);
+    expect(res.body.backgrounds.find((entry: { name: string }) => entry.name === 'Soldier').startingEquipment[0].items[0]).toEqual({ name: 'Spear', quantity: 1, weapon: 'Spear' });
+    expect(res.body.spells.find((spell: { name: string }) => spell.name === 'Fire Bolt')).toMatchObject({ level: 0, classes: ['Sorcerer', 'Wizard'] });
   });
 
   it('follows the campaign’s switches', async () => {
@@ -149,6 +158,27 @@ describe('POST /api/campaigns/:campaignId/rules/dnd/build', () => {
     expect(res.body.sheet.featuresAndTraits.map((entry: { name: string }) => entry.name)).toContain('Defense (Fighting Style feat)');
     const refused = await player.post(`/api/campaigns/${campaignId}/rules/dnd/build`).send({ ...choices, featureChoices: { metamagic: ['Careful Spell'] } });
     expect([refused.status, refused.body.errors]).toEqual([400, ['This character has no Metamagic to choose']]);
+  });
+
+  it('writes the starting equipment and the spells chosen, and checks them', async () => {
+    const wizard = {
+      class: 'Wizard',
+      cantrips: ['Fire Bolt', 'Mage Hand', 'Ray of Frost', 'Light'],
+      spellbook: ['Detect Magic', 'Feather Fall', 'Mage Armor', 'Magic Missile', 'Sleep', 'Thunderwave', 'Shield', 'Misty Step', 'Web', 'Shatter', 'Grease', 'Find Familiar'],
+      prepared: ['Magic Missile', 'Shield', 'Misty Step', 'Web', 'Thunderwave', 'Sleep', 'Mage Armor'],
+    };
+    const res = await player.post(`/api/campaigns/${campaignId}/rules/dnd/build`).send({ ...choices, equipment: { class: 'A', background: 'A' }, spells: [wizard] });
+    expect([res.status, res.body.errors]).toEqual([200, undefined]);
+    expect(res.body.sheet.attacks.map((attack: { name: string }) => attack.name)).toEqual(['Greatsword', 'Flail', 'Javelin', 'Spear', 'Shortbow']);
+    expect(res.body.sheet.armorClass).toBe(16);
+    expect(res.body.sheet.spellcasting.cantrips).toEqual(wizard.cantrips);
+    const saved = await player.post('/api/characters').send({ name: 'Brann', gameSystem: 'DND_5E', campaignId, data: res.body.sheet });
+    expect(saved.status).toBe(201);
+
+    const refused = await player.post(`/api/campaigns/${campaignId}/rules/dnd/build`).send({ ...choices, spells: [{ ...wizard, cantrips: ['Sacred Flame', 'Mage Hand', 'Ray of Frost', 'Light'] }] });
+    expect([refused.status, refused.body.errors]).toEqual([400, ['Sacred Flame is not on the Wizard spell list']]);
+    const shape = await player.post(`/api/campaigns/${campaignId}/rules/dnd/build`).send({ ...choices, equipment: { class: 'A' } });
+    expect(shape.body.message).toMatch(/^equipment/);
   });
 
   it('stores nothing itself', async () => {

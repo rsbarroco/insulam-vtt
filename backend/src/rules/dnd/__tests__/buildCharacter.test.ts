@@ -252,3 +252,92 @@ describe('the spellcasting numbers of a caster', () => {
     expect(blast.map((action) => action.name)).toEqual(['Eldritch Blast']);
   });
 });
+
+describe('the starting equipment', () => {
+  const equipped = (sheet: Record<string, unknown>) =>
+    (sheet.inventory as Array<{ name: string; equipped?: boolean }>).filter((item) => item.equipped).map((item) => item.name);
+
+  it('writes the packages into the inventory and the gold, wears the armor and makes an attack of each weapon', () => {
+    const { sheet } = built({ ...fighter, equipment: { class: 'A', background: 'A' }, masteries: ['Greatsword', 'Javelin', 'Shortbow'] });
+    expect(equipped(sheet)).toEqual(['Chain Mail', 'Greatsword']);
+    expect(sheet.currency).toEqual({ cp: 0, sp: 0, ep: 0, gp: 18, pp: 0 });
+    expect(sheet.armorClass).toBe(16);
+    // Strength 17 (+3), Dexterity 13 (+1), Proficiency Bonus 2.
+    expect((sheet.attacks as Array<Record<string, unknown>>).map(({ name, attackBonus, damageRoll, useMastery }) => [name, attackBonus, damageRoll, useMastery ?? false])).toEqual([
+      ['Greatsword', 5, '2d6+3', true],
+      ['Flail', 5, '1d8+3', false],
+      ['Javelin', 5, '1d6+3', true],
+      ['Spear', 5, '1d6+3', false],
+      ['Shortbow', 3, '1d6+1', true],
+    ]);
+    expect(dnd5eCharacterDataSchema.safeParse(sheet).success).toBe(true);
+  });
+
+  it('adds the Defense fighting style to the armor, and nothing of Archery to the sheet', () => {
+    expect(built({ ...fighter, equipment: { class: 'A', background: 'B' }, featureChoices: { fightingStyleFighter: ['Defense'] } }).sheet.armorClass).toBe(17);
+    const archer = built({ ...fighter, equipment: { class: 'B', background: 'B' }, featureChoices: { fightingStyleFighter: ['Archery'] } }).sheet;
+    expect((archer.attacks as Array<{ name: string; attackBonus: number }>).find((attack) => attack.name === 'Longbow')?.attackBonus).toBe(3);
+    // Studded Leather 12 + Dexterity 1.
+    expect(archer.armorClass).toBe(13);
+  });
+
+  it('leaves the inventory out when no equipment is chosen, and takes gold alone', () => {
+    expect(built(fighter).sheet.inventory).toBeUndefined();
+    expect(built(fighter).sheet.attacks).toEqual([]);
+    const gold = built({ ...fighter, equipment: { class: 'C', background: 'B' } }).sheet;
+    expect([gold.inventory, gold.attacks, (gold.currency as { gp: number }).gp]).toEqual([[], [], 205]);
+  });
+
+  it('refuses an option the class or background does not offer, and masteries it cannot take', () => {
+    expect(errors({ ...fighter, equipment: { class: 'D', background: 'C' } })).toEqual([
+      'Fighter offers starting equipment A, B, C',
+      'Soldier offers starting equipment A, B',
+    ]);
+    const kit = { ...fighter, equipment: { class: 'A', background: 'A' } };
+    expect(errors({ ...kit, masteries: ['Greatsword', 'Flail', 'Javelin', 'Spear'] })).toEqual(['Weapon Mastery gives 3 kinds of weapons at level 1']);
+    expect(errors({ ...kit, masteries: ['Longsword'] })).toEqual(['Weapon Mastery is chosen among the weapons carried, and Longsword is not one']);
+    expect(errors({ ...kit, classes: ['Wizard'], skills: ['arcana', 'history'], masteries: ['Spear'] })).toEqual(['This character has no Weapon Mastery']);
+  });
+});
+
+describe('the spells chosen', () => {
+  const scores = { str: 10, dex: 12, con: 14, int: 15, wis: 16, cha: 17 };
+  const wizard: CharacterChoices = {
+    ...fighter,
+    classes: ['Wizard'],
+    skills: ['arcana', 'history'],
+    abilityScores: scores,
+    spells: [
+      {
+        class: 'Wizard',
+        cantrips: ['Fire Bolt', 'Mage Hand', 'Ray of Frost'],
+        spellbook: ['Detect Magic', 'Feather Fall', 'Mage Armor', 'Magic Missile', 'Sleep', 'Thunderwave'],
+        prepared: ['Magic Missile', 'Sleep', 'Thunderwave', 'Mage Armor'],
+      },
+    ],
+  };
+
+  it('writes the cantrips and the spellbook, the ones not prepared marked so', () => {
+    const casting = built(wizard).sheet.spellcasting as { cantrips: string[]; spells: Array<{ name: string; prepared: boolean }> };
+    expect(casting.cantrips).toEqual(['Fire Bolt', 'Mage Hand', 'Ray of Frost']);
+    expect(casting.spells.map((spell) => [spell.name, spell.prepared])).toEqual([
+      ['Detect Magic', false], ['Feather Fall', false], ['Mage Armor', true], ['Magic Missile', true], ['Sleep', true], ['Thunderwave', true],
+    ]);
+    expect(spellActionsFromSheet(built(wizard).sheet).map((action) => action.name)).toEqual(['Fire Bolt', 'Mage Hand', 'Ray of Frost', 'Mage Armor', 'Magic Missile', 'Sleep', 'Thunderwave']);
+  });
+
+  it('refuses picks that are not the class table’s', () => {
+    expect(errors({ ...wizard, spells: [{ ...wizard.spells![0], cantrips: ['Fire Bolt'] }] })).toEqual(['Wizard chooses 3 cantrips at level 1']);
+    expect(errors({ ...wizard, spells: [{ class: 'Cleric', cantrips: [] }] })).toEqual(['Cleric is not one of this character\'s classes', 'Choose the spells of Wizard once']);
+  });
+
+  it('adds the spells a feature always prepares', () => {
+    const ranger = built({
+      ...fighter,
+      classes: ['Ranger'],
+      skills: ['nature', 'stealth', 'insight'],
+      spells: [{ class: 'Ranger', prepared: ['Cure Wounds', 'Ensnaring Strike'] }],
+    }).sheet;
+    expect((ranger.spellcasting as { spells: Array<{ name: string }> }).spells.map((spell) => spell.name)).toEqual(['Cure Wounds', 'Ensnaring Strike', 'Hunter’s Mark']);
+  });
+});
