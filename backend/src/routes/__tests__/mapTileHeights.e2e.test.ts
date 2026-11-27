@@ -315,3 +315,51 @@ describe('Difficult Terrain, which rides with the heights', () => {
     expect(((await stored(mapId)) as { difficult?: number[] } | null)?.difficult).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0]);
   });
 });
+
+describe('Impassable squares and the cliff height, which ride with the heights', () => {
+  const marks = (...squares: number[]) => flat().map((_, index) => (squares.includes(index) ? 1 : 0));
+
+  it('stores impassable squares beside Difficult Terrain, each kept when the other is sent', async () => {
+    const mapId = await newMap();
+    await dmRest.put(url(mapId)).send({ heights: flat(), difficult: marks(2) }).expect(200);
+
+    const res = await dmRest.put(url(mapId)).send({ heights: flat(), blocked: marks(4, 9) });
+
+    expect(res.status).toBe(200);
+    expect(await stored(mapId)).toEqual({
+      cols: COLS, rows: ROWS, heights: flat(), difficult: marks(2), blocked: marks(4, 9),
+    });
+  });
+
+  it('stores a cliff height, keeps it when left out, and forgets it at 0', async () => {
+    const mapId = await newMap();
+    await dmRest.put(url(mapId)).send({ heights: numbered(), cliff: 4 }).expect(200);
+    await dmRest.put(url(mapId)).send({ heights: numbered() }).expect(200);
+    expect(await stored(mapId)).toEqual({ cols: COLS, rows: ROWS, heights: numbered(), cliff: 4 });
+
+    const res = await dmRest.put(url(mapId)).send({ heights: flat(), cliff: 0 });
+
+    expect(res.body).toEqual({ tileHeights: null });
+    expect(await stored(mapId)).toBeNull();
+  });
+
+  it('refuses bad impassable marks and bad cliff heights', async () => {
+    const mapId = await newMap();
+    expect((await dmRest.put(url(mapId)).send({ heights: flat(), blocked: [1] })).status).toBe(400);
+    expect((await dmRest.put(url(mapId)).send({ heights: flat(), cliff: -1 })).status).toBe(400);
+    expect((await dmRest.put(url(mapId)).send({ heights: flat(), cliff: 1.5 })).status).toBe(400);
+    expect((await dmRest.put(url(mapId)).send({ heights: flat(), cliff: MAX_TILE_HEIGHT + 1 })).status).toBe(400);
+    expect(await stored(mapId)).toBeNull();
+  });
+
+  it('keeps both when the map is resized', async () => {
+    const mapId = await newMap();
+    await dmRest.put(url(mapId)).send({ heights: flat(), blocked: marks(1, 7), cliff: 3 }).expect(200);
+
+    await dmRest.put(`/api/campaigns/${campaignId}/maps/${mapId}`).send({ width: 3, height: 3 }).expect(200);
+
+    const after = (await stored(mapId)) as { blocked?: number[]; cliff?: number } | null;
+    expect(after?.blocked).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0]);
+    expect(after?.cliff).toBe(3);
+  });
+});

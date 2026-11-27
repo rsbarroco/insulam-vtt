@@ -95,7 +95,7 @@ const map = (over: Partial<CampaignMap> = {}): CampaignMap =>
 
 async function renderView() {
   render(<MapView />);
-  await screen.findByText('top-down canvas');
+  await screen.findByText(/canvas$/);
 }
 
 const switchTo = (name: string) => fireEvent.click(screen.getByRole('button', { name }));
@@ -126,29 +126,39 @@ describe('tacticalViewAllowed', () => {
 });
 
 describe('MapView', () => {
-  it('starts in the top-down view and switches both ways', async () => {
+  it('starts in the tactical view and switches both ways', async () => {
     await renderView();
-
-    switchTo('Tactical view');
-    expect(await screen.findByText('tactical canvas')).toBeInTheDocument();
+    expect(screen.getByText('tactical canvas')).toBeInTheDocument();
     expect(screen.queryByText('top-down canvas')).not.toBeInTheDocument();
 
     switchTo('Top-down view');
     expect(await screen.findByText('top-down canvas')).toBeInTheDocument();
+    expect(screen.queryByText('tactical canvas')).not.toBeInTheDocument();
+
+    switchTo('Tactical view');
+    expect(await screen.findByText('tactical canvas')).toBeInTheDocument();
   });
 
-  it('offers a player no switch on a fogged map', async () => {
+  it('starts a player in the tactical view on a map with no fog and no lighting', async () => {
+    h.set({ userRole: 'PLAYER' });
+
+    await renderView();
+
+    expect(screen.getByText('tactical canvas')).toBeInTheDocument();
+  });
+
+  it('starts a player in the top-down view, with no switch, on a fogged map', async () => {
     h.set({ userRole: 'PLAYER', currentMap: map({ fogEnabled: true }) });
 
     await renderView();
 
+    expect(screen.getByText('top-down canvas')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Tactical view' })).not.toBeInTheDocument();
   });
 
   it('puts a player back in the top-down view when fog is switched on', async () => {
     h.set({ userRole: 'PLAYER' });
     await renderView();
-    switchTo('Tactical view');
     await screen.findByText('tactical canvas');
 
     act(() => h.setCurrentMap(map({ fogEnabled: true })));
@@ -160,7 +170,6 @@ describe('MapView', () => {
   it('puts a player back in the top-down view when dynamic lighting is switched on', async () => {
     h.set({ userRole: 'PLAYER' });
     await renderView();
-    switchTo('Tactical view');
     await screen.findByText('tactical canvas');
 
     act(() => h.setCurrentMap(map({ lightingEnabled: true })));
@@ -170,7 +179,6 @@ describe('MapView', () => {
 
   it('keeps the DM in the tactical view when fog is switched on', async () => {
     await renderView();
-    switchTo('Tactical view');
     await screen.findByText('tactical canvas');
 
     act(() => h.setCurrentMap(map({ fogEnabled: true })));

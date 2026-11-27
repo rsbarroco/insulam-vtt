@@ -14,17 +14,21 @@
 //   • A larger drop is climbed down at the same price, unless it is 10 feet
 //     or more: that one is jumped, costs nothing extra, and is a fall.
 //
+//   • A rise as tall as the map's cliff height, or taller, is a wall: it
+//     cannot be climbed. A drop that tall can still be jumped, and is a fall.
+//
 // A Prone creature crawls: each foot of the way costs a foot more. So does
 // each foot into a square the DM marked as Difficult Terrain.
 //
-// A creature walks through others on its own side and round the rest, and
-// stops on no occupied square. One larger than a square moves as a block
-// and stands on the tallest ground it covers.
+// Nobody enters a square the DM marked impassable (a tree, a boulder). A
+// creature walks through others on its own side and round the rest, and
+// round objects, and stops on no occupied square. One larger than a square
+// moves as a block and stands on the tallest ground it covers.
 //
 // Pure: no React, no canvas.
 // ============================================
 
-import { heightAt, isDifficult, type HeightGrid } from './heightGrid';
+import { heightAt, isBlocked, isDifficult, type HeightGrid } from './heightGrid';
 import type { Cell } from './projection';
 
 /** A drop of at least this many feet is a fall. */
@@ -87,6 +91,26 @@ export function difficultUnder(
     }
   }
   return false;
+}
+
+/** Whether any cell under a footprint is impassable. */
+export function impassableUnder(
+  origin: Cell,
+  size: { width: number; height: number },
+  heights: HeightGrid | null
+): boolean {
+  for (let dy = 0; dy < size.height; dy++) {
+    for (let dx = 0; dx < size.width; dx++) {
+      if (isBlocked(heights, origin.x + dx, origin.y + dy)) return true;
+    }
+  }
+  return false;
+}
+
+/** Whether a rise, in height steps, is too tall to climb on this board. */
+export function isCliff(rise: number, heights: HeightGrid | null): boolean {
+  const cliff = heights?.cliff ?? 0;
+  return cliff > 0 && rise >= cliff;
 }
 
 /** The ground a footprint stands on: the tallest cell under it. */
@@ -190,7 +214,7 @@ export function computeReach(unit: ReachUnit, board: ReachBoard): Reach {
     const ground = groundUnder(state.cell, unit.size, board.heights);
     for (const step of STEPS) {
       const to = { x: state.cell.x + step.x, y: state.cell.y + step.y };
-      if (!fits(to) || board.blocked(to)) continue;
+      if (!fits(to) || board.blocked(to) || impassableUnder(to, unit.size, board.heights)) continue;
       const parity: 0 | 1 = step.diagonal ? (state.parity === 0 ? 1 : 0) : state.parity;
       const key = stateKey(to, parity);
       if (settled.has(key)) continue;
@@ -198,7 +222,9 @@ export function computeReach(unit: ReachUnit, board: ReachBoard): Reach {
         step.diagonal && board.diagonalRule === 'alternating' && state.parity === 1
           ? 2 * square
           : square;
-      const height = heightCost(groundUnder(to, unit.size, board.heights) - ground, square);
+      const rise = groundUnder(to, unit.size, board.heights) - ground;
+      if (isCliff(rise, board.heights)) continue;
+      const height = heightCost(rise, square);
       // Crawling and Difficult Terrain each add a foot to every foot of the way.
       const slow = (unit.crawling ? 1 : 0) + (difficultUnder(to, unit.size, board.heights) ? 1 : 0);
       const feet = state.feet + across * (1 + slow) + height.extraFeet;

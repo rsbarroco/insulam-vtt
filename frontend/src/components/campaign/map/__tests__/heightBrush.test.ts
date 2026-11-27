@@ -15,9 +15,12 @@ import {
 import {
   createHeightGrid,
   heightAt,
+  isBlocked,
   isDifficult,
   isHeightGrid,
   MAX_TILE_HEIGHT,
+  withBlocked,
+  withCliff,
   withDifficult,
   withHeight,
 } from '../iso/heightGrid';
@@ -137,5 +140,53 @@ describe('the Difficult Terrain brush', () => {
   it('is nowhere on a board with none, or off the board', () => {
     expect(isDifficult(null, 0, 0)).toBe(false);
     expect(isDifficult(paint([[1, 0]]), 9, 9)).toBe(false);
+  });
+});
+
+describe('the impassable brush', () => {
+  const paint = (cells: Array<[number, number]>, start = createHeightGrid(4, 3)) => {
+    let stroke = beginStroke(start);
+    let grid = start;
+    for (const [x, y] of cells) ({ stroke, grid } = strokeCell(stroke, grid, { x, y }, 'blocked', 0));
+    return grid;
+  };
+
+  it('marks squares impassable apart from Difficult Terrain, and leaves heights alone', () => {
+    const start = withDifficult(withHeight(createHeightGrid(4, 3), 1, 0, 2), 1, 0, true);
+    const grid = paint([[1, 0], [2, 1]], start);
+    expect([isBlocked(grid, 1, 0), isBlocked(grid, 2, 1), isBlocked(grid, 3, 0)]).toEqual([true, true, false]);
+    expect(isDifficult(grid, 1, 0)).toBe(true);
+    expect(heightAt(grid, 1, 0)).toBe(2);
+  });
+
+  it('clears instead when the stroke starts on a marked square', () => {
+    const grid = paint([[1, 0], [2, 0]], paint([[1, 0]]));
+    expect([isBlocked(grid, 1, 0), isBlocked(grid, 2, 0)]).toEqual([false, false]);
+  });
+
+  it('counts as a change, and is part of a usable grid', () => {
+    const before = createHeightGrid(4, 3);
+    expect(sameHeights(before, paint([[1, 0]]))).toBe(false);
+    expect(sameHeights(before, withBlocked(paint([[1, 0]]), 1, 0, false))).toBe(true);
+    expect(isHeightGrid(paint([[1, 0]]))).toBe(true);
+    expect(isHeightGrid({ ...paint([[1, 0]]), blocked: [1] })).toBe(false);
+  });
+});
+
+describe('the cliff height', () => {
+  it('is set, cleared at 0 and kept within the height range', () => {
+    const grid = createHeightGrid(2, 2);
+    expect(withCliff(grid, 4).cliff).toBe(4);
+    expect(withCliff(withCliff(grid, 4), 0).cliff).toBeUndefined();
+    expect(withCliff(grid, MAX_TILE_HEIGHT + 10).cliff).toBe(MAX_TILE_HEIGHT);
+    expect(withCliff(grid, 0)).toBe(grid);
+  });
+
+  it('counts as a change, and a stored one must be a whole height', () => {
+    const grid = createHeightGrid(2, 2);
+    expect(sameHeights(grid, withCliff(grid, 3))).toBe(false);
+    expect(isHeightGrid(withCliff(grid, 3))).toBe(true);
+    expect(isHeightGrid({ ...grid, cliff: 1.5 })).toBe(false);
+    expect(isHeightGrid({ ...grid, cliff: -1 })).toBe(false);
   });
 });

@@ -165,8 +165,20 @@ matters, change per map.
   scale). A rise or drop of one step between neighbouring squares is a slope
   or a stair and costs nothing extra. A larger one is a climb: each extra
   foot costs a foot more, as the rules say of climbing.
+- **Cliffs.** A map may set a cliff height (the **Cliff** list beside the
+  height brush, off by default). A rise that tall or taller between
+  neighbouring squares is a wall: nobody walks up it. A drop that tall can
+  still be jumped, and is a fall. Stored with the tile heights as `cliff`, in
+  height steps.
 - **Falls.** A drop of 10 feet or more can be jumped instead of climbed; the
   view warns of the fall and its damage.
+- **Obstacles.** The GM paints squares impassable with the **impassable**
+  brush (trees, boulders, pillars, anything drawn on the map that nobody can
+  stand in), stored with the tile heights as `blocked`. Nobody enters or
+  passes through one, and a player cannot drop a token on one. An object
+  token (type `object`) blocks every creature, whichever side, where a
+  creature blocks only the other side. The GM may still put a token anywhere.
+  The top-down view does not enforce any of this.
 - **Distance.** Between two creatures: the squares between their nearest
   edges, counted by the map's diagonal setting, or the difference in the
   height of the ground they stand on if that is the greater.

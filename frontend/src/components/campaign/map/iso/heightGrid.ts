@@ -27,7 +27,22 @@ export interface HeightGrid {
    * movement into a marked cell costs a foot more. Absent when no cell is.
    */
   readonly difficult?: readonly number[];
+  /**
+   * Impassable squares (a tree, a boulder, a pillar), one 0 or 1 per cell in
+   * the same order: nobody walks into or through a marked cell. Absent when no
+   * cell is.
+   */
+  readonly blocked?: readonly number[];
+  /**
+   * The rise, in height steps, that nobody can climb: a rise this tall or
+   * taller between neighbouring cells is a wall. Absent when every rise can
+   * be climbed.
+   */
+  readonly cliff?: number;
 }
+
+/** The per-cell marks stored beside the heights. */
+export type CellMark = 'difficult' | 'blocked';
 
 /** A flat board of the given size. */
 export function createHeightGrid(cols: number, rows: number): HeightGrid {
@@ -68,18 +83,48 @@ export function withHeight(grid: HeightGrid, x: number, y: number, height: numbe
   return { ...grid, heights };
 }
 
+/** Whether a cell carries a mark. False without a grid and outside it. */
+export function hasMark(grid: HeightGrid | null | undefined, mark: CellMark, x: number, y: number): boolean {
+  const marks = grid?.[mark];
+  if (!grid || !marks || !inBounds(grid, x, y)) return false;
+  return marks[y * grid.cols + x] === 1;
+}
+
+/** A copy of the grid with one cell marked, or cleared. The same grid when nothing changes. */
+export function withMark(grid: HeightGrid, mark: CellMark, x: number, y: number, on: boolean): HeightGrid {
+  if (!inBounds(grid, x, y) || hasMark(grid, mark, x, y) === on) return grid;
+  const current = grid[mark];
+  const marks = current ? current.slice() : new Array<number>(grid.cols * grid.rows).fill(0);
+  marks[y * grid.cols + x] = on ? 1 : 0;
+  return { ...grid, [mark]: marks };
+}
+
 /** Whether a cell is Difficult Terrain. False without a grid and outside it. */
 export function isDifficult(grid: HeightGrid | null | undefined, x: number, y: number): boolean {
-  if (!grid?.difficult || !inBounds(grid, x, y)) return false;
-  return grid.difficult[y * grid.cols + x] === 1;
+  return hasMark(grid, 'difficult', x, y);
 }
 
 /** A copy of the grid with one cell marked Difficult Terrain, or cleared. The same grid when nothing changes. */
 export function withDifficult(grid: HeightGrid, x: number, y: number, on: boolean): HeightGrid {
-  if (!inBounds(grid, x, y) || isDifficult(grid, x, y) === on) return grid;
-  const difficult = grid.difficult ? grid.difficult.slice() : new Array<number>(grid.cols * grid.rows).fill(0);
-  difficult[y * grid.cols + x] = on ? 1 : 0;
-  return { ...grid, difficult };
+  return withMark(grid, 'difficult', x, y, on);
+}
+
+/** Whether a cell is impassable. False without a grid and outside it. */
+export function isBlocked(grid: HeightGrid | null | undefined, x: number, y: number): boolean {
+  return hasMark(grid, 'blocked', x, y);
+}
+
+/** A copy of the grid with one cell made impassable, or cleared. The same grid when nothing changes. */
+export function withBlocked(grid: HeightGrid, x: number, y: number, on: boolean): HeightGrid {
+  return withMark(grid, 'blocked', x, y, on);
+}
+
+/** A copy of the grid with a new cliff height; 0 or less means every rise can be climbed. */
+export function withCliff(grid: HeightGrid, cliff: number): HeightGrid {
+  const next = clampHeight(cliff);
+  if ((grid.cliff ?? 0) === next) return grid;
+  const { cliff: _old, ...rest } = grid;
+  return next > 0 ? { ...rest, cliff: next } : rest;
 }
 
 /** The tallest cell on the board. 0 without a grid. */
@@ -99,10 +144,15 @@ export function isHeightGrid(value: unknown): value is HeightGrid {
   if (typeof cols !== 'number' || typeof rows !== 'number') return false;
   if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) return false;
   if (!Array.isArray(heights) || heights.length !== cols * rows) return false;
-  const { difficult } = value as Record<string, unknown>;
-  if (difficult !== undefined) {
-    if (!Array.isArray(difficult) || difficult.length !== cols * rows) return false;
-    if (!difficult.every((mark) => mark === 0 || mark === 1)) return false;
+  for (const name of ['difficult', 'blocked'] as const) {
+    const marks = (value as Record<string, unknown>)[name];
+    if (marks === undefined) continue;
+    if (!Array.isArray(marks) || marks.length !== cols * rows) return false;
+    if (!marks.every((mark) => mark === 0 || mark === 1)) return false;
+  }
+  const { cliff } = value as Record<string, unknown>;
+  if (cliff !== undefined && (typeof cliff !== 'number' || !Number.isInteger(cliff) || cliff < 0 || cliff > MAX_TILE_HEIGHT)) {
+    return false;
   }
   return heights.every(
     (height) =>

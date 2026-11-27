@@ -1127,12 +1127,15 @@ class ApiClient {
     campaignId: string,
     mapId: string,
     heights: number[],
-    /** Difficult Terrain, a 0 or 1 for each square; left out, what is stored stays. */
-    difficult?: number[]
+    /**
+     * Difficult Terrain and impassable squares, a 0 or 1 for each square, and
+     * the cliff height in steps (0 for none). Each left out keeps what is stored.
+     */
+    terrain: { difficult?: number[]; blocked?: number[]; cliff?: number } = {}
   ): Promise<{ tileHeights: CampaignMap['tileHeights'] }> {
     const response = await this.client.put(`/api/campaigns/${campaignId}/maps/${mapId}/heights`, {
       heights,
-      ...(difficult ? { difficult } : {}),
+      ...terrain,
     });
     return response.data;
   }
