@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '@/services/api';
 import { apiErrorMessage } from '@/utils/errors';
-import { createHeightGrid, isHeightGrid, type HeightGrid } from './heightGrid';
+import { createHeightGrid, isHeightGrid, withCliff, type HeightGrid } from './heightGrid';
 import {
   beginStroke,
   editableGrid,
@@ -88,10 +88,14 @@ export function useHeightBrush({
       let failed = false;
       let saved: HeightGrid | null | undefined;
       try {
-        // Difficult Terrain goes with the heights once any square has been marked.
-        const answer = grid.difficult
-          ? await api.setMapHeights(target.campaignId, target.mapId, [...grid.heights], [...grid.difficult])
-          : await api.setMapHeights(target.campaignId, target.mapId, [...grid.heights]);
+        // The whole board goes every time, marks and cliff height included, so
+        // an undo that clears a mark clears it on the server too.
+        const none = () => new Array<number>(grid.cols * grid.rows).fill(0);
+        const answer = await api.setMapHeights(target.campaignId, target.mapId, [...grid.heights], {
+          difficult: grid.difficult ? [...grid.difficult] : none(),
+          blocked: grid.blocked ? [...grid.blocked] : none(),
+          cliff: grid.cliff ?? 0,
+        });
         saved = isHeightGrid(answer.tileHeights) ? answer.tileHeights : null;
       } catch (error) {
         failed = true;
@@ -154,12 +158,23 @@ export function useHeightBrush({
     [current, showDraft, save]
   );
 
+  /** A new cliff height for the board, saved at once and undone like a stroke. */
+  const setCliff = useCallback(
+    (cliff: number) => replaceAll(withCliff(current(), cliff)),
+    [replaceAll, current]
+  );
+
   /** Every cell back to height 0. */
   const flattenAll = useCallback(
     () => {
-      // Heights only: what is marked Difficult Terrain stays marked.
-      const { difficult } = current();
-      replaceAll({ ...createHeightGrid(cols, rows), ...(difficult ? { difficult } : {}) });
+      // Heights only: marked squares stay marked, and the cliff height stays.
+      const { difficult, blocked, cliff } = current();
+      replaceAll({
+        ...createHeightGrid(cols, rows),
+        ...(difficult ? { difficult } : {}),
+        ...(blocked ? { blocked } : {}),
+        ...(cliff ? { cliff } : {}),
+      });
     },
     [replaceAll, current, cols, rows]
   );
@@ -184,5 +199,8 @@ export function useHeightBrush({
     undo,
     canUndo: history.length > 0,
     flattenAll,
+    /** The board's cliff height in steps, 0 for none. */
+    cliff: (draft ?? stored)?.cliff ?? 0,
+    setCliff,
   };
 }

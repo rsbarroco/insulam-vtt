@@ -15,7 +15,7 @@ import {
   tokenSpeed,
   walkingSpeedFromLine,
 } from '../iso/tacticalStats';
-import { TokenDisposition, TokenLayer, type Token } from '@/types';
+import { TokenDisposition, TokenLayer, TokenType, type Token } from '@/types';
 
 const token = (over: Partial<Token> = {}): Token =>
   ({
@@ -145,6 +145,14 @@ describe('reachObstacles', () => {
     const { blocked } = reachObstacles(mover, [spirit], {});
 
     expect(blocked({ x: 1, y: 0 })).toBe(false);
+  });
+
+  it('lets nobody walk through an object, whichever side it is on', () => {
+    const cart = token({ id: 'cart', position: { x: 1, y: 0 }, type: TokenType.OBJECT });
+
+    expect(reachObstacles(mover, [cart], {}).blocked({ x: 1, y: 0 })).toBe(true);
+    expect(reachObstacles(foe, [cart], {}).blocked({ x: 1, y: 0 })).toBe(true);
+    expect(reachObstacles(mover, [cart], {}).occupied({ x: 1, y: 0 })).toBe(true);
   });
 
   it('counts every cell of a large footprint', () => {

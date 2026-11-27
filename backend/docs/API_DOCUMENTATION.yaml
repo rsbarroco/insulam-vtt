@@ -8524,6 +8524,9 @@ paths:
         way: a 0 or 1 for each square, in the same order. Left out, what is
         stored stays. A flat board with a marked square is stored, and reads
         back with `difficult`; with no square marked the field is dropped.
+        `blocked` (impassable squares) works the same way, and `cliff` (the
+        rise, in height steps, nobody can climb; 0 for none) is kept when left
+        out too.
 
         Connected clients are told with `heights:replaced`, carrying the map's
         id and the new `tileHeights`: every member for the map the campaign is
@@ -8552,6 +8555,17 @@ paths:
                   items:
                     type: integer
                     enum: [0, 1]
+                blocked:
+                  type: array
+                  description: A 0 or 1 for each square; a 1 makes the square impassable.
+                  items:
+                    type: integer
+                    enum: [0, 1]
+                cliff:
+                  type: integer
+                  minimum: 0
+                  maximum: 32
+                  description: The rise, in height steps, nobody can climb; 0 for none.
               required: [heights]
       responses:
         '200':
@@ -13967,6 +13981,23 @@ components:
           items:
             type: integer
             enum: [0, 1]
+        blocked:
+          type: array
+          description: >
+            Impassable squares (trees, boulders, anything nobody can stand in):
+            a 0 or 1 for each square, in the same order as `heights`. Absent
+            when no square is marked.
+          items:
+            type: integer
+            enum: [0, 1]
+        cliff:
+          type: integer
+          minimum: 1
+          maximum: 32
+          description: >
+            The rise, in height steps, nobody can climb: a rise this tall or
+            taller between neighbouring squares is a wall. Absent when every
+            rise can be climbed.
       required: [cols, rows, heights]
     LightSource:
       type: object

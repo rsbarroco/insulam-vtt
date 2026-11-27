@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  Ban,
   Eraser,
   Grid3x3,
   Maximize,
@@ -58,7 +59,7 @@ import { isTypingInto } from './map/typingTarget';
 import { heightAt, isHeightGrid, MAX_TILE_HEIGHT } from './map/iso/heightGrid';
 import { useHeightBrush } from './map/iso/useHeightBrush';
 import { coverBetween, coverLabel, distanceFeet } from './map/iso/sight';
-import { cellKey, computeReach, FALL_FEET, fallDamageDice, pathTo } from './map/iso/reach';
+import { cellKey, computeReach, FALL_FEET, fallDamageDice, impassableUnder, pathTo } from './map/iso/reach';
 import {
   reachObstacles,
   speedPatch,
@@ -97,11 +98,15 @@ const CLICK_SLOP_PX = 4;
 const TURN_RING = '#facc15';
 const PEEK_RING = '#60a5fa';
 
+/** Cliff heights the DM can pick, in height steps (half a square each). */
+const CLIFF_STEPS = [2, 3, 4, 6, 8, 12] as const;
+
 const BRUSHES: ReadonlyArray<{ mode: BrushMode; icon: typeof ArrowUp; label: string }> = [
   { mode: 'raise', icon: ArrowUp, label: 'Raise squares' },
   { mode: 'lower', icon: ArrowDown, label: 'Lower squares' },
   { mode: 'level', icon: Mountain, label: 'Set squares to a height' },
   { mode: 'difficult', icon: Shrub, label: 'Mark Difficult Terrain (start on a marked square to clear)' },
+  { mode: 'blocked', icon: Ban, label: 'Mark impassable squares: trees, rocks, objects (start on a marked square to clear)' },
 ];
 
 /** Where a footprint goes so that the pointed cell is at its middle, kept on the board. */
@@ -571,12 +576,15 @@ export default function TacticalMapCanvas() {
 
   const drop = useMemo(() => {
     if (!held || !dropCell) return null;
-    const blocked = !isDM && blockingTokensAt(tokens, held, dropCell, characterHpCache).length > 0;
+    const blocked =
+      !isDM &&
+      (impassableUnder(dropCell, held.size, boardHeights) ||
+        blockingTokensAt(tokens, held, dropCell, characterHpCache).length > 0);
     const token = sceneTokens.find((candidate) => candidate.id === held.id);
     return token
       ? { token, cell: dropCell, blocked, outOfReach: reach !== null && dropPath === null }
       : null;
-  }, [held, dropCell, isDM, tokens, characterHpCache, sceneTokens, reach, dropPath]);
+  }, [held, dropCell, isDM, tokens, characterHpCache, sceneTokens, reach, dropPath, boardHeights]);
 
   // ── Drawing ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -671,6 +679,11 @@ export default function TacticalMapCanvas() {
         rows: currentMap.height,
       });
       if (!isDM) {
+        if (impassableUnder(target, held.size, boardHeights)) {
+          showToast('Nobody can stand there: the square is impassable.', 'info');
+          cancelHold();
+          return;
+        }
         const blockedBy = blockingTokensAt(tokens, held, target, characterHpCache);
         if (blockedBy.length > 0) {
           showToast(`${tokenDisplayName(blockedBy[0])} is already standing there.`, 'info');
@@ -1078,6 +1091,25 @@ export default function TacticalMapCanvas() {
             disabled={tallest === 0}
             onClick={brush.flattenAll}
           />
+          <label
+            className="flex items-center gap-1 text-sm text-ink"
+            title="A rise this tall or taller between neighbouring squares is a wall nobody can climb"
+          >
+            <span>Cliff</span>
+            <select
+              aria-label="Cliff height: a rise nobody can climb"
+              value={brush.cliff}
+              onChange={(event) => brush.setCliff(Number(event.target.value))}
+              className="input-cozy text-sm py-1"
+            >
+              <option value={0}>Off</option>
+              {CLIFF_STEPS.map((steps) => (
+                <option key={steps} value={steps}>
+                  {(steps * (currentMap?.feetPerSquare ?? 5)) / 2} ft
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       )}
 

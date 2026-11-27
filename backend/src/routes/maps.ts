@@ -41,7 +41,7 @@ import { uploadLimiter } from './assets';
 import { openPicture, NotAPictureError } from '../utils/sharpInput';
 import { pictureLimitProblem } from '../utils/pictureLimits';
 import logger from '../utils/logger';
-import { difficultSchemaFor, heightsSchemaFor, isFlat, readTileHeights, resizeTileHeights, type TileHeights } from '../utils/tileHeights';
+import { CELL_MARKS, CliffSchema, heightsSchemaFor, isFlat, marksSchemaFor, readTileHeights, resizeTileHeights, type TileHeights } from '../utils/tileHeights';
 import { errorMessage } from '../utils/errors';
 import { getState as getCombatState, setState as setCombatState, removeCombatants } from '../websocket/initiativeState';
 import { sendInitiativeState, resendInitiative } from '../websocket/handlers/initiative';
@@ -2504,8 +2504,11 @@ router.get('/:id/heights', campaignMember, async (req: AuthenticatedRequest, res
 /**
  * PUT /api/campaigns/:campaignId/maps/:id/heights
  * Replace the map's tile heights (DM only).
- * Body: { heights: number[] }, one whole number from 0 to 32 for each square,
- * row by row from the bottom-left square. All zeros stores a flat board.
+ * Body: { heights: number[], difficult?: (0|1)[], blocked?: (0|1)[], cliff?: number },
+ * the arrays one entry for each square, row by row from the bottom-left
+ * square. Heights are whole numbers from 0 to 32. `cliff` is the rise, in
+ * steps, nobody can climb (0 for none). Anything but `heights` left out keeps
+ * what is stored. All zeros, no marks and no cliff stores a flat board.
  */
 router.put('/:id/heights', campaignDM, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -2525,21 +2528,33 @@ router.put('/:id/heights', campaignDM, async (req: AuthenticatedRequest, res: Re
       if (!parsed.success) {
         return { status: 400, error: 'Validation Error', message: parsed.error.issues[0]?.message ?? 'Invalid heights' };
       }
-      // Difficult Terrain rides with the heights. Left out of the body, what is stored stays.
-      let difficult = readTileHeights(fresh.tileHeights)?.difficult;
-      if (req.body?.difficult !== undefined) {
-        const marks = difficultSchemaFor(fresh).safeParse(req.body.difficult);
-        if (!marks.success) {
-          return { status: 400, error: 'Validation Error', message: marks.error.issues[0]?.message ?? 'Invalid difficult terrain' };
+      // Difficult Terrain and impassable squares ride with the heights. A mark
+      // left out of the body keeps what is stored.
+      const stored = readTileHeights(fresh.tileHeights);
+      const next: TileHeights = { cols: fresh.width, rows: fresh.height, heights: parsed.data };
+      for (const name of CELL_MARKS) {
+        let marks = stored?.[name];
+        if (req.body?.[name] !== undefined) {
+          const sent = marksSchemaFor(fresh, name).safeParse(req.body[name]);
+          if (!sent.success) {
+            return { status: 400, error: 'Validation Error', message: sent.error.issues[0]?.message ?? `Invalid ${name} squares` };
+          }
+          marks = sent.data.includes(1) ? sent.data : undefined;
         }
-        difficult = marks.data.includes(1) ? marks.data : undefined;
+        if (marks) next[name] = marks;
       }
-      const next: TileHeights | null =
-        isFlat(parsed.data) && !difficult
-          ? null
-          : { cols: fresh.width, rows: fresh.height, heights: parsed.data, ...(difficult ? { difficult } : {}) };
-      await tx.map.update({ where: { id }, data: { tileHeights: next ? toJson(next) : Prisma.DbNull } });
-      return { done: next };
+      let cliff = stored?.cliff;
+      if (req.body?.cliff !== undefined) {
+        const sent = CliffSchema.safeParse(req.body.cliff);
+        if (!sent.success) {
+          return { status: 400, error: 'Validation Error', message: sent.error.issues[0]?.message ?? 'Invalid cliff height' };
+        }
+        cliff = sent.data > 0 ? sent.data : undefined;
+      }
+      if (cliff) next.cliff = cliff;
+      const empty = isFlat(parsed.data) && CELL_MARKS.every((name) => !next[name]) && !next.cliff;
+      await tx.map.update({ where: { id }, data: { tileHeights: empty ? Prisma.DbNull : toJson(next) } });
+      return { done: empty ? null : next };
     });
     if (!('done' in outcome)) return sendRefusal(res, outcome);
 

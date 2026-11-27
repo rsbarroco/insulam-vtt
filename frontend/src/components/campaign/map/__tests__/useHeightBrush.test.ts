@@ -16,6 +16,8 @@ import { createHeightGrid, heightAt, withHeight, type HeightGrid } from '../iso/
 const COLS = 3;
 const ROWS = 2;
 const flat = () => new Array<number>(COLS * ROWS).fill(0);
+/** What a save sends beside the heights when nothing is marked and there is no cliff. */
+const bare = () => ({ difficult: flat(), blocked: flat(), cliff: 0 });
 
 /** A save the test resolves by hand. */
 function pendingSave() {
@@ -90,7 +92,7 @@ describe('painting', () => {
     const expected = flat();
     expected[0 * COLS + 1] = 1;
     expected[1 * COLS + 2] = 1;
-    expect(h.setMapHeights).toHaveBeenCalledExactlyOnceWith('camp', 'map', expected);
+    expect(h.setMapHeights).toHaveBeenCalledExactlyOnceWith('camp', 'map', expected, bare());
     expect(onSaved).toHaveBeenCalledWith('map', { cols: COLS, rows: ROWS, heights: expected });
   });
 
@@ -185,7 +187,7 @@ describe('undo', () => {
 
     await act(async () => result.current.undo());
 
-    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', flat());
+    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', flat(), bare());
     expect(result.current.canUndo).toBe(false);
   });
 
@@ -194,10 +196,10 @@ describe('undo', () => {
     const { result } = setup(stored);
 
     await act(async () => result.current.flattenAll());
-    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', flat());
+    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', flat(), bare());
 
     await act(async () => result.current.undo());
-    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', [...stored.heights]);
+    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', [...stored.heights], bare());
   });
 
   it('forgets its history on another map', async () => {
@@ -210,5 +212,64 @@ describe('undo', () => {
 
     expect(result.current.canUndo).toBe(false);
     expect(result.current.heights).toBeNull();
+  });
+});
+
+describe('impassable squares and the cliff height', () => {
+  // The server answers with everything it stored, and the map takes it, as in the app.
+  beforeEach(() => {
+    h.setMapHeights.mockImplementation(
+      async (_c: string, _m: string, heights: number[], terrain: { blocked: number[]; cliff: number }) => ({
+        tileHeights: {
+          cols: COLS,
+          rows: ROWS,
+          heights,
+          ...(terrain.blocked.includes(1) ? { blocked: terrain.blocked } : {}),
+          ...(terrain.cliff ? { cliff: terrain.cliff } : {}),
+        },
+      })
+    );
+  });
+  const settle = (view: ReturnType<typeof setup>) =>
+    view.rerender({ stored: view.onSaved.mock.lastCall![1], mapId: 'map' });
+  it('marks squares impassable, clears them when a stroke starts on one, and saves both', async () => {
+    const view = setup();
+    const { result } = view;
+    act(() => result.current.setMode('blocked'));
+
+    act(() => {
+      result.current.paint({ x: 0, y: 0 });
+      result.current.paint({ x: 2, y: 1 });
+    });
+    await act(async () => result.current.endStroke());
+
+    const marked = flat();
+    marked[0] = 1;
+    marked[1 * COLS + 2] = 1;
+    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', flat(), { ...bare(), blocked: marked });
+    settle(view);
+
+    act(() => result.current.paint({ x: 0, y: 0 }));
+    await act(async () => result.current.endStroke());
+    const left = flat();
+    left[1 * COLS + 2] = 1;
+    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', flat(), { ...bare(), blocked: left });
+  });
+
+  it('saves a cliff height, keeps it through Flatten, and undoes it', async () => {
+    const view = setup(withHeight(createHeightGrid(COLS, ROWS), 0, 0, 3));
+    const { result } = view;
+
+    await act(async () => result.current.setCliff(4));
+    settle(view);
+    expect(result.current.cliff).toBe(4);
+    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', [3, 0, 0, 0, 0, 0], { ...bare(), cliff: 4 });
+
+    await act(async () => result.current.flattenAll());
+    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', flat(), { ...bare(), cliff: 4 });
+
+    await act(async () => result.current.undo());
+    await act(async () => result.current.undo());
+    expect(h.setMapHeights).toHaveBeenLastCalledWith('camp', 'map', [3, 0, 0, 0, 0, 0], bare());
   });
 });

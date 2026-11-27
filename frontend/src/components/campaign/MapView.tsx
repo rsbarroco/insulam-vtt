@@ -3,7 +3,8 @@
 //
 // Top-down (MapCanvas) is the full table: fog, lighting, walls and the DM's
 // tools. Tactical (TacticalMapCanvas) draws the same map on a diamond grid
-// with tile heights. Each viewer picks their own view.
+// with tile heights. Each viewer picks their own view, starting in the
+// tactical one where they may have it.
 //
 // The tactical view does not draw fog or dynamic lighting yet, so a player
 // is offered it only on a map with neither: on any other map the top-down
@@ -42,7 +43,9 @@ interface MapViewProps {
 export default function MapView({ onEditToken }: MapViewProps) {
   const { currentMap, setCurrentMap, userRole } = useCampaign();
   const { socket } = useWebSocket();
-  const [wantsTactical, setWantsTactical] = useState(false);
+  // The tactical view is the default wherever this viewer may have it; a
+  // player on a map with fog or lighting falls back to the top-down view.
+  const [wantsTactical, setWantsTactical] = useState(true);
 
   const allowed = tacticalViewAllowed(currentMap, userRole);
   const tactical = wantsTactical && allowed;

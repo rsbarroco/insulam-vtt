@@ -9,7 +9,7 @@
 // Pure: `(ctx, scene, camera) => void`, no React, like the top-down layers.
 // ============================================
 
-import { heightAt, isDifficult, type HeightGrid } from './heightGrid';
+import { heightAt, isBlocked, isDifficult, type HeightGrid } from './heightGrid';
 import {
   cellDepth,
   cellDiamond,
@@ -92,6 +92,8 @@ export const ISO_COLOURS = {
   path: 'rgba(80, 150, 255, 0.6)',
   area: 'rgba(235, 95, 50, 0.42)',
   difficult: 'rgba(92, 64, 38, 0.38)',
+  impassable: 'rgba(28, 24, 30, 0.5)',
+  impassableCross: 'rgba(235, 225, 210, 0.85)',
   sightClear: 'rgba(96, 200, 120, 0.95)',
   sightCover: 'rgba(235, 170, 60, 0.95)',
   sightBlocked: 'rgba(220, 80, 70, 0.95)',
@@ -281,6 +283,28 @@ function drawToken(
 }
 
 /** Tint the top faces of a footprint. */
+/** An impassable square: darkened, with a cross from corner to corner. */
+function drawImpassable(ctx: CanvasRenderingContext2D, diamond: Diamond, zoom: number): void {
+  traceDiamond(ctx, diamond);
+  ctx.fillStyle = ISO_COLOURS.impassable;
+  ctx.fill();
+  const inset = (from: Point, to: Point) => ({ x: from.x + (to.x - from.x) * 0.25, y: from.y + (to.y - from.y) * 0.25 });
+  ctx.beginPath();
+  const a = inset(diamond.top, diamond.bottom);
+  const b = inset(diamond.bottom, diamond.top);
+  const c = inset(diamond.left, diamond.right);
+  const d = inset(diamond.right, diamond.left);
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.moveTo(c.x, c.y);
+  ctx.lineTo(d.x, d.y);
+  ctx.save();
+  ctx.strokeStyle = ISO_COLOURS.impassableCross;
+  ctx.lineWidth = 2 / zoom;
+  ctx.stroke();
+  ctx.restore();
+}
+
 function tintFootprint(
   ctx: CanvasRenderingContext2D,
   cell: Cell,
@@ -377,6 +401,7 @@ export function drawIsoScene(
     const key = `${cell.x},${cell.y}`;
     if (isDifficult(scene.heights, cell.x, cell.y))
       tintFootprint(ctx, cell, { width: 1, height: 1 }, ISO_COLOURS.difficult, scene);
+    if (isBlocked(scene.heights, cell.x, cell.y)) drawImpassable(ctx, diamond, camera.zoom);
     if (scene.area?.has(key))
       tintFootprint(ctx, cell, { width: 1, height: 1 }, ISO_COLOURS.area, scene);
     else if (pathCells.has(key))

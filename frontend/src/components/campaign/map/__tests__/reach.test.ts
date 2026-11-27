@@ -16,7 +16,7 @@ import {
   type ReachBoard,
   type ReachUnit,
 } from '../iso/reach';
-import { createHeightGrid, withHeight, type HeightGrid } from '../iso/heightGrid';
+import { createHeightGrid, withBlocked, withCliff, withHeight, type HeightGrid } from '../iso/heightGrid';
 import type { Cell } from '../iso/projection';
 
 const COLS = 9;
@@ -307,5 +307,64 @@ describe('Difficult Terrain', () => {
     const reach = computeReach(large, board({ heights: rough() }));
     expect(reach.stops.get(cellKey({ x: 3, y: 4 }))?.feet).toBe(5);
     expect(reach.stops.get(cellKey({ x: 4, y: 4 }))?.feet).toBe(15);
+  });
+});
+
+describe('impassable squares', () => {
+  const blockAt = (cells: Array<[number, number]>) =>
+    cells.reduce((g, [x, y]) => withBlocked(g, x, y, true), createHeightGrid(COLS, ROWS));
+
+  it('neither stops on nor walks through a marked square', () => {
+    const reach = computeReach(unit({ speed: 10 }), board({ heights: blockAt([[5, 4]]) }));
+
+    expect(feetTo(reach, 5, 4)).toBeUndefined();
+    // Round it instead: up a diagonal and back down, 10 feet.
+    expect(feetTo(reach, 6, 4)).toBe(10);
+  });
+
+  it('cannot get past a line of marked squares it cannot go round', () => {
+    const line = Array.from({ length: ROWS }, (_, y) => [5, y] as [number, number]);
+    const reach = computeReach(unit({ speed: 30 }), board({ heights: blockAt(line) }));
+
+    expect(feetTo(reach, 6, 4)).toBeUndefined();
+    expect(feetTo(reach, 4, 0)).toBe(20);
+  });
+
+  it('keeps a large creature off a marked square under any part of it', () => {
+    const big = unit({ cell: { x: 2, y: 2 }, size: { width: 2, height: 2 }, speed: 5 });
+    const reach = computeReach(big, board({ heights: blockAt([[4, 3]]) }));
+
+    // One step east would cover (4, 3).
+    expect(feetTo(reach, 3, 2)).toBeUndefined();
+    expect(feetTo(reach, 2, 1)).toBe(5);
+  });
+});
+
+describe('the cliff height', () => {
+  const ledge = (cliff: number) => withCliff(raise(createHeightGrid(COLS, ROWS), [[5, 4, 4]]), cliff);
+
+  it('does not climb a rise as tall as the cliff height, or taller', () => {
+    const reach = computeReach(unit({ speed: 30 }), board({ heights: ledge(4) }));
+
+    expect(feetTo(reach, 5, 4)).toBeUndefined();
+  });
+
+  it('climbs a rise below it, at the usual price', () => {
+    const reach = computeReach(unit({ speed: 30 }), board({ heights: ledge(5) }));
+
+    // A square, plus 10 feet climbed for four steps of half a square.
+    expect(feetTo(reach, 5, 4)).toBe(15);
+  });
+
+  it('still jumps down a drop that tall, as a fall', () => {
+    const reach = computeReach(unit({ cell: { x: 5, y: 4 }, speed: 10 }), board({ heights: ledge(4) }));
+
+    expect(reach.stops.get('4,4')).toEqual({ feet: 5, fallFeet: 10 });
+  });
+
+  it('climbs anything when there is none', () => {
+    const reach = computeReach(unit({ speed: 30 }), board({ heights: ledge(0) }));
+
+    expect(feetTo(reach, 5, 4)).toBe(15);
   });
 });

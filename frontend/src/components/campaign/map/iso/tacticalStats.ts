@@ -12,7 +12,7 @@
 // ============================================
 
 import type { Token } from '@/types';
-import { TokenDisposition } from '@/types';
+import { TokenDisposition, TokenType } from '@/types';
 import type { CharacterHpInfo } from '@/utils/characterHp';
 import { isTokenDowned } from '../tokenHitTest';
 import type { Cell } from './projection';
@@ -103,11 +103,17 @@ function overlaps(origin: Cell, size: { width: number; height: number }, other: 
   );
 }
 
+/** Whether a token is a thing on the map (a cart, a statue, a crate) rather than a creature. */
+function isObject(token: Pick<Token, 'type'>): boolean {
+  return token.type === TokenType.OBJECT;
+}
+
 /**
  * Who stands in a moving token's way: it walks through tokens of its own
- * side and round the others, and stops on neither. A downed token holds no
- * square, as in the top-down view. `others` is what this viewer can see: a
- * creature they cannot see does not shape the reach they are shown.
+ * side and round the others and round objects, and stops on none of them.
+ * A downed token holds no square, as in the top-down view. `others` is what
+ * this viewer can see: a creature they cannot see does not shape the reach
+ * they are shown.
  */
 export function reachObstacles(
   moving: Token,
@@ -120,7 +126,7 @@ export function reachObstacles(
       token.layer === moving.layer &&
       !isTokenDowned(token, characterHpCache)
   );
-  const opposing = standing.filter((token) => isHostile(token) !== isHostile(moving));
+  const opposing = standing.filter((token) => isObject(token) || isHostile(token) !== isHostile(moving));
   return {
     blocked: (origin) => opposing.some((token) => overlaps(origin, moving.size, token)),
     occupied: (origin) => standing.some((token) => overlaps(origin, moving.size, token)),
