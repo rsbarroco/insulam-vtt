@@ -79,6 +79,12 @@
   "overrides": {
     "@istanbuljs/load-nyc-config": {
       "js-yaml": "4.3.2"
+    },
+    "@prisma/config": {
+      "effect": "3.22.5"
+    },
+    "readdir-glob": {
+      "minimatch": "11.0.9"
     }
   },
   "engines": {
